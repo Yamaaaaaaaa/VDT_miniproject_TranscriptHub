@@ -1,0 +1,77 @@
+server:
+  port: 8080
+
+app:
+  services:
+    identity: http://${IDENTITY_SERVICE_HOST:localhost}:8081
+
+spring:
+  application:
+    name: api-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:bookland123}
+  cloud:
+    gateway:
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOriginPatterns: "*"
+            allowedHeaders: "*"
+            allowedMethods: "*"
+            allowCredentials: true
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Origin, RETAIN_FIRST
+        - DedupeResponseHeader=Access-Control-Allow-Credentials, RETAIN_FIRST
+      routes:
+        # Identity Service
+        - id: identity-service
+          uri: http://${IDENTITY_SERVICE_HOST:localhost}:8081
+          predicates:
+            - Path=/auth/**, /api/users/**, /api/roles/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 10
+                redis-rate-limiter.burstCapacity: 20
+
+        # Identity Service API Docs
+        - id: identity-service-api-docs
+          uri: http://${IDENTITY_SERVICE_HOST:localhost}:8081
+          predicates:
+            - Path=/identity-service/v3/api-docs
+          filters:
+            - RewritePath=/identity-service/v3/api-docs, /v3/api-docs
+
+        # User Service
+        - id: user-service
+          uri: http://${USER_SERVICE_HOST:localhost}:8082
+          predicates:
+            - Path=/users/**, /api/addresses/**, /api/wishlists/**
+
+        # User Service API Docs
+        - id: user-service-api-docs
+          uri: http://${USER_SERVICE_HOST:localhost}:8082
+          predicates:
+            - Path=/user-service/v3/api-docs
+          filters:
+            - RewritePath=/user-service/v3/api-docs, /v3/api-docs
+
+
+resilience4j:
+  circuitbreaker:
+
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+    urls:
+      - name: Identity Service
+        url: /identity-service/v3/api-docs
+      - name: User Service
+        url: /user-service/v3/api-docs
+

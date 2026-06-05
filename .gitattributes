@@ -1,0 +1,8 @@
+# Enforce Unix line endings for gradle wrapper shell script
+**/gradlew text eol=lf
+
+# Enforce Windows line endings for batch files
+**/*.bat text eol=crlf
+
+# Treat jar files as binary
+**/*.jar binary
