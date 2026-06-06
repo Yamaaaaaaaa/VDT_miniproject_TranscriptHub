@@ -6,14 +6,14 @@ services:
     image: mysql:8.0
     container_name: transcript_mysql
     ports:
-      - "3306:3306"
+      - "${MYSQL_PORT}:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
     volumes:
       - mysql_data:/var/lib/mysql
       - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -24,12 +24,12 @@ services:
     image: redis:7-alpine
     container_name: transcript_redis
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT}:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --requirepass bookland123
+    command: redis-server --requirepass ${REDIS_PASSWORD}
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "bookland123", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -41,15 +41,18 @@ services:
       dockerfile: Dockerfile
     container_name: identity-service
     ports:
-      - "8081:8081"
+      - "${IDENTITY_SERVICE_PORT}:8081"
     environment:
-      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql-db:3306/identity_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
-      - SPRING_DATASOURCE_USERNAME=root
-      - SPRING_DATASOURCE_PASSWORD=root
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=bookland123
-      - USER_SERVICE_HOST=user-service
+      - SPRING_DATASOURCE_URL=${IDENTITY_DB_URL}
+      - SPRING_DATASOURCE_USERNAME=${DB_USERNAME}
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - USER_SERVICE_HOST=${USER_SERVICE_HOST}
+      - JWT_SIGNER_KEY=${JWT_SIGNER_KEY}
+      - JWT_VALID_DURATION=${JWT_VALID_DURATION}
+      - JWT_REFRESHABLE_DURATION=${JWT_REFRESHABLE_DURATION}
     depends_on:
       mysql-db:
         condition: service_healthy
@@ -63,14 +66,14 @@ services:
       dockerfile: Dockerfile
     container_name: user-service
     ports:
-      - "8082:8082"
+      - "${USER_SERVICE_PORT}:8082"
     environment:
-      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql-db:3306/user_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
-      - SPRING_DATASOURCE_USERNAME=root
-      - SPRING_DATASOURCE_PASSWORD=root
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=bookland123
+      - SPRING_DATASOURCE_URL=${USER_DB_URL}
+      - SPRING_DATASOURCE_USERNAME=${DB_USERNAME}
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
     depends_on:
       mysql-db:
         condition: service_healthy
@@ -84,13 +87,13 @@ services:
       dockerfile: Dockerfile
     container_name: api-gateway
     ports:
-      - "8080:8080"
+      - "${GATEWAY_PORT}:8080"
     environment:
-      - IDENTITY_SERVICE_HOST=identity-service
-      - USER_SERVICE_HOST=user-service
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=bookland123
+      - IDENTITY_SERVICE_HOST=${IDENTITY_SERVICE_HOST}
+      - USER_SERVICE_HOST=${USER_SERVICE_HOST}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
     depends_on:
       identity-service:
         condition: service_started
