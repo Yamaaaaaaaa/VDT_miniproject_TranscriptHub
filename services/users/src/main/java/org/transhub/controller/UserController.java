@@ -22,6 +22,7 @@ public class UserController {
                 .build();
     }
 
+    @GetMapping
     public ApiResponse<List<UserResponse>> getAllUser() {
         return ApiResponse.<List<UserResponse>>builder()
                 .result(userService.getAllProfiles())
