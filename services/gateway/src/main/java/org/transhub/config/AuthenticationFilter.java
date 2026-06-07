@@ -52,6 +52,7 @@ public class AuthenticationFilter implements GlobalFilter, Ordered {
             "/chat-service/v3/api-docs",
             "/ws/.*",
             "/chat-ws/.*",
+            "/api/v1/files/stream/.*",
     };
 
     @Override

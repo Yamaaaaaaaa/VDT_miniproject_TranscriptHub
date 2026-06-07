@@ -59,6 +59,20 @@ spring:
           filters:
             - RewritePath=/user-service/v3/api-docs, /v3/api-docs
 
+        # File Service
+        - id: file-service
+          uri: http://${FILE_SERVICE_HOST:localhost}:8083
+          predicates:
+            - Path=/api/v1/files/**
+
+        # File Service API Docs
+        - id: file-service-api-docs
+          uri: http://${FILE_SERVICE_HOST:localhost}:8083
+          predicates:
+            - Path=/file-service/v3/api-docs
+          filters:
+            - RewritePath=/file-service/v3/api-docs, /v3/api-docs
+
 
 resilience4j:
   circuitbreaker:
@@ -69,9 +83,12 @@ springdoc:
     enabled: true
   swagger-ui:
     path: /swagger-ui.html
+    persist-authorization: true
     urls:
       - name: Identity Service
         url: /identity-service/v3/api-docs
       - name: User Service
         url: /user-service/v3/api-docs
+      - name: File Service
+        url: /file-service/v3/api-docs
 
