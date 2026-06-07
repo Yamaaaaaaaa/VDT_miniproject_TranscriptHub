@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import UserManagement from './pages/UserManagement';
+import RoleManagement from './pages/RoleManagement';
 
 function App() {
   return (
@@ -27,6 +28,7 @@ function App() {
           >
             <Route index element={<Dashboard />} />
             <Route path="users" element={<UserManagement />} />
+            <Route path="roles" element={<RoleManagement />} />
           </Route>
 
           {/* Catch-all Fallback */}

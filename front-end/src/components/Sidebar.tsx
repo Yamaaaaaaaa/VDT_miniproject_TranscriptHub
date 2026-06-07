@@ -6,7 +6,8 @@ import {
   Settings, 
   LogOut, 
   Video, 
-  FileText 
+  FileText,
+  ShieldAlert
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -53,6 +54,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
           >
             <Users className="sidebar-icon" />
             <span>Quản lý người dùng</span>
+          </NavLink>
+
+          <NavLink 
+            to="/roles" 
+            className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}
+          >
+            <ShieldAlert className="sidebar-icon" />
+            <span>Quản lý vai trò</span>
           </NavLink>
 
           <div className="sidebar-item" style={{ opacity: 0.5, cursor: 'not-allowed' }}>

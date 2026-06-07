@@ -11,6 +11,25 @@ export interface Role {
   description: string;
 }
 
+export interface PermissionResponse {
+  name: string;
+  description: string;
+}
+
+export interface RoleResponse {
+  name: string;
+  description: string;
+  permissions: PermissionResponse[];
+}
+
+export interface Page<T> {
+  content: T[];
+  totalElements: number;
+  totalPages: number;
+  size: number;
+  number: number;
+}
+
 export interface IdentityUserResponse {
   id: number;
   username: string;
@@ -136,6 +155,47 @@ export const api = {
   // Get all users (User Management list)
   getAllUsers: async (): Promise<UserProfileResponse[]> => {
     const response = await request<UserProfileResponse[]>('/users', {
+      method: 'GET'
+    });
+    return response.result;
+  },
+
+  // Get all identity users with roles (identity-service)
+  getAllIdentityUsers: async (): Promise<Page<IdentityUserResponse>> => {
+    const response = await request<Page<IdentityUserResponse>>('/api/users?size=100', {
+      method: 'GET'
+    });
+    return response.result;
+  },
+
+  // Create a new user (identity-service)
+  adminCreateUser: async (payload: any): Promise<IdentityUserResponse> => {
+    const response = await request<IdentityUserResponse>('/api/users', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    return response.result;
+  },
+
+  // Update user roles and details (identity-service)
+  adminUpdateUser: async (id: number, payload: any): Promise<IdentityUserResponse> => {
+    const response = await request<IdentityUserResponse>(`/api/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    });
+    return response.result;
+  },
+
+  // Delete user (identity-service)
+  adminDeleteUser: async (id: number): Promise<void> => {
+    await request<void>(`/api/users/${id}`, {
+      method: 'DELETE'
+    });
+  },
+
+  // Get all roles (identity-service)
+  getAllRoles: async (): Promise<RoleResponse[]> => {
+    const response = await request<RoleResponse[]>('/api/roles', {
       method: 'GET'
     });
     return response.result;
