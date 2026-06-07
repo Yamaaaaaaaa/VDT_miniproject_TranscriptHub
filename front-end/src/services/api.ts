@@ -92,6 +92,27 @@ export interface LoginResponseData {
   tokenType: string;
 }
 
+export interface MeetingResponse {
+  id: string;
+  title: string;
+  description: string;
+  creatorId: number;
+  audioFileId: string;
+  status: 'CREATING' | 'PROCESSING' | 'COMPLETED';
+  createdAt: string;
+  updatedAt: string;
+  audioFile?: FileMetadataResponse;
+  transcript?: Transcript;
+}
+
+export interface MeetingMemberResponse {
+  id: number;
+  meetingId: string;
+  userId: number;
+  role: 'HOST' | 'EDITOR' | 'VIEWER';
+  joinedAt: string;
+}
+
 // Token storage helpers
 export const tokenStorage = {
   getAccessToken: () => localStorage.getItem('access_token'),
@@ -317,5 +338,74 @@ export const api = {
       method: 'GET'
     });
     return response.result;
+  },
+
+  // Meeting management
+  listMeetings: async (page: number, size: number, includeAudioFile = false, includeTranscript = false): Promise<Page<MeetingResponse>> => {
+    const response = await request<Page<MeetingResponse>>(`/api/v1/meetings?page=${page}&size=${size}&includeAudioFile=${includeAudioFile}&includeTranscript=${includeTranscript}`, {
+      method: 'GET'
+    });
+    return response.result;
+  },
+
+  createMeeting: async (title: string, description: string, audioFileId: string): Promise<MeetingResponse> => {
+    const response = await request<MeetingResponse>('/api/v1/meetings', {
+      method: 'POST',
+      body: JSON.stringify({ title, description, audioFileId })
+    });
+    return response.result;
+  },
+
+  getMeeting: async (id: string, includeAudioFile = false, includeTranscript = false): Promise<MeetingResponse> => {
+    const response = await request<MeetingResponse>(`/api/v1/meetings/${id}?includeAudioFile=${includeAudioFile}&includeTranscript=${includeTranscript}`, {
+      method: 'GET'
+    });
+    return response.result;
+  },
+
+  updateMeeting: async (id: string, title: string, description: string, status: 'CREATING' | 'PROCESSING' | 'COMPLETED'): Promise<MeetingResponse> => {
+    const response = await request<MeetingResponse>(`/api/v1/meetings/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ title, description, status })
+    });
+    return response.result;
+  },
+
+  deleteMeeting: async (id: string): Promise<string> => {
+    const response = await request<string>(`/api/v1/meetings/${id}`, {
+      method: 'DELETE'
+    });
+    return response.result;
+  },
+
+  getMeetingMembers: async (id: string): Promise<MeetingMemberResponse[]> => {
+    const response = await request<MeetingMemberResponse[]>(`/api/v1/meetings/${id}/members`, {
+      method: 'GET'
+    });
+    return response.result;
+  },
+
+  addMeetingMemberByEmail: async (id: string, email: string, role: 'HOST' | 'EDITOR' | 'VIEWER'): Promise<MeetingMemberResponse> => {
+    const response = await request<MeetingMemberResponse>(`/api/v1/meetings/${id}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ email, role })
+    });
+    return response.result;
+  },
+
+  updateMeetingMemberRole: async (id: string, userId: number, role: 'HOST' | 'EDITOR' | 'VIEWER'): Promise<MeetingMemberResponse> => {
+    const response = await request<MeetingMemberResponse>(`/api/v1/meetings/${id}/members/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ role })
+    });
+    return response.result;
+  },
+
+  removeMeetingMember: async (id: string, userId: number): Promise<string> => {
+    const response = await request<string>(`/api/v1/meetings/${id}/members/${userId}`, {
+      method: 'DELETE'
+    });
+    return response.result;
   }
 };
+

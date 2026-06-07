@@ -81,10 +81,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
             <span>Quản lý Script</span>
           </NavLink>
 
-          <div className="sidebar-item" style={{ opacity: 0.5, cursor: 'not-allowed' }}>
+          <NavLink 
+            to="/meetings" 
+            className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}
+          >
             <Video className="sidebar-icon" />
-            <span>Cuộc họp (Sắp có)</span>
-          </div>
+            <span>Quản lý cuộc họp</span>
+          </NavLink>
         </div>
 
         <div className="sidebar-group">
