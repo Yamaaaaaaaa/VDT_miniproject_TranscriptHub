@@ -7,6 +7,9 @@ import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import UserManagement from './pages/UserManagement';
 import RoleManagement from './pages/RoleManagement';
+import FileManagement from './pages/FileManagement';
+import ScriptManagement from './pages/ScriptManagement';
+import { ScriptDetail } from './pages/ScriptDetail';
 
 function App() {
   return (
@@ -29,6 +32,9 @@ function App() {
             <Route index element={<Dashboard />} />
             <Route path="users" element={<UserManagement />} />
             <Route path="roles" element={<RoleManagement />} />
+            <Route path="files" element={<FileManagement />} />
+            <Route path="scripts" element={<ScriptManagement />} />
+            <Route path="scripts/:fileId" element={<ScriptDetail />} />
           </Route>
 
           {/* Catch-all Fallback */}

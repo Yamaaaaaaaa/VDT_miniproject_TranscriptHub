@@ -7,7 +7,8 @@ import {
   LogOut, 
   Video, 
   FileText,
-  ShieldAlert
+  ShieldAlert,
+  HardDrive
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -64,14 +65,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
             <span>Quản lý vai trò</span>
           </NavLink>
 
+          <NavLink 
+            to="/files" 
+            className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}
+          >
+            <HardDrive className="sidebar-icon" />
+            <span>Quản lý File</span>
+          </NavLink>
+
+          <NavLink 
+            to="/scripts" 
+            className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}
+          >
+            <FileText className="sidebar-icon" />
+            <span>Quản lý Script</span>
+          </NavLink>
+
           <div className="sidebar-item" style={{ opacity: 0.5, cursor: 'not-allowed' }}>
             <Video className="sidebar-icon" />
             <span>Cuộc họp (Sắp có)</span>
-          </div>
-
-          <div className="sidebar-item" style={{ opacity: 0.5, cursor: 'not-allowed' }}>
-            <FileText className="sidebar-icon" />
-            <span>Bản dịch (Sắp có)</span>
           </div>
         </div>
 

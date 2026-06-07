@@ -50,6 +50,41 @@ export interface UserProfileResponse {
   roles?: string[]; // Custom helper field
 }
 
+export interface FileMetadataResponse {
+  id: string;
+  fileName: string;
+  bucketName: string;
+  objectKey: string;
+  fileSize: number;
+  mimeType: string;
+  durationSeconds: number;
+  status: string;
+  uploaderId: number;
+  createdAt: string;
+}
+
+export interface TranscriptSegment {
+  id: string;
+  startTime: number;
+  endTime: number;
+  speaker: string;
+  text: string;
+}
+
+export interface TranscriptContent {
+  segments: TranscriptSegment[];
+}
+
+export interface Transcript {
+  id: number;
+  audioFileId: string;
+  rawText: string;
+  structuredContent: TranscriptContent;
+  status: string; // PROCESSING, COMPLETED, FAILED
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface LoginResponseData {
   accessToken: string;
   refreshToken: string;
@@ -102,6 +137,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<ApiR
     // If unauthorized, clear tokens
     if (response.status === 401 || response.status === 403) {
       tokenStorage.clearTokens();
+      // Redirect to login page to avoid inconsistent authentication state
+      if (!window.location.pathname.includes('/login') && !window.location.pathname.includes('/register')) {
+        window.location.href = '/login';
+      }
     }
     throw new Error(data.message || `Lỗi hệ thống: ${response.status}`);
   }
@@ -215,5 +254,68 @@ export const api = {
       }
     }
     tokenStorage.clearTokens();
+  },
+
+  // File management
+  listFiles: async (page: number, size: number): Promise<Page<FileMetadataResponse>> => {
+    const response = await request<Page<FileMetadataResponse>>(`/api/v1/files?page=${page}&size=${size}`, {
+      method: 'GET'
+    });
+    return response.result;
+  },
+
+  getFile: async (fileId: string): Promise<FileMetadataResponse> => {
+    const response = await request<FileMetadataResponse>(`/api/v1/files/${fileId}`, {
+      method: 'GET'
+    });
+    return response.result;
+  },
+
+  uploadFile: async (file: File): Promise<FileMetadataResponse> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await request<FileMetadataResponse>('/api/v1/files/upload', {
+      method: 'POST',
+      body: formData
+    });
+    return response.result;
+  },
+
+  deleteFile: async (fileId: string): Promise<string> => {
+    const response = await request<string>(`/api/v1/files/${fileId}`, {
+      method: 'DELETE'
+    });
+    return response.result;
+  },
+
+  renameFile: async (fileId: string, fileName: string): Promise<FileMetadataResponse> => {
+    const response = await request<FileMetadataResponse>(`/api/v1/files/${fileId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ fileName })
+    });
+    return response.result;
+  },
+
+  // Transcript management
+  getTranscript: async (fileId: string): Promise<Transcript> => {
+    const response = await request<Transcript>(`/api/v1/transcripts/file/${fileId}`, {
+      method: 'GET'
+    });
+    return response.result;
+  },
+
+  generateTranscript: async (fileId: string): Promise<Transcript> => {
+    const response = await request<Transcript>('/api/v1/transcripts/generate', {
+      method: 'POST',
+      body: JSON.stringify({ fileId })
+    });
+    return response.result;
+  },
+
+  getAllTranscripts: async (): Promise<Transcript[]> => {
+    const response = await request<Transcript[]>('/api/v1/transcripts', {
+      method: 'GET'
+    });
+    return response.result;
   }
 };
