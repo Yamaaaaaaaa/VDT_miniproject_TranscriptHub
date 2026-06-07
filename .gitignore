@@ -82,3 +82,6 @@ yarn-error.log*
 *.env.*
 **/local.properties
 **/secrets.properties
+
+
+fe_design

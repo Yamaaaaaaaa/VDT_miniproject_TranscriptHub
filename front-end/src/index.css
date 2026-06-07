@@ -1,0 +1,5 @@
+@import './styles/variables.css';
+@import './styles/main.css';
+@import './styles/layout.css';
+@import './styles/auth.css';
+@import './styles/table.css';
