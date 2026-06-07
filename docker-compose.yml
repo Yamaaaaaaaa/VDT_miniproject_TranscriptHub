@@ -92,6 +92,7 @@ services:
       - IDENTITY_SERVICE_HOST=${IDENTITY_SERVICE_HOST}
       - USER_SERVICE_HOST=${USER_SERVICE_HOST}
       - FILE_SERVICE_HOST=${FILE_SERVICE_HOST}
+      - MEETING_SERVICE_HOST=${MEETING_SERVICE_HOST}
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
       - REDIS_PASSWORD=${REDIS_PASSWORD}
@@ -101,6 +102,8 @@ services:
       user-service:
         condition: service_started
       file-service:
+        condition: service_started
+      meeting-service:
         condition: service_started
       redis:
         condition: service_healthy
@@ -116,6 +119,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
       interval: 10s
@@ -205,6 +209,33 @@ services:
       minio:
         condition: service_healthy
       kafka:
+        condition: service_started
+    restart: always
+
+  meeting-service:
+    build:
+      context: ./services/meeting
+      dockerfile: Dockerfile
+    container_name: meeting-service
+    ports:
+      - "${MEETING_SERVICE_PORT}:8084"
+    environment:
+      - SPRING_DATASOURCE_URL=${MEETING_DB_URL}
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
+      - FILE_SERVICE_HOST=${FILE_SERVICE_HOST}
+      - USER_SERVICE_HOST=${USER_SERVICE_HOST}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      file-service:
+        condition: service_started
+      user-service:
         condition: service_started
     restart: always
 

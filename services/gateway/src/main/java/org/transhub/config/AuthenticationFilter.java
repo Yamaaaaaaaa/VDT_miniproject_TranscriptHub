@@ -47,6 +47,7 @@ public class AuthenticationFilter implements GlobalFilter, Ordered {
             "/search-service/v3/api-docs",
             "/event-service/v3/api-docs",
             "/file-service/v3/api-docs",
+            "/meeting-service/v3/api-docs",
             "/notification-service/v3/api-docs",
             "/order-service/v3/api-docs",
             "/chat-service/v3/api-docs",

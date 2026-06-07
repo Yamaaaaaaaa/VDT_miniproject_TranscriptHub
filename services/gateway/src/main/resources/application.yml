@@ -73,6 +73,20 @@ spring:
           filters:
             - RewritePath=/file-service/v3/api-docs, /v3/api-docs
 
+        # Meeting Service
+        - id: meeting-service
+          uri: http://${MEETING_SERVICE_HOST:localhost}:8084
+          predicates:
+            - Path=/api/v1/meetings/**
+
+        # Meeting Service API Docs
+        - id: meeting-service-api-docs
+          uri: http://${MEETING_SERVICE_HOST:localhost}:8084
+          predicates:
+            - Path=/meeting-service/v3/api-docs
+          filters:
+            - RewritePath=/meeting-service/v3/api-docs, /v3/api-docs
+
 
 resilience4j:
   circuitbreaker:
@@ -91,4 +105,6 @@ springdoc:
         url: /user-service/v3/api-docs
       - name: File Service
         url: /file-service/v3/api-docs
+      - name: Meeting Service
+        url: /meeting-service/v3/api-docs
 
