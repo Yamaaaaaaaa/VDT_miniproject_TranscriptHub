@@ -11,9 +11,9 @@ import java.util.UUID;
 @FeignClient(name = "file-service", url = "${app.services.file}")
 public interface FileClient {
 
-    @GetMapping("/api/v1/files/internal/exists/{fileId}")
-    ApiResponse<Boolean> checkFileExists(@PathVariable("fileId") UUID fileId);
-
     @GetMapping("/api/v1/files/{fileId}")
     ApiResponse<FileMetadataResponse> getMetadata(@PathVariable("fileId") UUID fileId);
+
+    @GetMapping("/api/v1/files/internal/exists/{fileId}")
+    ApiResponse<Boolean> checkFileExists(@PathVariable("fileId") UUID fileId);
 }

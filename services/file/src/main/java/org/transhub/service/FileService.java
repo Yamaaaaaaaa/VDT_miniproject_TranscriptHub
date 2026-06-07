@@ -28,6 +28,9 @@ import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import io.minio.http.Method;
+import org.transhub.dto.request.UploadInitRequest;
 
 
 @Service
@@ -56,6 +59,108 @@ public class FileService {
             }
         } catch (Exception e) {
             log.error("Failed to verify/create MinIO bucket", e);
+        }
+    }
+
+    public UploadInitResponse initializeUpload(UploadInitRequest request, Long uploaderId) {
+        ensureBucketExists();
+        UUID fileId = UUID.randomUUID();
+        String originalFilename = request.getFileName();
+        String objectKey = uploaderId + "/" + fileId + "_" + originalFilename;
+
+        try {
+            String presignedUrl = minioClient.getPresignedObjectUrl(
+                    GetPresignedObjectUrlArgs.builder()
+                            .method(Method.PUT)
+                            .bucket(bucketName)
+                            .object(objectKey)
+                            .expiry(2, TimeUnit.HOURS)
+                            .build()
+            );
+
+            AudioFile audioFile = AudioFile.builder()
+                    .id(fileId)
+                    .fileName(originalFilename)
+                    .bucketName(bucketName)
+                    .objectKey(objectKey)
+                    .fileSize(request.getFileSize())
+                    .mimeType(request.getMimeType())
+                    .durationSeconds(0)
+                    .status("UPLOADING")
+                    .uploaderId(uploaderId)
+                    .build();
+
+            audioFileRepository.save(audioFile);
+
+            log.info("Initialized presigned upload for file: {}, fileId: {}, status: UPLOADING", originalFilename, fileId);
+
+            return UploadInitResponse.builder()
+                    .fileId(fileId)
+                    .presignedUrl(presignedUrl)
+                    .chunkSize(DEFAULT_CHUNK_SIZE)
+                    .build();
+        } catch (Exception e) {
+            log.error("Failed to initialize upload for file: {}", originalFilename, e);
+            throw new AppException(ErrorCode.FILE_UPLOAD_FAILED);
+        }
+    }
+
+    public AudioFile completeUpload(UUID fileId, Long uploaderId) {
+        AudioFile audioFile = audioFileRepository.findById(fileId)
+                .orElseThrow(() -> new AppException(ErrorCode.FILE_NOT_FOUND));
+
+        if (!audioFile.getUploaderId().equals(uploaderId)) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+
+        if (!"UPLOADING".equals(audioFile.getStatus())) {
+            log.warn("File with ID {} is not in UPLOADING status, actual status: {}", fileId, audioFile.getStatus());
+            return audioFile;
+        }
+
+        File tempFile = null;
+        try {
+            StatObjectResponse stat = minioClient.statObject(StatObjectArgs.builder()
+                    .bucket(audioFile.getBucketName())
+                    .object(audioFile.getObjectKey())
+                    .build());
+            
+            long actualSize = stat.size();
+            audioFile.setFileSize(actualSize);
+
+            tempFile = File.createTempFile("temp_complete_", "_" + audioFile.getFileName());
+            try (InputStream minioStream = minioClient.getObject(GetObjectArgs.builder()
+                    .bucket(audioFile.getBucketName())
+                    .object(audioFile.getObjectKey())
+                    .build());
+                 OutputStream out = new BufferedOutputStream(new FileOutputStream(tempFile))) {
+                byte[] buffer = new byte[8192];
+                int bytesRead;
+                while ((bytesRead = minioStream.read(buffer)) != -1) {
+                    out.write(buffer, 0, bytesRead);
+                }
+                out.flush();
+            }
+
+            int duration = AudioDurationExtractor.extractDuration(tempFile, audioFile.getMimeType());
+            audioFile.setDurationSeconds(duration);
+            audioFile.setStatus("READY");
+
+            audioFileRepository.save(audioFile);
+
+            log.info("Successfully completed presigned upload for file: {}, fileId: {}. Size: {} bytes, Duration: {}s",
+                    audioFile.getFileName(), fileId, actualSize, duration);
+
+            kafkaProducerService.sendAudioFileUploadedEvent(audioFile);
+
+            return audioFile;
+        } catch (Exception e) {
+            log.error("Failed to complete upload for fileId: {}", fileId, e);
+            throw new AppException(ErrorCode.FILE_UPLOAD_FAILED);
+        } finally {
+            if (tempFile != null && tempFile.exists()) {
+                tempFile.delete();
+            }
         }
     }
 
@@ -254,7 +359,7 @@ public class FileService {
 
     public boolean checkFileExists(UUID fileId) {
         return audioFileRepository.findById(fileId)
-                .map(file -> "READY".equals(file.getStatus()))
+                .map(file -> "READY".equals(file.getStatus()) || "UPLOADING".equals(file.getStatus()))
                 .orElse(false);
     }
 }

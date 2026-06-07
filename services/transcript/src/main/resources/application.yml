@@ -1,11 +1,11 @@
 server:
-  port: 8084
+  port: 8085
 
 spring:
   application:
-    name: meeting-service
+    name: transcript-service
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/meeting_db}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/transcript_db}
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
     password: ${SPRING_DATASOURCE_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
@@ -22,8 +22,17 @@ spring:
       name: disabled
       password: disabled
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    consumer:
+      group-id: transcript-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "org.transhub.dto.event"
+
 app:
   services:
     file: http://${FILE_SERVICE_HOST:localhost}:8083
     user: http://${USER_SERVICE_HOST:localhost}:8082
-    transcript: http://${TRANSCRIPT_SERVICE_HOST:localhost}:8085

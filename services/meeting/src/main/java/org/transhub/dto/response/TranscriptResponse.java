@@ -2,8 +2,6 @@ package org.transhub.dto.response;
 
 import lombok.*;
 import lombok.experimental.FieldDefaults;
-import org.transhub.entity.MeetingStatus;
-
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -12,16 +10,12 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE)
-public class MeetingResponse {
-    UUID id;
-    String title;
-    String description;
-    Long creatorId;
+public class TranscriptResponse {
+    Long id;
     UUID audioFileId;
-    MeetingStatus status;
+    String rawText;
+    com.fasterxml.jackson.databind.JsonNode structuredContent;
+    String status;
     LocalDateTime createdAt;
     LocalDateTime updatedAt;
-
-    FileMetadataResponse audioFile;
-    TranscriptResponse transcript;
 }

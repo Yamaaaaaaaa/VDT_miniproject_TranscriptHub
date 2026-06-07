@@ -45,9 +45,11 @@ public class MeetingController {
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<MeetingResponse>> getMeeting(
             @RequestHeader("X-User-Id") @Parameter(hidden = true) Long requesterId,
-            @PathVariable("id") UUID id) {
-        log.info("Request to get meeting: {}. Requester: {}", id, requesterId);
-        MeetingResponse response = meetingService.getMeeting(id, requesterId);
+            @PathVariable("id") UUID id,
+            @RequestParam(value = "includeAudioFile", defaultValue = "false") boolean includeAudioFile,
+            @RequestParam(value = "includeTranscript", defaultValue = "false") boolean includeTranscript) {
+        log.info("Request to get meeting: {}. Requester: {}, includeAudioFile: {}, includeTranscript: {}", id, requesterId, includeAudioFile, includeTranscript);
+        MeetingResponse response = meetingService.getMeeting(id, requesterId, includeAudioFile, includeTranscript);
         return ResponseEntity.ok(
                 ApiResponse.<MeetingResponse>builder()
                         .result(response)
@@ -59,9 +61,11 @@ public class MeetingController {
     public ResponseEntity<ApiResponse<Page<MeetingResponse>>> listMeetings(
             @RequestHeader("X-User-Id") @Parameter(hidden = true) Long userId,
             @RequestParam(value = "page", defaultValue = "0") int page,
-            @RequestParam(value = "size", defaultValue = "10") int size) {
-        log.info("Request to list meetings. User: {}, Page: {}, Size: {}", userId, page, size);
-        Page<MeetingResponse> response = meetingService.listMeetings(userId, PageRequest.of(page, size));
+            @RequestParam(value = "size", defaultValue = "10") int size,
+            @RequestParam(value = "includeAudioFile", defaultValue = "false") boolean includeAudioFile,
+            @RequestParam(value = "includeTranscript", defaultValue = "false") boolean includeTranscript) {
+        log.info("Request to list meetings. User: {}, Page: {}, Size: {}, includeAudioFile: {}, includeTranscript: {}", userId, page, size, includeAudioFile, includeTranscript);
+        Page<MeetingResponse> response = meetingService.listMeetings(userId, PageRequest.of(page, size), includeAudioFile, includeTranscript);
         return ResponseEntity.ok(
                 ApiResponse.<Page<MeetingResponse>>builder()
                         .result(response)

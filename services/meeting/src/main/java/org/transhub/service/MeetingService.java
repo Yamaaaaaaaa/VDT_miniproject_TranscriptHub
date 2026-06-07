@@ -7,7 +7,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.transhub.client.FileClient;
+import org.transhub.client.TranscriptClient;
 import org.transhub.client.UserClient;
+import org.transhub.dto.response.FileMetadataResponse;
+import org.transhub.dto.response.TranscriptResponse;
 import org.transhub.dto.response.UserResponse;
 import org.transhub.dto.request.MeetingCreateRequest;
 import org.transhub.dto.request.MeetingUpdateRequest;
@@ -38,6 +41,7 @@ public class MeetingService {
     private final MeetingMemberRepository meetingMemberRepository;
     private final FileClient fileClient;
     private final UserClient userClient;
+    private final TranscriptClient transcriptClient;
 
     private MeetingResponse mapToMeetingResponse(Meeting meeting) {
         return MeetingResponse.builder()
@@ -106,8 +110,38 @@ public class MeetingService {
         return mapToMeetingResponse(savedMeeting);
     }
 
-    public MeetingResponse getMeeting(UUID meetingId, Long requesterId) {
-        log.info("Retrieving meeting: {} by requester: {}", meetingId, requesterId);
+    private void enrichMeetingResponse(MeetingResponse response, UUID audioFileId, boolean includeAudioFile, boolean includeTranscript) {
+        if (audioFileId == null) {
+            return;
+        }
+        if (includeAudioFile) {
+            try {
+                ApiResponse<FileMetadataResponse> fileResponse = fileClient.getMetadata(audioFileId);
+                if (fileResponse != null) {
+                    response.setAudioFile(fileResponse.getResult());
+                }
+            } catch (feign.FeignException.NotFound e) {
+                log.warn("Audio file metadata not found for fileId: {}", audioFileId);
+            } catch (Exception e) {
+                log.error("Failed to fetch audio file metadata for fileId: {}", audioFileId, e);
+            }
+        }
+        if (includeTranscript) {
+            try {
+                ApiResponse<TranscriptResponse> transcriptResponse = transcriptClient.getTranscriptByAudioFile(audioFileId);
+                if (transcriptResponse != null) {
+                    response.setTranscript(transcriptResponse.getResult());
+                }
+            } catch (feign.FeignException.NotFound e) {
+                log.warn("Transcript not found for fileId: {}", audioFileId);
+            } catch (Exception e) {
+                log.error("Failed to fetch transcript for fileId: {}", audioFileId, e);
+            }
+        }
+    }
+
+    public MeetingResponse getMeeting(UUID meetingId, Long requesterId, boolean includeAudioFile, boolean includeTranscript) {
+        log.info("Retrieving meeting: {} by requester: {}. IncludeAudio: {}, IncludeTranscript: {}", meetingId, requesterId, includeAudioFile, includeTranscript);
         Meeting meeting = meetingRepository.findById(meetingId)
                 .orElseThrow(() -> new AppException(ErrorCode.MEETING_NOT_FOUND));
 
@@ -116,13 +150,19 @@ public class MeetingService {
             throw new AppException(ErrorCode.UNAUTHORIZED);
         }
 
-        return mapToMeetingResponse(meeting);
+        MeetingResponse response = mapToMeetingResponse(meeting);
+        enrichMeetingResponse(response, meeting.getAudioFileId(), includeAudioFile, includeTranscript);
+        return response;
     }
 
-    public Page<MeetingResponse> listMeetings(Long userId, Pageable pageable) {
-        log.info("Listing meetings for user: {}", userId);
+    public Page<MeetingResponse> listMeetings(Long userId, Pageable pageable, boolean includeAudioFile, boolean includeTranscript) {
+        log.info("Listing meetings for user: {}. IncludeAudio: {}, IncludeTranscript: {}", userId, includeAudioFile, includeTranscript);
         Page<Meeting> meetings = meetingRepository.findMeetingsByUserId(userId, pageable);
-        return meetings.map(this::mapToMeetingResponse);
+        return meetings.map(meeting -> {
+            MeetingResponse response = mapToMeetingResponse(meeting);
+            enrichMeetingResponse(response, meeting.getAudioFileId(), includeAudioFile, includeTranscript);
+            return response;
+        });
     }
 
     @Transactional

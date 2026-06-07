@@ -12,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.transhub.dto.request.FileUpdateRequest;
+import org.transhub.dto.request.UploadInitRequest;
 import org.transhub.dto.response.ApiResponse;
 import org.transhub.dto.response.FileMetadataResponse;
 import org.transhub.dto.response.UploadInitResponse;
@@ -55,6 +56,32 @@ public class FileController {
                 .result(mapToResponse(audioFile))
                 .build();
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    // API 1b: Initialize Upload (Presigned URL)
+    @PostMapping("/upload/init")
+    public ResponseEntity<ApiResponse<UploadInitResponse>> initializeUpload(
+            @RequestHeader("X-User-Id") @Parameter(hidden = true) Long uploaderId,
+            @Valid @RequestBody UploadInitRequest request) {
+        log.info("Received request to initialize presigned upload. User ID: {}, File: {}", uploaderId, request.getFileName());
+        UploadInitResponse initResponse = fileService.initializeUpload(request, uploaderId);
+        ApiResponse<UploadInitResponse> response = ApiResponse.<UploadInitResponse>builder()
+                .result(initResponse)
+                .build();
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    // API 1c: Complete Upload (Presigned URL Callback)
+    @PostMapping("/upload/complete/{fileId}")
+    public ResponseEntity<ApiResponse<FileMetadataResponse>> completeUpload(
+            @RequestHeader("X-User-Id") @Parameter(hidden = true) Long uploaderId,
+            @PathVariable("fileId") UUID fileId) {
+        log.info("Received complete upload notification for fileId: {}, User ID: {}", fileId, uploaderId);
+        AudioFile audioFile = fileService.completeUpload(fileId, uploaderId);
+        ApiResponse<FileMetadataResponse> response = ApiResponse.<FileMetadataResponse>builder()
+                .result(mapToResponse(audioFile))
+                .build();
+        return ResponseEntity.ok(response);
     }
 
     // API 2: Stream Audio supporting Range Requests (HTTP 206)
