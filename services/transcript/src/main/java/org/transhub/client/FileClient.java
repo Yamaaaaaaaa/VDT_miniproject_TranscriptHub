@@ -16,4 +16,7 @@ public interface FileClient {
 
     @GetMapping("/api/v1/files/internal/exists/{fileId}")
     ApiResponse<Boolean> checkFileExists(@PathVariable("fileId") UUID fileId);
+
+    @GetMapping("/api/v1/files/stream/{fileId}")
+    feign.Response downloadFile(@PathVariable("fileId") UUID fileId);
 }

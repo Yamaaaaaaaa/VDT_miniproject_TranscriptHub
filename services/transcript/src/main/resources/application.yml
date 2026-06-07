@@ -36,3 +36,6 @@ app:
   services:
     file: http://${FILE_SERVICE_HOST:localhost}:8083
     user: http://${USER_SERVICE_HOST:localhost}:8082
+  gemini:
+    api-key: ${GEMINI_API_KEY:}
+    model: ${GEMINI_MODEL:gemini-2.5-flash}
