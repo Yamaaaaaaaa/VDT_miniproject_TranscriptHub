@@ -85,3 +85,7 @@ yarn-error.log*
 
 
 fe_design
+.agents
+skills-lock.json
+
+documents
