@@ -49,5 +49,5 @@ coverage/
 .env*.local
 
 # Project specific folders to ignore
-design/
-documents/
+# design/
+# documents/
