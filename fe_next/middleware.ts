@@ -27,6 +27,14 @@ export default auth((req) => {
                 return NextResponse.redirect(new URL("/unauthorized", nextUrl));
             }
         }
+
+        // Bảo vệ tuyến đường quản trị vai trò & quyền hạn: Chỉ cho ADMIN hoặc những ai có quyền 'manage_roles'
+        if (nextUrl.pathname.startsWith("/dashboard/roles")) {
+            const hasAccess = role === "ADMIN" || permissions.includes("manage_roles");
+            if (!hasAccess) {
+                return NextResponse.redirect(new URL("/unauthorized", nextUrl));
+            }
+        }
     }
 
     return NextResponse.next();

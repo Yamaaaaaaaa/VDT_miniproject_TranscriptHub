@@ -49,4 +49,19 @@ export const usersApi = {
         api.patch(`/identity/users/${id}/roles`, { roles }).then((res) => res.data),
 };
 
+export const rolesApi = {
+    getAll: () => api.get("/identity/roles").then((res) => res.data),
+    getOne: (id: number) => api.get(`/identity/roles/${id}`).then((res) => res.data),
+    create: (name: string) => api.post("/identity/roles", { name }).then((res) => res.data),
+    update: (id: number, name: string) => api.patch(`/identity/roles/${id}`, { name }).then((res) => res.data),
+    remove: (id: number) => api.delete(`/identity/roles/${id}`).then((res) => res.data),
+    updatePermissions: (id: number, permissions: string[]) =>
+        api.patch(`/identity/roles/${id}/permissions`, { permissions }).then((res) => res.data),
+};
+
+export const permissionsApi = {
+    getAll: () => api.get("/identity/permissions").then((res) => res.data),
+    getOne: (id: number) => api.get(`/identity/permissions/${id}`).then((res) => res.data),
+};
+
 export default api;

@@ -1091,3 +1091,139 @@ npm run dev -- -p 3333
 ```
 
 Ứng dụng sẽ chạy tại địa chỉ `http://localhost:3333`. Bạn có thể mở trình duyệt truy cập để kiểm thử chức năng Đăng ký, Đăng nhập, tự động gia hạn token và Phân quyền thao tác trên Dashboard.
+
+---
+
+## 10. Bước 10: Giao diện Quản lý Vai trò và Quyền hạn (Roles & Permissions)
+
+Để cho phép quản trị viên xem danh sách vai trò, tạo mới, sửa đổi tên và gán danh sách quyền chi tiết cho vai trò đó, ta làm như sau:
+
+### 10.1. Tạo trang giao diện: [app/dashboard/roles/page.tsx](file:///d:/VDT_Tucode/VDT_miniproject_TranscriptHub/fe_next/app/dashboard/roles/page.tsx)
+
+Viết mã nguồn hiển thị danh sách vai trò cùng số lượng quyền hạn, hỗ trợ các Modal tạo mới, sửa đổi tên, gán quyền bằng Checkbox nhóm theo danh mục đẹp mắt:
+
+```typescript
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { rolesApi, permissionsApi } from "@/lib/api";
+import { useAuth } from "@/hooks/use-auth";
+import { PermissionGuard } from "@/components/permission-guard";
+import { Plus, Edit2, Trash2, Shield, ShieldAlert, X, ShieldCheck } from "lucide-react";
+
+export default function RolesManagementPage() {
+  const { hasPermission } = useAuth();
+  const [roles, setRoles] = useState<any[]>([]);
+  const [permissions, setPermissions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isPermissionsModalOpen, setIsPermissionsModalOpen] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<any | null>(null);
+  const [roleName, setRoleName] = useState("");
+  const [selectedPermissionNames, setSelectedPermissionNames] = useState<string[]>([]);
+
+  const loadRoles = useCallback(async () => {
+    try {
+      const data = await rolesApi.getAll();
+      setRoles(data);
+    } catch {
+      console.error("Không thể tải danh sách vai trò.");
+    }
+  }, []);
+
+  const loadPermissions = useCallback(async () => {
+    try {
+      const data = await permissionsApi.getAll();
+      setPermissions(data);
+    } catch {
+      console.error("Không thể tải danh sách quyền.");
+    }
+  }, []);
+
+  useEffect(() => {
+    const initData = async () => {
+      setLoading(true);
+      await Promise.all([loadRoles(), loadPermissions()]);
+      setLoading(false);
+    };
+    initData();
+  }, [loadRoles, loadPermissions]);
+
+  const handleCreateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!roleName.trim()) return;
+
+    try {
+      const normalizedName = roleName.trim().toUpperCase();
+      await rolesApi.create(normalizedName);
+      alert("Tạo vai trò mới thành công!");
+      setRoleName("");
+      setIsCreateModalOpen(false);
+      loadRoles();
+    } catch (err: any) {
+      alert(err.response?.data?.message ?? "Không thể tạo vai trò mới.");
+    }
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRole || !roleName.trim()) return;
+
+    try {
+      const normalizedName = roleName.trim().toUpperCase();
+      await rolesApi.update(selectedRole.id, normalizedName);
+      alert("Cập nhật vai trò thành công!");
+      setRoleName("");
+      setIsEditModalOpen(false);
+      loadRoles();
+    } catch (err: any) {
+      alert(err.response?.data?.message ?? "Cập nhật vai trò thất bại.");
+    }
+  };
+
+  const handleDeleteRole = async (role: any) => {
+    if (role.name === "ADMIN" || role.name === "USER") {
+      alert("Không thể xóa các vai trò hệ thống mặc định (ADMIN/USER).");
+      return;
+    }
+    if (!confirm(`Bạn có chắc chắn muốn xóa vai trò "${role.name}" không?`)) return;
+    try {
+      await rolesApi.remove(role.id);
+      alert("Xóa vai trò thành công!");
+      loadRoles();
+    } catch {
+      alert("Không thể xóa vai trò này.");
+    }
+  };
+
+  const handlePermissionsSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRole) return;
+    try {
+      await rolesApi.updatePermissions(selectedRole.id, selectedPermissionNames);
+      alert(`Đã cập nhật quyền hạn cho vai trò "${selectedRole.name}"!`);
+      setIsPermissionsModalOpen(false);
+      loadRoles();
+    } catch {
+      alert("Cập nhật quyền hạn thất bại.");
+    }
+  };
+
+  // ... (Giao diện hiển thị Roles Table và Modal checkboxes chi tiết)
+}
+```
+
+### 10.2. Bảo vệ tuyến đường quản trị vai trò trong Middleware: [middleware.ts](file:///d:/VDT_Tucode/VDT_miniproject_TranscriptHub/fe_next/middleware.ts)
+
+Cấu hình bộ lọc chuyển hướng để chỉ có Admin hoặc những tài khoản được gán quyền `manage_roles` mới có thể mở trang này:
+
+```typescript
+// Bảo vệ tuyến đường quản trị vai trò & quyền hạn
+if (nextUrl.pathname.startsWith("/dashboard/roles")) {
+    const hasAccess = role === "ADMIN" || permissions.includes("manage_roles");
+    if (!hasAccess) {
+        return NextResponse.redirect(new URL("/unauthorized", nextUrl));
+    }
+}
+```

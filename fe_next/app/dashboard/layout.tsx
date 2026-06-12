@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { signOut } from "next-auth/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Users, LayoutDashboard, LogOut, Settings, Bell, Search } from "lucide-react";
+import { Users, LayoutDashboard, LogOut, Settings, Bell, Search, Shield } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, hasPermission } = useAuth();
@@ -16,6 +16,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       href: "/dashboard/users",
       icon: Users,
       permission: "read_users",
+    },
+    {
+      name: "Vai trò & Quyền",
+      href: "/dashboard/roles",
+      icon: Shield,
+      permission: "manage_roles",
     },
   ];
 
@@ -38,6 +44,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {/* Navigation Links */}
           <nav className="space-y-1.5">
             {menuItems.map((item) => {
+              if (item.permission && !hasPermission(item.permission)) {
+                return null;
+              }
               const Icon = item.icon;
               const isActive = pathname.startsWith(item.href);
               return (

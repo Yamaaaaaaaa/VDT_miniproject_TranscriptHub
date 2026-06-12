@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { usersApi } from "@/lib/api";
+import { usersApi, rolesApi } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 import { PermissionGuard } from "@/components/permission-guard";
 import { Plus, Edit2, Trash2, ShieldAlert, X, Users, Shield, UserCheck, ShieldCheck, Mail, Phone, Info } from "lucide-react";
@@ -9,6 +9,7 @@ import { Plus, Edit2, Trash2, ShieldAlert, X, Users, Shield, UserCheck, ShieldCh
 export default function UsersManagementPage() {
   const { hasPermission } = useAuth();
   const [users, setUsers] = useState<any[]>([]);
+  const [roles, setRoles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
   // Trạng thái cho Modals
@@ -35,9 +36,21 @@ export default function UsersManagementPage() {
     }
   }, []);
 
+  // Tải danh sách vai trò
+  const loadRoles = useCallback(async () => {
+    try {
+      const data = await rolesApi.getAll();
+      setRoles(data);
+    } catch {
+      console.error("Không thể tải danh sách vai trò.");
+    }
+  }, []);
+
   useEffect(() => {
     loadUsers();
-  }, [loadUsers]);
+    loadRoles();
+  }, [loadUsers, loadRoles]);
+
 
   // Xóa người dùng
   const handleDelete = async (id: number) => {
@@ -482,9 +495,19 @@ export default function UsersManagementPage() {
                   value={selectedRoles[0] || "USER"}
                   onChange={(e) => setSelectedRoles([e.target.value])}
                 >
-                  <option value="USER">USER (Thành viên cơ bản)</option>
-                  <option value="MANAGER">MANAGER (Ban quản lý)</option>
-                  <option value="ADMIN">ADMIN (Quản trị tối cao)</option>
+                  {roles.length > 0 ? (
+                    roles.map((r) => (
+                      <option key={r.id} value={r.name}>
+                        {r.name} {r.name === 'ADMIN' ? '(Quản trị tối cao)' : r.name === 'MANAGER' ? '(Ban quản lý)' : r.name === 'USER' ? '(Thành viên cơ bản)' : ''}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="USER">USER (Thành viên cơ bản)</option>
+                      <option value="MANAGER">MANAGER (Ban quản lý)</option>
+                      <option value="ADMIN">ADMIN (Quản trị tối cao)</option>
+                    </>
+                  )}
                 </select>
               </div>
 
