@@ -1,0 +1,148 @@
+version: '3.8'
+
+services:
+  # 1. PostgreSQL Container
+  postgres:
+    image: postgres:15-alpine
+    container_name: transcripthub-db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: transcripthub
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - transcripthub_net
+
+  # Redis Container for JWT Blacklisting
+  redis:
+    image: redis:7-alpine
+    container_name: transcripthub-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    networks:
+      - transcripthub_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. Database Migration and Seeding
+  migrate:
+    build:
+      context: ./services_ms
+      dockerfile: apps/users/Dockerfile
+      target: builder
+    container_name: transcripthub-db-migrate
+    command: >
+      sh -c "npx prisma db push --url postgresql://postgres:postgres@postgres:5432/transcripthub --accept-data-loss && npx prisma db seed"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/transcripthub
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - transcripthub_net
+    restart: on-failure
+
+  # 3. Users Microservice (TCP :3001)
+  users-service:
+    build:
+      context: ./services_ms
+      dockerfile: apps/users/Dockerfile
+      target: production
+    container_name: transcripthub-users-service
+    restart: always
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/transcripthub
+      USERS_SERVICE_PORT: 3001
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - transcripthub_net
+
+  # 4. Identity Microservice (TCP :3002)
+  identity-service:
+    build:
+      context: ./services_ms
+      dockerfile: apps/identity/Dockerfile
+      target: production
+    container_name: transcripthub-identity-service
+    restart: always
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/transcripthub
+      USERS_SERVICE_HOST: users-service
+      USERS_SERVICE_PORT: 3001
+      IDENTITY_SERVICE_PORT: 3002
+      JWT_SECRET: "th_jwt_s3cr3t_k3y_x9mK2pL8qR4nW6vY1bZ5cE0aF7gH3jN"
+      JWT_REFRESH_SECRET: "th_refresh_s3cr3t_k3y_p2mX8nL4qK9vR6bW1zY5cE0aF7gH3jN"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "3002:3002"
+    depends_on:
+      users-service:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    networks:
+      - transcripthub_net
+
+  # 5. API Gateway (HTTP :3000)
+  api-gateway:
+    build:
+      context: ./services_ms
+      dockerfile: apps/api-gateway/Dockerfile
+      target: production
+    container_name: transcripthub-api-gateway
+    restart: always
+    environment:
+      PORT: 3000
+      USERS_SERVICE_HOST: users-service
+      USERS_SERVICE_PORT: 3001
+      IDENTITY_SERVICE_HOST: identity-service
+      IDENTITY_SERVICE_PORT: 3002
+    ports:
+      - "3000:3000"
+    depends_on:
+      - users-service
+      - identity-service
+    networks:
+      - transcripthub_net
+
+  # 6. pgAdmin for PostgreSQL Database management
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: transcripthub-pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "8080:80"
+    depends_on:
+      - postgres
+    networks:
+      - transcripthub_net
+
+volumes:
+  postgres_data:
+
+networks:
+  transcripthub_net:
+    driver: bridge
