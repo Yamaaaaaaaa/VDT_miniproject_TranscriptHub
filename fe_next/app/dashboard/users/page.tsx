@@ -7,7 +7,7 @@ import { PermissionGuard } from "@/components/permission-guard";
 import { Plus, Edit2, Trash2, ShieldAlert, X, Users, Shield, UserCheck, ShieldCheck, Mail, Phone, Info } from "lucide-react";
 
 export default function UsersManagementPage() {
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const [users, setUsers] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,6 +54,10 @@ export default function UsersManagementPage() {
 
   // Xóa người dùng
   const handleDelete = async (id: number) => {
+    if (user && Number(user.id) === id) {
+      alert("Bạn không thể tự xóa tài khoản của chính mình!");
+      return;
+    }
     if (!confirm("Bạn có chắc chắn muốn xóa thành viên này không?")) return;
     try {
       await usersApi.remove(id);
@@ -328,13 +332,22 @@ export default function UsersManagementPage() {
 
                       {/* Xóa người dùng */}
                       <PermissionGuard permission="delete_users">
-                        <button
-                          onClick={() => handleDelete(u.id)}
-                          className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl transition-all cursor-pointer inline-flex"
-                          title="Xóa thành viên"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        {user && Number(user.id) === u.id ? (
+                          <span 
+                            className="p-2.5 text-slate-300 cursor-not-allowed inline-flex" 
+                            title="Bạn không thể tự xóa tài khoản của mình"
+                          >
+                            <Trash2 size={16} />
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleDelete(u.id)}
+                            className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl transition-all cursor-pointer inline-flex"
+                            title="Xóa thành viên"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </PermissionGuard>
                     </td>
                   </tr>
