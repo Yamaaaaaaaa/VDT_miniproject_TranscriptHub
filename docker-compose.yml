@@ -142,7 +142,7 @@ services:
     networks:
       - transcripthub_net
 
-  # 4b. File Microservice (HTTP :3003)
+  # 4b. File Microservice (HTTP :3003, TCP :3004)
   file-service:
     build:
       context: ./services_ms
@@ -153,6 +153,7 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/transcripthub
       FILE_SERVICE_PORT: 3003
+      FILE_SERVICE_TCP_PORT: 3004
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_ACCESS_KEY: minioadmin
@@ -160,6 +161,7 @@ services:
       MINIO_BUCKET: transcripthub-bucket
     ports:
       - "3003:3003"
+      - "3004:3004"
     depends_on:
       postgres:
         condition: service_healthy
@@ -186,6 +188,7 @@ services:
       IDENTITY_SERVICE_PORT: 3002
       FILE_SERVICE_HOST: file-service
       FILE_SERVICE_PORT: 3003
+      FILE_SERVICE_TCP_PORT: 3004
     ports:
       - "3000:3000"
     depends_on:

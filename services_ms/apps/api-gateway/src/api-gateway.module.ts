@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { UsersModule } from './users/users.module';
 import { IdentityModule } from './identity/identity.module';
-import { FilesController } from './files/files.controller';
+import { FilesModule } from './files/files.module';
 
 @Module({
-  imports: [UsersModule, IdentityModule],
-  controllers: [FilesController],
+  imports: [UsersModule, IdentityModule, FilesModule],
+  controllers: [],
   providers: [],
 })
 export class ApiGatewayModule { }

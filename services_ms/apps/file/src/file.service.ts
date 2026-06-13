@@ -69,9 +69,9 @@ export class FileService implements OnModuleInit {
 
         try {
             const presignedUrl = await this.minioClient.presignedPutObject(
-                this.bucketName,
-                objectKey,
-                2 * 60 * 60, // 2 hours
+                this.bucketName, // Tên phân vùng lưu trữ (ví dụ: 'transcripthub-bucket')
+                objectKey, // Đường dẫn/Tên định danh duy nhất của tệp tin trong bucket (ví dụ: 'audio/file_123.mp3')
+                2 * 60 * 60, // Thời gian tồn tại của URL (tính bằng giây), ở đây là 2 giờ
             );
 
             // Create pending metadata in Postgres
@@ -117,15 +117,15 @@ export class FileService implements OnModuleInit {
         }
 
         try {
-            // Stat object in MinIO to verify size and existence
+            // Lấy thông tin tệp từ MinIO để xác minh kích thước và sự tồn tại
             const stat = await this.minioClient.statObject(audioFile.bucketName, audioFile.objectKey);
             const actualSize = stat.size;
 
-            // Stream from MinIO to extract audio duration
+            // Stream từ MinIO để trích xuất thời lượng âm thanh
             const stream = await this.minioClient.getObject(audioFile.bucketName, audioFile.objectKey);
             const duration = await this.extractDurationFromStream(stream, audioFile.mimeType, actualSize);
 
-            // Update database record to READY
+            // Cập nhật trạng thái và thông tin vào database
             return await this.prisma.audioFile.update({
                 where: { id: fileId },
                 data: {
