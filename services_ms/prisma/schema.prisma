@@ -1,0 +1,102 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["identity", "users", "files"]
+  // URL kết nối động được nạp qua cấu hình prisma.config.ts bên trên
+}
+
+// Tài khoản đăng nhập (do Identity Service quản lý)
+model Account {
+  id        Int           @id @default(autoincrement())
+  email     String        @unique
+  password  String // Mật khẩu đã băm bảo mật
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  roles     AccountRole[]
+  profile   UserProfile?
+
+  @@map("accounts")
+  @@schema("identity")
+}
+
+// Vai trò của người dùng (do Identity Service quản lý)
+model Role {
+  id          Int              @id @default(autoincrement())
+  name        String           @unique // Ví dụ: ADMIN, USER
+  permissions RolePermission[]
+  accounts    AccountRole[]
+
+  @@map("roles")
+  @@schema("identity")
+}
+
+// Quyền hạn chi tiết (do Identity Service quản lý)
+model Permission {
+  id    Int              @id @default(autoincrement())
+  name  String           @unique // Ví dụ: edit_profile, read_transcripts
+  roles RolePermission[]
+
+  @@map("permissions")
+  @@schema("identity")
+}
+
+// Bảng trung gian phân vai trò cho tài khoản
+model AccountRole {
+  accountId Int
+  roleId    Int
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  role      Role    @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([accountId, roleId])
+  @@map("account_roles")
+  @@schema("identity")
+}
+
+// Bảng trung gian phân quyền cho vai trò
+model RolePermission {
+  roleId       Int
+  permissionId Int
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+  @@schema("identity")
+}
+
+// Hồ sơ thông tin người dùng (do Users Service quản lý độc quyền)
+model UserProfile {
+  id        Int      @id // Khớp 1-1 với Account.id
+  account   Account  @relation(fields: [id], references: [id], onDelete: Cascade)
+  name      String
+  email     String   @unique
+  phone     String?
+  avatar    String?
+  bio       String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("user_profiles")
+  @@schema("users")
+}
+
+// File model (do File Service quản lý độc quyền)
+model AudioFile {
+  id              String   @id @default(uuid()) @db.Uuid
+  fileName        String   @map("file_name")
+  bucketName      String   @map("bucket_name") @db.VarChar(100)
+  objectKey       String   @map("object_key") @db.VarChar(500)
+  fileSize        BigInt   @map("file_size")
+  mimeType        String   @map("mime_type") @db.VarChar(100)
+  durationSeconds Int      @default(0) @map("duration_seconds")
+  status          String   @db.VarChar(50) // "UPLOADING" hoặc "READY"
+  uploaderId      Int      @map("uploader_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("audio_files")
+  @@schema("files") // Định nghĩa thuộc schema riêng biệt
+}

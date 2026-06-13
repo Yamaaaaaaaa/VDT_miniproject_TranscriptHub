@@ -37,6 +37,45 @@ services:
       timeout: 5s
       retries: 5
 
+  # MinIO Object Storage Container
+  minio:
+    image: minio/minio:latest
+    container_name: transcripthub-minio
+    restart: always
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - transcripthub_net
+
+  # Initialize MinIO Buckets
+  minio-init:
+    image: minio/mc:latest
+    container_name: transcripthub-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      mc mb myminio/transcripthub-bucket || true;
+      mc anonymous set public myminio/transcripthub-bucket || true;
+      exit 0;
+      "
+    networks:
+      - transcripthub_net
+
   # 2. Database Migration and Seeding
   migrate:
     build:
@@ -103,6 +142,34 @@ services:
     networks:
       - transcripthub_net
 
+  # 4b. File Microservice (HTTP :3003)
+  file-service:
+    build:
+      context: ./services_ms
+      dockerfile: apps/file/Dockerfile
+      target: production
+    container_name: transcripthub-file-service
+    restart: always
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/transcripthub
+      FILE_SERVICE_PORT: 3003
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: transcripthub-bucket
+    ports:
+      - "3003:3003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - transcripthub_net
+
   # 5. API Gateway (HTTP :3000)
   api-gateway:
     build:
@@ -117,11 +184,14 @@ services:
       USERS_SERVICE_PORT: 3001
       IDENTITY_SERVICE_HOST: identity-service
       IDENTITY_SERVICE_PORT: 3002
+      FILE_SERVICE_HOST: file-service
+      FILE_SERVICE_PORT: 3003
     ports:
       - "3000:3000"
     depends_on:
       - users-service
       - identity-service
+      - file-service
     networks:
       - transcripthub_net
 
@@ -142,6 +212,7 @@ services:
 
 volumes:
   postgres_data:
+  minio_data:
 
 networks:
   transcripthub_net:
