@@ -43,11 +43,12 @@ services:
     container_name: transcripthub-minio
     restart: always
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9100:9000"
+      - "9101:9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_SERVER_URL: "http://localhost:9100"
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
@@ -159,6 +160,8 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: transcripthub-bucket
+      MINIO_PUBLIC_ENDPOINT: localhost
+      MINIO_PUBLIC_PORT: 9100
     ports:
       - "3003:3003"
       - "3004:3004"

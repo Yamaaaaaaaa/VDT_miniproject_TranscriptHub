@@ -64,4 +64,15 @@ export const permissionsApi = {
     getOne: (id: number) => api.get(`/identity/permissions/${id}`).then((res) => res.data),
 };
 
+export const filesApi = {
+    list: (page = 0, size = 10) => api.get(`/files?page=${page}&size=${size}`).then((res) => res.data.result ?? res.data),
+    getMetadata: (fileId: string) => api.get(`/files/${fileId}`).then((res) => res.data.result ?? res.data),
+    updateMetadata: (fileId: string, fileName: string) => api.put(`/files/${fileId}`, { fileName }).then((res) => res.data.result ?? res.data),
+    delete: (fileId: string) => api.delete(`/files/${fileId}`).then((res) => res.data.result ?? res.data),
+    initializeUpload: (data: { fileName: string; fileSize: number; mimeType: string }) =>
+        api.post("/files/upload/init", data).then((res) => res.data.result ?? res.data),
+    completeUpload: (fileId: string) =>
+        api.post(`/files/upload/complete/${fileId}`).then((res) => res.data.result ?? res.data),
+};
+
 export default api;

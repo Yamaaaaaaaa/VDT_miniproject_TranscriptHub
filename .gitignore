@@ -51,3 +51,5 @@ coverage/
 # Project specific folders to ignore
 # design/
 # documents/
+.agents/
+skills-lock.json

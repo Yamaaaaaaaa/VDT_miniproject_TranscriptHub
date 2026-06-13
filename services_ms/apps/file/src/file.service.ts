@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from './prisma/prisma.service';
 import * as Minio from 'minio';
+import * as crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { UploadInitDto } from './dto/upload-init.dto';
 
@@ -17,6 +18,83 @@ export class FileService implements OnModuleInit {
             accessKey: process.env.MINIO_ACCESS_KEY || 'minioadmin',
             secretKey: process.env.MINIO_SECRET_KEY || 'minioadmin',
         });
+    }
+
+    /**
+     * Tạo SigV4 Presigned PUT URL thuần crypto — KHÔNG cần kết nối TCP đến MinIO.
+     *
+     * Tại sao không dùng minioClient.presignedPutObject():
+     *   MinIO JS SDK gọi getBucketRegion() (network call) trước khi ký.
+     *   Từ bên trong Docker container, "localhost:9000" không resolve được,
+     *   nên mọi client dùng endpoint "localhost" đều bị ECONNREFUSED.
+     *
+     * Giải pháp: Tự ký theo chuẩn AWS SigV4 bằng crypto built-in của Node.js.
+     *   - Dùng host = MINIO_PUBLIC_ENDPOINT (localhost:9000) trong chữ ký
+     *   - Browser PUT đến localhost:9000 với Host: localhost:9000 → khớp chữ ký ✅
+     */
+    private generatePresignedPutUrl(objectKey: string, expiresInSeconds: number): string {
+        const publicHost = process.env.MINIO_PUBLIC_ENDPOINT || 'localhost';
+        const publicPort = process.env.MINIO_PUBLIC_PORT || process.env.MINIO_PORT || '9000';
+        const host = `${publicHost}:${publicPort}`;
+        const accessKey = process.env.MINIO_ACCESS_KEY || 'minioadmin';
+        const secretKey = process.env.MINIO_SECRET_KEY || 'minioadmin';
+        const region = 'us-east-1'; // MinIO luôn dùng region mặc định này
+        const service = 's3';
+
+        const now = new Date();
+        const datestamp = now.toISOString().slice(0, 10).replace(/-/g, '');       // YYYYMMDD
+        const amzdate = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, ''); // YYYYMMDDTHHMMSSZ
+
+        const credentialScope = `${datestamp}/${region}/${service}/aws4_request`;
+        const credential = `${accessKey}/${credentialScope}`;
+
+        // URI encode mỗi phần của objectKey nhưng giữ nguyên dấu "/"
+        const encodedKey = objectKey.split('/').map(p => encodeURIComponent(p)).join('/');
+        const canonicalUri = `/${this.bucketName}/${encodedKey}`;
+
+        // Query params phải được sắp xếp theo thứ tự alphabet
+        const params: Record<string, string> = {
+            'X-Amz-Algorithm':    'AWS4-HMAC-SHA256',
+            'X-Amz-Credential':   credential,
+            'X-Amz-Date':         amzdate,
+            'X-Amz-Expires':      String(expiresInSeconds),
+            'X-Amz-SignedHeaders': 'host',
+        };
+        const sortedKeys = Object.keys(params).sort();
+        const canonicalQueryString = sortedKeys
+            .map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`)
+            .join('&');
+
+        // Canonical request theo chuẩn SigV4
+        const canonicalHeaders = `host:${host}\n`;
+        const canonicalRequest = [
+            'PUT',
+            canonicalUri,
+            canonicalQueryString,
+            canonicalHeaders,
+            'host',           // signedHeaders
+            'UNSIGNED-PAYLOAD',
+        ].join('\n');
+
+        // String to sign
+        const hashedCanonical = crypto.createHash('sha256').update(canonicalRequest).digest('hex');
+        const stringToSign = [
+            'AWS4-HMAC-SHA256',
+            amzdate,
+            credentialScope,
+            hashedCanonical,
+        ].join('\n');
+
+        // Derive signing key (HMAC chain)
+        const kDate    = crypto.createHmac('sha256', `AWS4${secretKey}`).update(datestamp).digest();
+        const kRegion  = crypto.createHmac('sha256', kDate).update(region).digest();
+        const kService = crypto.createHmac('sha256', kRegion).update(service).digest();
+        const kSigning = crypto.createHmac('sha256', kService).update('aws4_request').digest();
+
+        const signature = crypto.createHmac('sha256', kSigning).update(stringToSign).digest('hex');
+
+        const queryString = canonicalQueryString + `&X-Amz-Signature=${signature}`;
+        return `http://${host}${canonicalUri}?${queryString}`;
     }
 
     async onModuleInit() {
@@ -68,11 +146,8 @@ export class FileService implements OnModuleInit {
         const objectKey = `${uploaderId}/${fileId}_${dto.fileName}`;
 
         try {
-            const presignedUrl = await this.minioClient.presignedPutObject(
-                this.bucketName, // Tên phân vùng lưu trữ (ví dụ: 'transcripthub-bucket')
-                objectKey, // Đường dẫn/Tên định danh duy nhất của tệp tin trong bucket (ví dụ: 'audio/file_123.mp3')
-                2 * 60 * 60, // Thời gian tồn tại của URL (tính bằng giây), ở đây là 2 giờ
-            );
+            // Dùng custom SigV4 generator (không cần TCP) để tạo presigned URL với public endpoint
+            const presignedUrl = this.generatePresignedPutUrl(objectKey, 2 * 60 * 60);
 
             // Create pending metadata in Postgres
             const audioFile = await this.prisma.audioFile.create({
