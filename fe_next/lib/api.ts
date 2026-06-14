@@ -82,4 +82,27 @@ export const transcriptsApi = {
     delete: (id: number) => api.delete(`/transcripts/${id}`).then((res) => res.data.result ?? res.data),
 };
 
+export const meetingsApi = {
+    list: (page = 0, size = 10, includeAudioFile = false, includeTranscript = false) => 
+        api.get(`/meetings?page=${page}&size=${size}&includeAudioFile=${includeAudioFile}&includeTranscript=${includeTranscript}`)
+           .then((res) => res.data.result ?? res.data),
+    getOne: (id: string, includeAudioFile = false, includeTranscript = false) => 
+        api.get(`/meetings/${id}?includeAudioFile=${includeAudioFile}&includeTranscript=${includeTranscript}`)
+           .then((res) => res.data.result ?? res.data),
+    create: (data: { title: string; description?: string; audioFileId: string }) => 
+        api.post('/meetings', data).then((res) => res.data.result ?? res.data),
+    update: (id: string, data: { title: string; description?: string; status?: string }) => 
+        api.put(`/meetings/${id}`, data).then((res) => res.data.result ?? res.data),
+    delete: (id: string) => 
+        api.delete(`/meetings/${id}`).then((res) => res.data.result ?? res.data),
+    getMembers: (id: string) => 
+        api.get(`/meetings/${id}/members`).then((res) => res.data.result ?? res.data),
+    addMember: (id: string, data: { userId?: number; email?: string; role: string }) => 
+        api.post(`/meetings/${id}/members`, data).then((res) => res.data.result ?? res.data),
+    updateMemberRole: (id: string, userId: number, role: string) => 
+        api.put(`/meetings/${id}/members/${userId}`, { role }).then((res) => res.data.result ?? res.data),
+    removeMember: (id: string, userId: number) => 
+        api.delete(`/meetings/${id}/members/${userId}`).then((res) => res.data.result ?? res.data),
+};
+
 export default api;

@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { signOut } from "next-auth/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Users, LayoutDashboard, LogOut, Settings, Bell, Search, Shield, FileAudio, FileText } from "lucide-react";
+import { Users, LayoutDashboard, LogOut, Settings, Bell, Search, Shield, FileAudio, FileText, Video } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, hasPermission } = useAuth();
@@ -52,6 +52,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       name: "Quản lý Bản Dịch",
       href: "/transcripts",
       icon: FileText,
+    },
+    {
+      name: "Quản lý Cuộc họp",
+      href: "/meetings",
+      icon: Video,
     },
   ];
 
