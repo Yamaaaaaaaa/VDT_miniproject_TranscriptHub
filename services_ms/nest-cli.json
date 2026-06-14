@@ -53,6 +53,15 @@
       "compilerOptions": {
         "tsConfigPath": "apps/transcript/tsconfig.app.json"
       }
+    },
+    "meeting": {
+      "type": "application",
+      "root": "apps/meeting",
+      "entryFile": "main",
+      "sourceRoot": "apps/meeting/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/meeting/tsconfig.app.json"
+      }
     }
   }
 }

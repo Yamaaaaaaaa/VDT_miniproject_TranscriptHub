@@ -237,6 +237,40 @@ services:
     networks:
       - transcripthub_net
 
+  # 4d. Meeting Microservice (TCP :3006)
+  meeting-service:
+    build:
+      context: ./services_ms
+      dockerfile: apps/meeting/Dockerfile
+      target: production
+    container_name: transcripthub-meeting-service
+    restart: always
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/transcripthub
+      MEETING_SERVICE_TCP_PORT: 3006
+      USERS_SERVICE_HOST: users-service
+      USERS_SERVICE_PORT: 3001
+      FILE_SERVICE_HOST: file-service
+      FILE_SERVICE_PORT: 3003
+      FILE_SERVICE_TCP_PORT: 3004
+      TRANSCRIPT_SERVICE_HOST: transcript-service
+      TRANSCRIPT_SERVICE_TCP_PORT: 3005
+    ports:
+      - "3006:3006"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      users-service:
+        condition: service_started
+      file-service:
+        condition: service_started
+      transcript-service:
+        condition: service_started
+    networks:
+      - transcripthub_net
+
   # 5. API Gateway (HTTP :3000)
   api-gateway:
     build:
@@ -256,6 +290,8 @@ services:
       FILE_SERVICE_TCP_PORT: 3004
       TRANSCRIPT_SERVICE_HOST: transcript-service
       TRANSCRIPT_SERVICE_TCP_PORT: 3005
+      MEETING_SERVICE_HOST: meeting-service
+      MEETING_SERVICE_TCP_PORT: 3006
     ports:
       - "3000:3000"
     depends_on:
@@ -263,6 +299,7 @@ services:
       - identity-service
       - file-service
       - transcript-service
+      - meeting-service
     networks:
       - transcripthub_net
 

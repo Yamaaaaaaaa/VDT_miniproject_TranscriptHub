@@ -5,7 +5,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  schemas  = ["identity", "users", "files", "transcripts"]
+  schemas  = ["identity", "users", "files", "transcripts", "meetings"]
   // URL kết nối động được nạp qua cấu hình prisma.config.ts bên trên
 }
 
@@ -114,3 +114,49 @@ model Transcript {
   @@map("transcripts")
   @@schema("transcripts")
 }
+
+// Meeting models (do Meeting Service quản lý độc quyền)
+enum MeetingStatus {
+  CREATING
+  PROCESSING
+  COMPLETED
+
+  @@schema("meetings")
+}
+
+enum MeetingRole {
+  HOST
+  EDITOR
+  VIEWER
+
+  @@schema("meetings")
+}
+
+model Meeting {
+  id          String        @id @default(uuid()) @db.Uuid
+  title       String
+  description String?       @db.Text
+  creatorId   Int           @map("creator_id")
+  audioFileId String        @unique @map("audio_file_id") @db.Uuid
+  status      MeetingStatus @default(CREATING)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  members     MeetingMember[]
+
+  @@map("meetings")
+  @@schema("meetings")
+}
+
+model MeetingMember {
+  id        Int         @id @default(autoincrement())
+  meetingId String      @map("meeting_id") @db.Uuid
+  userId    Int         @map("user_id")
+  role      MeetingRole
+  joinedAt  DateTime    @default(now()) @map("joined_at")
+  meeting   Meeting     @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, userId])
+  @@map("meeting_members")
+  @@schema("meetings")
+}
+
