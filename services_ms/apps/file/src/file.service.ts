@@ -52,8 +52,9 @@ export class FileService implements OnModuleInit {
         const credentialScope = `${datestamp}/${region}/${service}/aws4_request`;
         const credential = `${accessKey}/${credentialScope}`;
 
-        // URI encode mỗi phần của objectKey nhưng giữ nguyên dấu "/"
-        const encodedKey = objectKey.split('/').map(p => encodeURIComponent(p)).join('/');
+        // URI encode mỗi phần của objectKey nhưng giữ nguyên dấu "/" (Sử dụng chuẩn mã hóa nghiêm ngặt SigV4)
+        const strictUriEncode = (str: string) => encodeURIComponent(str).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+        const encodedKey = objectKey.split('/').map(p => strictUriEncode(p)).join('/');
         const canonicalUri = `/${this.bucketName}/${encodedKey}`;
 
         // Query params phải được sắp xếp theo thứ tự alphabet
@@ -355,6 +356,16 @@ export class FileService implements OnModuleInit {
             await this.minioClient.removeObject(audioFile.bucketName, audioFile.objectKey);
         } catch (error) {
             console.error(`Failed to delete object ${audioFile.objectKey} from MinIO:`, error);
+        }
+
+        // Delete corresponding transcript if exists
+        try {
+            await this.prisma.transcript.deleteMany({
+                where: { audioFileId: fileId },
+            });
+            console.log(`Deleted corresponding transcripts for fileId: ${fileId}`);
+        } catch (error) {
+            console.error(`Failed to delete transcript for fileId ${fileId}:`, error);
         }
 
         await this.prisma.audioFile.delete({

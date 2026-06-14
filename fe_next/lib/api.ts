@@ -75,4 +75,11 @@ export const filesApi = {
         api.post(`/files/upload/complete/${fileId}`).then((res) => res.data.result ?? res.data),
 };
 
+export const transcriptsApi = {
+    getAll: () => api.get("/transcripts").then((res) => res.data.result ?? res.data),
+    getByAudioFile: (audioFileId: string) => api.get(`/transcripts/file/${audioFileId}`).then((res) => res.data.result ?? res.data),
+    generate: (fileId: string) => api.post("/transcripts/generate", { fileId }).then((res) => res.data.result ?? res.data),
+    delete: (id: number) => api.delete(`/transcripts/${id}`).then((res) => res.data.result ?? res.data),
+};
+
 export default api;

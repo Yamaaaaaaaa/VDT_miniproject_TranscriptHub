@@ -21,6 +21,10 @@ const nextConfig: NextConfig = {
         source: "/api/files/:path*",
         destination: `${gatewayUrl}/api/files/:path*`,
       },
+      {
+        source: "/api/transcripts/:path*",
+        destination: `${gatewayUrl}/api/transcripts/:path*`,
+      },
     ];
   },
 };

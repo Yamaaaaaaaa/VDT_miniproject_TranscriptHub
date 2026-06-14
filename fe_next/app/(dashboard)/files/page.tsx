@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { filesApi } from "@/lib/api";
+import { filesApi, transcriptsApi } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
+import Link from "next/link";
 import axios from "axios";
 import {
   UploadCloud, FileAudio, Trash2, Play, Pause, Edit2,
@@ -15,6 +16,7 @@ export default function FileManagementPage() {
   
   // File metadata lists & state
   const [files, setFiles] = useState<any[]>([]);
+  const [transcripts, setTranscripts] = useState<Record<string, any>>({});
   const [totalElements, setTotalElements] = useState(0);
   const [page, setPage] = useState(0);
   const [size] = useState(8);
@@ -43,11 +45,24 @@ export default function FileManagementPage() {
   const loadFiles = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await filesApi.list(page, size);
-      if (data) {
-        setFiles(data.content || []);
-        setTotalElements(data.totalElements || 0);
-        setTotalPages(data.totalPages || 1);
+      const [filesData, transcriptsData] = await Promise.all([
+        filesApi.list(page, size),
+        transcriptsApi.getAll().catch(e => {
+          console.warn("Failed to load transcripts:", e);
+          return [];
+        })
+      ]);
+      if (filesData) {
+        setFiles(filesData.content || []);
+        setTotalElements(filesData.totalElements || 0);
+        setTotalPages(filesData.totalPages || 1);
+      }
+      if (transcriptsData) {
+        const transcriptsMap: Record<string, any> = {};
+        transcriptsData.forEach((t: any) => {
+          transcriptsMap[t.audioFileId] = t;
+        });
+        setTranscripts(transcriptsMap);
       }
     } catch (error) {
       console.error("Không thể tải danh sách tệp tin:", error);
@@ -59,6 +74,50 @@ export default function FileManagementPage() {
   useEffect(() => {
     loadFiles();
   }, [loadFiles]);
+
+  // Polling for processing transcripts
+  useEffect(() => {
+    const processingFiles = Object.values(transcripts).some(t => t?.status === 'PROCESSING');
+    if (!processingFiles) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const allTranscripts = await transcriptsApi.getAll();
+        const updatedMap: Record<string, any> = {};
+        allTranscripts.forEach((t: any) => {
+          updatedMap[t.audioFileId] = t;
+        });
+        setTranscripts(updatedMap);
+      } catch (error) {
+        console.error("Lỗi khi cập nhật trạng thái bản dịch:", error);
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [transcripts]);
+
+  // Kích hoạt dịch tự động thủ công bằng AI
+  const handleTriggerTranscription = async (fileId: string) => {
+    try {
+      // Optimistically set status
+      setTranscripts(prev => ({
+        ...prev,
+        [fileId]: { status: 'PROCESSING', audioFileId: fileId }
+      }));
+      await transcriptsApi.generate(fileId);
+      // Reload to update status in list
+      const allTranscripts = await transcriptsApi.getAll();
+      const updatedMap: Record<string, any> = {};
+      allTranscripts.forEach((t: any) => {
+        updatedMap[t.audioFileId] = t;
+      });
+      setTranscripts(updatedMap);
+    } catch (error) {
+      console.error("Không thể kích hoạt dịch thuật:", error);
+      alert("Kích hoạt dịch thuật thất bại.");
+      loadFiles();
+    }
+  };
 
   // Audio Player Event Listeners
   const handleTimeUpdate = () => {
@@ -488,6 +547,7 @@ export default function FileManagementPage() {
                         <th className="pb-3">Dung lượng</th>
                         <th className="pb-3">Thời lượng</th>
                         <th className="pb-3">Trạng thái</th>
+                        <th className="pb-3">Bản dịch AI</th>
                         <th className="pb-3">Ngày tạo</th>
                         <th className="pb-3 pr-2 text-right">Hành động</th>
                       </tr>
@@ -536,6 +596,47 @@ export default function FileManagementPage() {
                                   <AlertCircle size={10} /> Lỗi tải
                                 </span>
                               )}
+                            </td>
+                            <td className="py-3.5">
+                              {(() => {
+                                const transcript = transcripts[file.id];
+                                const status = transcript ? transcript.status : "NO_TRANSCRIPT";
+                                
+                                if (status === "PROCESSING") {
+                                  return (
+                                    <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-100 rounded-full px-2 py-0.5 animate-pulse">
+                                      <Loader2 size={10} className="animate-spin" /> Đang dịch...
+                                    </span>
+                                  );
+                                } else if (status === "COMPLETED") {
+                                  return (
+                                    <Link
+                                      href={`/transcripts/${file.id}`}
+                                      className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 hover:bg-red-500 hover:text-white rounded-full px-2 py-0.5 transition-all"
+                                    >
+                                      Xem bản dịch
+                                    </Link>
+                                  );
+                                } else if (status === "FAILED") {
+                                  return (
+                                    <button
+                                      onClick={() => handleTriggerTranscription(file.id)}
+                                      className="inline-flex items-center gap-1 text-[10px] font-bold text-red-500 hover:bg-red-50 border border-red-200 hover:border-red-300 rounded-full px-2 py-0.5 transition-all cursor-pointer"
+                                    >
+                                      Thử lại
+                                    </button>
+                                  );
+                                } else {
+                                  return (
+                                    <button
+                                      onClick={() => handleTriggerTranscription(file.id)}
+                                      className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 hover:bg-slate-100 border border-slate-200 hover:border-slate-300 rounded-full px-2 py-0.5 transition-all cursor-pointer"
+                                    >
+                                      Dịch AI
+                                    </button>
+                                  );
+                                }
+                              })()}
                             </td>
                             <td className="py-3.5 text-slate-400">{formatDate(file.createdAt)}</td>
                             <td className="py-3.5 pr-2 text-right">

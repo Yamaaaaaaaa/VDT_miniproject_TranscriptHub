@@ -28,7 +28,7 @@ export default function LoginPage() {
       if (result?.error) {
         setError("Email hoặc mật khẩu không chính xác.");
       } else {
-        router.push("/dashboard/users");
+        router.push("/home");
       }
     } catch {
       setError("Đã xảy ra lỗi kết nối. Hãy thử lại.");

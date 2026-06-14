@@ -1,32 +1,57 @@
 "use client";
 
+import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { signOut } from "next-auth/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Users, LayoutDashboard, LogOut, Settings, Bell, Search, Shield, FileAudio } from "lucide-react";
+import { Users, LayoutDashboard, LogOut, Settings, Bell, Search, Shield, FileAudio, FileText } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, hasPermission } = useAuth();
   const pathname = usePathname();
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   const menuItems = [
     {
+      name: "Trang chủ",
+      href: "/home",
+      icon: LayoutDashboard,
+    },
+    {
       name: "Quản lý thành viên",
-      href: "/dashboard/users",
+      href: "/users",
       icon: Users,
       permission: "read_users",
     },
     {
       name: "Vai trò & Quyền",
-      href: "/dashboard/roles",
+      href: "/roles",
       icon: Shield,
       permission: "manage_roles",
     },
     {
       name: "Quản lý File",
-      href: "/dashboard/files",
+      href: "/files",
       icon: FileAudio,
+    },
+    {
+      name: "Quản lý Bản Dịch",
+      href: "/transcripts",
+      icon: FileText,
     },
   ];
 
@@ -72,9 +97,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
             {hasPermission("manage_system") && (
               <Link
-                href="/dashboard/system"
+                href="/system"
                 className={`flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all ${
-                  pathname.startsWith("/dashboard/system")
+                  pathname.startsWith("/system")
                     ? "bg-slate-50 text-red-500 shadow-sm border-l-4 border-red-500 pl-3"
                     : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
                 }`}
@@ -84,29 +109,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </Link>
             )}
           </nav>
-        </div>
-
-        {/* Sidebar Footer User Section */}
-        <div className="p-6 border-t border-slate-100 space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-red-50 border border-red-100 flex items-center justify-center font-bold text-red-500 uppercase">
-              {user?.name?.[0] ?? "U"}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-bold text-slate-800 truncate leading-tight">{user?.name}</p>
-              <span className="inline-block text-[9px] px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-full font-bold uppercase mt-1">
-                {user?.role}
-              </span>
-            </div>
-          </div>
-
-          <button
-            onClick={() => signOut({ callbackUrl: "/login" })}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-bold text-red-500 hover:bg-red-50 rounded-2xl border border-transparent hover:border-red-100 transition-all cursor-pointer"
-          >
-            <LogOut size={16} />
-            <span>Đăng xuất</span>
-          </button>
         </div>
       </aside>
 
@@ -140,15 +142,32 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {/* Vertical Separator */}
             <div className="w-px h-6 bg-slate-200" />
 
-            {/* Profile Avatar and Name */}
-            <div className="flex items-center gap-3">
-              <div className="text-right">
-                <p className="text-sm font-extrabold text-slate-800 leading-tight">{user?.name}</p>
-                <p className="text-xs text-slate-400 capitalize">{user?.role?.toLowerCase()}</p>
-              </div>
-              <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center font-bold text-slate-600 capitalize">
-                {user?.name?.[0] ?? "U"}
-              </div>
+            {/* Profile Avatar and Name with Dropdown */}
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="flex items-center gap-3 hover:bg-slate-50 p-1.5 rounded-2xl transition-all cursor-pointer text-left focus:outline-none"
+              >
+                <div className="text-right">
+                  <p className="text-sm font-extrabold text-slate-800 leading-tight">{user?.name}</p>
+                  <p className="text-xs text-slate-400 capitalize">{user?.role?.toLowerCase()}</p>
+                </div>
+                <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center font-bold text-slate-600 capitalize">
+                  {user?.name?.[0] ?? "U"}
+                </div>
+              </button>
+
+              {isDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-100 rounded-2xl shadow-xl py-1 z-50 origin-top-right transition-all">
+                  <button
+                    onClick={() => signOut({ callbackUrl: "/login" })}
+                    className="w-full flex items-center gap-2.5 px-4 py-3 text-xs font-bold text-red-500 hover:bg-red-50 transition-all cursor-pointer text-left"
+                  >
+                    <LogOut size={14} />
+                    <span>Đăng xuất</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </header>
