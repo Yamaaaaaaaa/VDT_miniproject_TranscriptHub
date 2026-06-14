@@ -25,6 +25,8 @@ export class FilesController {
         const cleanPath = rawPath.replace(/^\/(api\/)?files/, '');
         const targetUrl = `${this.fileServiceUrl}/api/v1/files${cleanPath}`;
         
+        console.log(`[Proxy] Routing ${req.method} request to target: ${targetUrl}`);
+        
         const userId = (req as any).user?.id;
         const headers = { ...req.headers };
         if (userId) {
@@ -32,6 +34,15 @@ export class FilesController {
         }
         
         delete headers['host'];
+
+        let bodyData: Buffer | null = null;
+        console.log(`[Proxy] req.body parsed:`, req.body);
+        if (req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0) {
+            bodyData = Buffer.from(JSON.stringify(req.body));
+            headers['content-length'] = String(bodyData.length);
+            headers['content-type'] = 'application/json';
+            console.log(`[Proxy] Using parsed body data of length ${bodyData.length}`);
+        }
 
         const parsedUrl = new URL(targetUrl);
         const options: http.RequestOptions = {
@@ -43,6 +54,7 @@ export class FilesController {
         };
 
         const proxyReq = http.request(options, (proxyRes) => {
+            console.log(`[Proxy] Received response status ${proxyRes.statusCode} from target`);
             res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
             proxyRes.pipe(res);
         });
@@ -54,7 +66,14 @@ export class FilesController {
             }
         });
 
-        req.pipe(proxyReq);
+        if (bodyData) {
+            console.log(`[Proxy] Writing bodyData and ending proxy request`);
+            proxyReq.write(bodyData);
+            proxyReq.end();
+        } else {
+            console.log(`[Proxy] Piping req stream directly to proxy request`);
+            req.pipe(proxyReq);
+        }
     }
 
     @Post('upload')

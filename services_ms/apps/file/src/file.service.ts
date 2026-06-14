@@ -1,4 +1,5 @@
-import { Injectable, BadRequestException, NotFoundException, ForbiddenException, OnModuleInit } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, NotFoundException, ForbiddenException, OnModuleInit } from '@nestjs/common';
+import { ClientKafka } from '@nestjs/microservices';
 import { PrismaService } from './prisma/prisma.service';
 import * as Minio from 'minio';
 import * as crypto from 'crypto';
@@ -10,7 +11,10 @@ export class FileService implements OnModuleInit {
     private readonly minioClient: Minio.Client;
     private readonly bucketName = process.env.MINIO_BUCKET || 'transcripthub-bucket';
 
-    constructor(private readonly prisma: PrismaService) {
+    constructor(
+        private readonly prisma: PrismaService,
+        @Inject('KAFKA_CLIENT') private readonly kafkaClient: ClientKafka,
+    ) {
         this.minioClient = new Minio.Client({
             endPoint: process.env.MINIO_ENDPOINT || 'localhost',
             port: parseInt(process.env.MINIO_PORT || '9000', 10),
@@ -99,6 +103,7 @@ export class FileService implements OnModuleInit {
 
     async onModuleInit() {
         await this.ensureBucketExists();
+        await this.kafkaClient.connect();
     }
 
     private async ensureBucketExists() {
@@ -201,7 +206,7 @@ export class FileService implements OnModuleInit {
             const duration = await this.extractDurationFromStream(stream, audioFile.mimeType, actualSize);
 
             // Cập nhật trạng thái và thông tin vào database
-            return await this.prisma.audioFile.update({
+            const updated = await this.prisma.audioFile.update({
                 where: { id: fileId },
                 data: {
                     fileSize: BigInt(actualSize),
@@ -209,6 +214,8 @@ export class FileService implements OnModuleInit {
                     status: 'READY',
                 },
             });
+            this.publishUploadedEvent(updated);
+            return updated;
         } catch (error) {
             console.error(`Failed to complete upload for fileId: ${fileId}`, error);
             throw new BadRequestException('Failed to complete upload');
@@ -241,7 +248,7 @@ export class FileService implements OnModuleInit {
             const duration = await this.extractDurationFromBuffer(file.buffer, mimeType);
 
             // Save ready metadata in Postgres
-            return await this.prisma.audioFile.create({
+            const created = await this.prisma.audioFile.create({
                 data: {
                     id: fileId,
                     fileName: originalName,
@@ -254,6 +261,8 @@ export class FileService implements OnModuleInit {
                     uploaderId,
                 },
             });
+            this.publishUploadedEvent(created);
+            return created;
         } catch (error) {
             console.error('Failed to upload single file:', error);
             throw new BadRequestException('Failed to upload file');
@@ -402,5 +411,32 @@ export class FileService implements OnModuleInit {
             where: { id: fileId },
         });
         return !!file && (file.status === 'READY' || file.status === 'UPLOADING');
+    }
+
+    private publishUploadedEvent(audioFile: any) {
+        try {
+            const event = {
+                eventId: uuidv4(),
+                eventType: 'AUDIO_FILE_UPLOADED',
+                timestamp: new Date().toISOString(),
+                payload: {
+                    fileId: audioFile.id,
+                    fileName: audioFile.fileName,
+                    bucketName: audioFile.bucketName,
+                    objectKey: audioFile.objectKey,
+                    fileSize: Number(audioFile.fileSize),
+                    mimeType: audioFile.mimeType,
+                    durationSeconds: audioFile.durationSeconds,
+                    uploaderId: audioFile.uploaderId,
+                },
+            };
+            this.kafkaClient.emit('audio-file-events', {
+                key: audioFile.id,
+                value: JSON.stringify(event),
+            });
+            console.log(`📡 Published AUDIO_FILE_UPLOADED event to Kafka for file: ${audioFile.id}`);
+        } catch (err) {
+            console.error('Failed to publish event to Kafka:', err);
+        }
     }
 }

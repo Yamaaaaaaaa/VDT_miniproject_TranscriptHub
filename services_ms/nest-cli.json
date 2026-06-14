@@ -44,6 +44,15 @@
       "compilerOptions": {
         "tsConfigPath": "apps/users/tsconfig.app.json"
       }
+    },
+    "transcript": {
+      "type": "application",
+      "root": "apps/transcript",
+      "entryFile": "main",
+      "sourceRoot": "apps/transcript/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/transcript/tsconfig.app.json"
+      }
     }
   }
 }

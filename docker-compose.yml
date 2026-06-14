@@ -162,6 +162,7 @@ services:
       MINIO_BUCKET: transcripthub-bucket
       MINIO_PUBLIC_ENDPOINT: localhost
       MINIO_PUBLIC_PORT: 9100
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     ports:
       - "3003:3003"
       - "3004:3004"
@@ -172,6 +173,67 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      kafka:
+        condition: service_started
+    networks:
+      - transcripthub_net
+
+  # Zookeeper for Kafka Coordination
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: transcripthub-zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - transcripthub_net
+
+  # Apache Kafka Message Broker
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: transcripthub-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    depends_on:
+      - zookeeper
+    networks:
+      - transcripthub_net
+
+  # 4c. Transcript Microservice (TCP :3005)
+  transcript-service:
+    build:
+      context: ./services_ms
+      dockerfile: apps/transcript/Dockerfile
+      target: production
+    container_name: transcripthub-transcript-service
+    restart: always
+    env_file:
+      - ./services_ms/.env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/transcripthub
+      TRANSCRIPT_SERVICE_TCP_PORT: 3005
+      FILE_SERVICE_HOST: file-service
+      FILE_SERVICE_PORT: 3003
+      FILE_SERVICE_TCP_PORT: 3004
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    ports:
+      - "3005:3005"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      file-service:
+        condition: service_started
     networks:
       - transcripthub_net
 
@@ -192,12 +254,15 @@ services:
       FILE_SERVICE_HOST: file-service
       FILE_SERVICE_PORT: 3003
       FILE_SERVICE_TCP_PORT: 3004
+      TRANSCRIPT_SERVICE_HOST: transcript-service
+      TRANSCRIPT_SERVICE_TCP_PORT: 3005
     ports:
       - "3000:3000"
     depends_on:
       - users-service
       - identity-service
       - file-service
+      - transcript-service
     networks:
       - transcripthub_net
 

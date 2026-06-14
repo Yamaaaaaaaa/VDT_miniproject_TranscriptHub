@@ -5,7 +5,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  schemas  = ["identity", "users", "files"]
+  schemas  = ["identity", "users", "files", "transcripts"]
   // URL kết nối động được nạp qua cấu hình prisma.config.ts bên trên
 }
 
@@ -99,4 +99,18 @@ model AudioFile {
 
   @@map("audio_files")
   @@schema("files") // Định nghĩa thuộc schema riêng biệt
+}
+
+// Transcript model (do Transcript Service quản lý độc quyền)
+model Transcript {
+  id                Int      @id @default(autoincrement())
+  audioFileId       String   @unique @map("audio_file_id") @db.Uuid
+  rawText           String   @map("raw_text") @db.Text
+  structuredContent Json     @map("structured_content") @db.JsonB
+  status            String   @db.VarChar(50) // "PROCESSING", "COMPLETED", "FAILED"
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("transcripts")
+  @@schema("transcripts")
 }
