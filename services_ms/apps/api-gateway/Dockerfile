@@ -18,9 +18,10 @@ RUN npx prisma generate
 
 # Copy source files
 COPY apps ./apps/
+COPY libs ./libs/
 
 # Compile the API Gateway app to JS
-RUN npx tsc --project apps/api-gateway/tsconfig.app.json
+RUN npx nest build api-gateway
 
 # ── Stage 2: Runtime ───────────────────────────────────────────
 FROM node:22-alpine AS production

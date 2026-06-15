@@ -3,7 +3,6 @@ import {
   MessagePattern,
   EventPattern,
   Payload,
-  RpcException,
 } from '@nestjs/microservices';
 import { TranscriptService } from './transcript.service';
 
@@ -13,40 +12,24 @@ export class TranscriptController {
 
   @MessagePattern('get_transcript_by_audio_file')
   async getTranscriptByAudioFile(@Payload() audioFileId: string) {
-    try {
-      return await this.transcriptService.getTranscriptByAudioFileId(
-        audioFileId,
-      );
-    } catch (error) {
-      throw new RpcException(error.message);
-    }
+    return this.transcriptService.getTranscriptByAudioFileId(
+      audioFileId,
+    );
   }
 
   @MessagePattern('get_all_transcripts')
   async getAllTranscripts() {
-    try {
-      return await this.transcriptService.getAllTranscripts();
-    } catch (error) {
-      throw new RpcException(error.message);
-    }
+    return this.transcriptService.getAllTranscripts();
   }
 
   @MessagePattern('generate_transcript_manual')
   async generateTranscriptManual(@Payload() fileId: string) {
-    try {
-      return await this.transcriptService.generateTranscriptManually(fileId);
-    } catch (error) {
-      throw new RpcException(error.message);
-    }
+    return this.transcriptService.generateTranscriptManually(fileId);
   }
 
   @MessagePattern('delete_transcript')
   async deleteTranscript(@Payload() id: number) {
-    try {
-      return await this.transcriptService.deleteTranscript(id);
-    } catch (error) {
-      throw new RpcException(error.message);
-    }
+    return this.transcriptService.deleteTranscript(id);
   }
 
   @EventPattern('audio-file-events')

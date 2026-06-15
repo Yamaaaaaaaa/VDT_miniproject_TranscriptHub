@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { validate } from './config/env.config';
 import { PrismaModule } from './prisma/prisma.module';
 import { MeetingController } from './meeting.controller';
 import { MeetingService } from './meeting.service';
@@ -10,31 +12,44 @@ import { TranscriptGateway } from './gateways/transcript.gateway';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      validate,
+    }),
     PrismaModule,
-    ClientsModule.register([
+    ClientsModule.registerAsync([
       {
         name: 'USERS_CLIENT',
-        transport: Transport.TCP,
-        options: {
-          host: process.env.USERS_SERVICE_HOST ?? 'localhost',
-          port: parseInt(process.env.USERS_SERVICE_PORT ?? '3001', 10),
-        },
+        useFactory: (configService: ConfigService) => ({
+          transport: Transport.TCP,
+          options: {
+            host: configService.get<string>('USERS_SERVICE_HOST', 'localhost'),
+            port: configService.get<number>('USERS_SERVICE_PORT', 3001),
+          },
+        }),
+        inject: [ConfigService],
       },
       {
         name: 'FILES_CLIENT',
-        transport: Transport.TCP,
-        options: {
-          host: process.env.FILE_SERVICE_HOST ?? 'localhost',
-          port: parseInt(process.env.FILE_SERVICE_TCP_PORT ?? '3004', 10),
-        },
+        useFactory: (configService: ConfigService) => ({
+          transport: Transport.TCP,
+          options: {
+            host: configService.get<string>('FILE_SERVICE_HOST', 'localhost'),
+            port: configService.get<number>('FILE_SERVICE_TCP_PORT', 3004),
+          },
+        }),
+        inject: [ConfigService],
       },
       {
         name: 'TRANSCRIPT_CLIENT',
-        transport: Transport.TCP,
-        options: {
-          host: process.env.TRANSCRIPT_SERVICE_HOST ?? 'localhost',
-          port: parseInt(process.env.TRANSCRIPT_SERVICE_TCP_PORT ?? '3005', 10),
-        },
+        useFactory: (configService: ConfigService) => ({
+          transport: Transport.TCP,
+          options: {
+            host: configService.get<string>('TRANSCRIPT_SERVICE_HOST', 'localhost'),
+            port: configService.get<number>('TRANSCRIPT_SERVICE_TCP_PORT', 3005),
+          },
+        }),
+        inject: [ConfigService],
       },
     ]),
   ],

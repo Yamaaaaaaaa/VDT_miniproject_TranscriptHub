@@ -32,6 +32,7 @@ export default function RegisterPage() {
         router.push("/login");
       }, 2000);
     } catch (err: any) {
+      // BE trả về lỗi dạng { code: number, message: string }
       setError(err.response?.data?.message ?? "Đăng ký không thành công. Email có thể đã tồn tại.");
     } finally {
       setLoading(false);

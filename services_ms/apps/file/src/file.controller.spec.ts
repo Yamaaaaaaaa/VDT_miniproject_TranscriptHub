@@ -1,19 +1,28 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { FileController } from './file.controller';
 import { FileService } from './file.service';
-import { PrismaService } from './prisma/prisma.service';
 
 describe('FileController', () => {
   let fileController: FileController;
 
   beforeEach(async () => {
+    const mockFileService = {
+      initializeUpload: jest.fn(),
+      completeUpload: jest.fn(),
+      uploadSingleFile: jest.fn(),
+      streamAudio: jest.fn(),
+      getMetadata: jest.fn(),
+      updateMetadata: jest.fn(),
+      deleteFile: jest.fn(),
+      listFiles: jest.fn(),
+    };
+
     const app: TestingModule = await Test.createTestingModule({
       controllers: [FileController],
       providers: [
-        FileService,
         {
-          provide: PrismaService,
-          useValue: {},
+          provide: FileService,
+          useValue: mockFileService,
         },
       ],
     }).compile();

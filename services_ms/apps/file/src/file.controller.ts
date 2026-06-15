@@ -37,7 +37,7 @@ export class FileController {
       file,
       parseInt(uploaderId, 10),
     );
-    return { result: this.mapToResponse(audioFile) };
+    return this.mapToResponse(audioFile);
   }
 
   @Post('upload/init')
@@ -51,7 +51,7 @@ export class FileController {
       dto,
       parseInt(uploaderId, 10),
     );
-    return { result: initResponse };
+    return initResponse;
   }
 
   @Post('upload/complete/:fileId')
@@ -65,7 +65,7 @@ export class FileController {
       fileId,
       parseInt(uploaderId, 10),
     );
-    return { result: this.mapToResponse(audioFile) };
+    return this.mapToResponse(audioFile);
   }
 
   @Get('stream/:fileId')
@@ -81,13 +81,13 @@ export class FileController {
   @Get('internal/exists/:fileId')
   async checkFileExists(@Param('fileId') fileId: string) {
     const exists = await this.fileService.checkFileExists(fileId);
-    return { result: exists };
+    return exists;
   }
 
   @Get(':fileId')
   async getMetadata(@Param('fileId') fileId: string) {
     const audioFile = await this.fileService.getMetadata(fileId);
-    return { result: this.mapToResponse(audioFile) };
+    return this.mapToResponse(audioFile);
   }
 
   @Delete(':fileId')
@@ -117,7 +117,7 @@ export class FileController {
       dto.fileName,
       parseInt(uploaderId, 10),
     );
-    return { result: this.mapToResponse(audioFile) };
+    return this.mapToResponse(audioFile);
   }
 
   @Get()
@@ -134,13 +134,11 @@ export class FileController {
       parseInt(size, 10),
     );
     return {
-      result: {
-        content: response.items.map((item) => this.mapToResponse(item)),
-        totalElements: response.total,
-        pageNumber: response.page,
-        pageSize: response.size,
-        totalPages: response.totalPages,
-      },
+      content: response.items.map((item) => this.mapToResponse(item)),
+      totalElements: response.total,
+      pageNumber: response.page,
+      pageSize: response.size,
+      totalPages: response.totalPages,
     };
   }
 

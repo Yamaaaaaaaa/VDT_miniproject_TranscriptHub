@@ -18,9 +18,10 @@ RUN npx prisma generate
 
 # Copy source files
 COPY apps ./apps/
+COPY libs ./libs/
 
 # Compile the Users app to JS
-RUN npx tsc --project apps/users/tsconfig.app.json
+RUN npx nest build users
 
 # ── Stage 2: Runtime ───────────────────────────────────────────
 FROM node:22-alpine AS production

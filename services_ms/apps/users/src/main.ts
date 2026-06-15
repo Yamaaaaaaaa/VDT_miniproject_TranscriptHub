@@ -3,15 +3,19 @@ import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { ValidationPipe } from '@nestjs/common';
 import { UsersModule } from './users.module';
+import { validate } from './config/env.config';
+import { MicroserviceExceptionFilter } from '../../../libs/common/src/filters/microservice-exception.filter';
 
 async function bootstrap() {
+  const env = validate(process.env);
+
   const app = await NestFactory.createMicroservice<MicroserviceOptions>(
     UsersModule,
     {
       transport: Transport.TCP,
       options: {
         host: '0.0.0.0', // Lắng nghe trên tất cả các card mạng
-        port: 3001, // Port giao tiếp TCP
+        port: env.USERS_SERVICE_PORT, // Port giao tiếp TCP
       },
     },
   );
@@ -25,7 +29,10 @@ async function bootstrap() {
     }),
   );
 
+  // Đăng ký Exception Filter toàn cục để định dạng lỗi thống nhất
+  app.useGlobalFilters(new MicroserviceExceptionFilter());
+
   await app.listen();
-  console.log('🚀 Users Microservice is listening on TCP port 3001');
+  console.log(`🚀 Users Microservice is listening on TCP port ${env.USERS_SERVICE_PORT}`);
 }
 bootstrap();

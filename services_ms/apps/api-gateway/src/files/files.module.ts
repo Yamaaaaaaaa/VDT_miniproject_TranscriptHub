@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ConfigService } from '@nestjs/config';
 import { FilesController } from './files.controller';
 import { FilesService } from './files.service';
 import { IdentityModule } from '../identity/identity.module';
@@ -7,14 +8,17 @@ import { IdentityModule } from '../identity/identity.module';
 @Module({
   imports: [
     IdentityModule,
-    ClientsModule.register([
+    ClientsModule.registerAsync([
       {
         name: 'FILES_CLIENT',
-        transport: Transport.TCP,
-        options: {
-          host: process.env.FILE_SERVICE_HOST ?? 'localhost',
-          port: parseInt(process.env.FILE_SERVICE_TCP_PORT ?? '3004', 10),
-        },
+        useFactory: (configService: ConfigService) => ({
+          transport: Transport.TCP,
+          options: {
+            host: configService.get<string>('FILE_SERVICE_HOST', 'localhost'),
+            port: configService.get<number>('FILE_SERVICE_TCP_PORT', 3004),
+          },
+        }),
+        inject: [ConfigService],
       },
     ]),
   ],

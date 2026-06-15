@@ -37,31 +37,31 @@ api.interceptors.response.use(
 
 // Đối tượng gọi API CRUD dành cho Users Profile
 export const usersApi = {
-    getAll: () => api.get("/users").then((res) => res.data),
-    getOne: (id: number) => api.get(`/users/${id}`).then((res) => res.data),
-    create: (data: any) => api.post("/users", data).then((res) => res.data),
-    registerAccount: (data: any) => api.post("/identity/register", data).then((res) => res.data),
-    update: (id: number, data: any) => api.patch(`/users/${id}`, data).then((res) => res.data),
-    remove: (id: number) => api.delete(`/users/${id}`).then((res) => res.data),
+    getAll: () => api.get("/users").then((res) => res.data.result ?? res.data),
+    getOne: (id: number) => api.get(`/users/${id}`).then((res) => res.data.result ?? res.data),
+    create: (data: any) => api.post("/users", data).then((res) => res.data.result ?? res.data),
+    registerAccount: (data: any) => api.post("/identity/register", data).then((res) => res.data.result ?? res.data),
+    update: (id: number, data: any) => api.patch(`/users/${id}`, data).then((res) => res.data.result ?? res.data),
+    remove: (id: number) => api.delete(`/users/${id}`).then((res) => res.data.result ?? res.data),
 
     // API cập nhật vai trò người dùng (Tương tác sang phần Identity DB)
     updateUserRoles: (id: number, roles: string[]) =>
-        api.patch(`/identity/users/${id}/roles`, { roles }).then((res) => res.data),
+        api.patch(`/identity/users/${id}/roles`, { roles }).then((res) => res.data.result ?? res.data),
 };
 
 export const rolesApi = {
-    getAll: () => api.get("/identity/roles").then((res) => res.data),
-    getOne: (id: number) => api.get(`/identity/roles/${id}`).then((res) => res.data),
-    create: (name: string) => api.post("/identity/roles", { name }).then((res) => res.data),
-    update: (id: number, name: string) => api.patch(`/identity/roles/${id}`, { name }).then((res) => res.data),
-    remove: (id: number) => api.delete(`/identity/roles/${id}`).then((res) => res.data),
+    getAll: () => api.get("/identity/roles").then((res) => res.data.result ?? res.data),
+    getOne: (id: number) => api.get(`/identity/roles/${id}`).then((res) => res.data.result ?? res.data),
+    create: (name: string) => api.post("/identity/roles", { name }).then((res) => res.data.result ?? res.data),
+    update: (id: number, name: string) => api.patch(`/identity/roles/${id}`, { name }).then((res) => res.data.result ?? res.data),
+    remove: (id: number) => api.delete(`/identity/roles/${id}`).then((res) => res.data.result ?? res.data),
     updatePermissions: (id: number, permissions: string[]) =>
-        api.patch(`/identity/roles/${id}/permissions`, { permissions }).then((res) => res.data),
+        api.patch(`/identity/roles/${id}/permissions`, { permissions }).then((res) => res.data.result ?? res.data),
 };
 
 export const permissionsApi = {
-    getAll: () => api.get("/identity/permissions").then((res) => res.data),
-    getOne: (id: number) => api.get(`/identity/permissions/${id}`).then((res) => res.data),
+    getAll: () => api.get("/identity/permissions").then((res) => res.data.result ?? res.data),
+    getOne: (id: number) => api.get(`/identity/permissions/${id}`).then((res) => res.data.result ?? res.data),
 };
 
 export const filesApi = {

@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { validate } from './config/env.config';
 import { FileController } from './file.controller';
 import { FileService } from './file.service';
 import { PrismaModule } from './prisma/prisma.module';
@@ -8,20 +10,27 @@ import { KafkaGateway } from './gateways/kafka.gateway';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      validate,
+    }),
     PrismaModule,
-    ClientsModule.register([
+    ClientsModule.registerAsync([
       {
         name: 'KAFKA_CLIENT',
-        transport: Transport.KAFKA,
-        options: {
-          client: {
-            clientId: 'file-service',
-            brokers: [process.env.KAFKA_BOOTSTRAP_SERVERS || 'kafka:9092'],
+        useFactory: (configService: ConfigService) => ({
+          transport: Transport.KAFKA,
+          options: {
+            client: {
+              clientId: 'file-service',
+              brokers: [configService.get<string>('KAFKA_BOOTSTRAP_SERVERS', 'kafka:9092')],
+            },
+            producer: {
+              allowAutoTopicCreation: true,
+            },
           },
-          producer: {
-            allowAutoTopicCreation: true,
-          },
-        },
+        }),
+        inject: [ConfigService],
       },
     ]),
   ],

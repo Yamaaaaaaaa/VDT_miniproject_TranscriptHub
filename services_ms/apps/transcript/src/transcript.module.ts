@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { validate } from './config/env.config';
 import { TranscriptController } from './transcript.controller';
 import { TranscriptService } from './transcript.service';
 import { PrismaModule } from './prisma/prisma.module';
@@ -8,15 +10,22 @@ import { FileGateway } from './gateways/file.gateway';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      validate,
+    }),
     PrismaModule,
-    ClientsModule.register([
+    ClientsModule.registerAsync([
       {
         name: 'FILES_CLIENT',
-        transport: Transport.TCP,
-        options: {
-          host: process.env.FILE_SERVICE_HOST || 'localhost',
-          port: parseInt(process.env.FILE_SERVICE_TCP_PORT || '3004', 10),
-        },
+        useFactory: (configService: ConfigService) => ({
+          transport: Transport.TCP,
+          options: {
+            host: configService.get<string>('FILE_SERVICE_HOST', 'localhost'),
+            port: configService.get<number>('FILE_SERVICE_TCP_PORT', 3004),
+          },
+        }),
+        inject: [ConfigService],
       },
     ]),
   ],

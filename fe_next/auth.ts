@@ -10,7 +10,8 @@ async function refreshAccessToken(token: any) {
             token: token.refreshToken,
         });
 
-        const refreshedTokens = response.data;
+        // BE giờ trả về { code: 1000, result: { accessToken, refreshToken } }
+        const refreshedTokens = response.data.result ?? response.data;
 
         // Decode new access token to update role and permissions
         const payloadBase64 = refreshedTokens.accessToken.split('.')[1];
@@ -54,7 +55,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
                         password: credentials.password,
                     });
 
-                    const data = res.data;
+                    // BE giờ trả về { code: 1000, result: { account, accessToken, refreshToken } }
+                    const data = res.data.result ?? res.data;
                     if (!data || !data.accessToken) return null;
 
                     // Giải mã JWT accessToken để lấy roles và permissions

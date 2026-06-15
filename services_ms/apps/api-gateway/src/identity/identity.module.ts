@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ConfigService } from '@nestjs/config';
 import { IdentityController } from './identity.controller';
 import { RolesController } from './roles.controller';
 import { PermissionsController } from './permissions.controller';
@@ -7,14 +8,17 @@ import { IdentityService } from './identity.service';
 
 @Module({
   imports: [
-    ClientsModule.register([
+    ClientsModule.registerAsync([
       {
         name: 'IDENTITY_CLIENT',
-        transport: Transport.TCP,
-        options: {
-          host: process.env.IDENTITY_SERVICE_HOST ?? 'localhost',
-          port: parseInt(process.env.IDENTITY_SERVICE_PORT ?? '3002', 10),
-        },
+        useFactory: (configService: ConfigService) => ({
+          transport: Transport.TCP,
+          options: {
+            host: configService.get<string>('IDENTITY_SERVICE_HOST', 'localhost'),
+            port: configService.get<number>('IDENTITY_SERVICE_PORT', 3002),
+          },
+        }),
+        inject: [ConfigService],
       },
     ]),
   ],

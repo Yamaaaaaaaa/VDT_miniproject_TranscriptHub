@@ -2,8 +2,6 @@ import {
   Controller,
   Post,
   Body,
-  HttpException,
-  HttpStatus,
   Patch,
   Param,
   ParseIntPipe,
@@ -20,7 +18,6 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { LogoutDto } from './dto/logout.dto';
-import { catchError, throwError } from 'rxjs';
 import { JwtIdentityGuard } from './guards/jwt-identity.guard';
 
 @ApiTags('Identity')
@@ -36,19 +33,7 @@ export class IdentityController {
     description: 'Validation failed or email already exists.',
   })
   register(@Body() registerDto: RegisterDto) {
-    return this.identityService
-      .register(registerDto)
-      .pipe(
-        catchError((err) =>
-          throwError(
-            () =>
-              new HttpException(
-                err?.message ?? 'Registration failed',
-                HttpStatus.BAD_REQUEST,
-              ),
-          ),
-        ),
-      );
+    return this.identityService.register(registerDto);
   }
 
   @Post('login')
@@ -59,19 +44,7 @@ export class IdentityController {
   })
   @ApiResponse({ status: 401, description: 'Invalid credentials.' })
   login(@Body() loginDto: LoginDto) {
-    return this.identityService
-      .login(loginDto)
-      .pipe(
-        catchError((err) =>
-          throwError(
-            () =>
-              new HttpException(
-                err?.message ?? 'Authentication failed',
-                HttpStatus.UNAUTHORIZED,
-              ),
-          ),
-        ),
-      );
+    return this.identityService.login(loginDto);
   }
 
   @Post('refresh')
@@ -82,19 +55,7 @@ export class IdentityController {
     description: 'Invalid or expired refresh token.',
   })
   refresh(@Body() refreshTokenDto: RefreshTokenDto) {
-    return this.identityService
-      .refresh(refreshTokenDto.token)
-      .pipe(
-        catchError((err) =>
-          throwError(
-            () =>
-              new HttpException(
-                err?.message ?? 'Token refresh failed',
-                HttpStatus.UNAUTHORIZED,
-              ),
-          ),
-        ),
-      );
+    return this.identityService.refresh(refreshTokenDto.token);
   }
 
   @Post('logout')
@@ -102,19 +63,7 @@ export class IdentityController {
   @ApiResponse({ status: 201, description: 'Successfully logged out.' })
   @ApiResponse({ status: 400, description: 'Logout failed.' })
   logout(@Body() logoutDto: LogoutDto) {
-    return this.identityService
-      .logout(logoutDto.token)
-      .pipe(
-        catchError((err) =>
-          throwError(
-            () =>
-              new HttpException(
-                err?.message ?? 'Logout failed',
-                HttpStatus.BAD_REQUEST,
-              ),
-          ),
-        ),
-      );
+    return this.identityService.logout(logoutDto.token);
   }
 
   @ApiBearerAuth()
@@ -127,18 +76,6 @@ export class IdentityController {
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { roles: string[] },
   ) {
-    return this.identityService
-      .updateUserRoles(id, body.roles)
-      .pipe(
-        catchError((err) =>
-          throwError(
-            () =>
-              new HttpException(
-                err?.message ?? 'Failed to update user roles',
-                HttpStatus.BAD_REQUEST,
-              ),
-          ),
-        ),
-      );
+    return this.identityService.updateUserRoles(id, body.roles);
   }
 }

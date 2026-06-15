@@ -21,7 +21,6 @@ import {
 import { UsersService } from './users.service';
 import { CreateUserProfileDto } from './dto/create-user-profile.dto';
 import { UpdateUserProfileDto } from './dto/update-user-profile.dto';
-import { catchError, throwError } from 'rxjs';
 import { JwtIdentityGuard } from '../identity/guards/jwt-identity.guard';
 
 @ApiTags('Users')
@@ -39,19 +38,7 @@ export class UsersController {
   })
   @ApiResponse({ status: 401, description: 'Unauthorized.' })
   findAll() {
-    return this.usersService
-      .findAll()
-      .pipe(
-        catchError((err) =>
-          throwError(
-            () =>
-              new HttpException(
-                err?.message ?? 'Internal server error',
-                HttpStatus.INTERNAL_SERVER_ERROR,
-              ),
-          ),
-        ),
-      );
+    return this.usersService.findAll();
   }
 
   @Get(':id')
@@ -63,19 +50,7 @@ export class UsersController {
   @ApiResponse({ status: 404, description: 'User profile not found.' })
   @ApiResponse({ status: 401, description: 'Unauthorized.' })
   findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.usersService
-      .findOne(id)
-      .pipe(
-        catchError((err) =>
-          throwError(
-            () =>
-              new HttpException(
-                err?.message ?? 'User profile not found',
-                HttpStatus.NOT_FOUND,
-              ),
-          ),
-        ),
-      );
+    return this.usersService.findOne(id);
   }
 
   @Post()
@@ -90,19 +65,7 @@ export class UsersController {
   })
   @ApiResponse({ status: 401, description: 'Unauthorized.' })
   create(@Body() createUserProfileDto: CreateUserProfileDto) {
-    return this.usersService
-      .create(createUserProfileDto)
-      .pipe(
-        catchError((err) =>
-          throwError(
-            () =>
-              new HttpException(
-                err?.message ?? 'Failed to create user profile',
-                HttpStatus.BAD_REQUEST,
-              ),
-          ),
-        ),
-      );
+    return this.usersService.create(createUserProfileDto);
   }
 
   @Patch(':id')
@@ -117,19 +80,7 @@ export class UsersController {
     @Param('id', ParseIntPipe) id: number,
     @Body() updateUserProfileDto: UpdateUserProfileDto,
   ) {
-    return this.usersService
-      .update(id, updateUserProfileDto)
-      .pipe(
-        catchError((err) =>
-          throwError(
-            () =>
-              new HttpException(
-                err?.message ?? 'Failed to update user profile',
-                HttpStatus.BAD_REQUEST,
-              ),
-          ),
-        ),
-      );
+    return this.usersService.update(id, updateUserProfileDto);
   }
 
   @Delete(':id')
@@ -147,18 +98,6 @@ export class UsersController {
         HttpStatus.BAD_REQUEST,
       );
     }
-    return this.usersService
-      .remove(id, req.user.id)
-      .pipe(
-        catchError((err) =>
-          throwError(
-            () =>
-              new HttpException(
-                err?.message ?? 'Failed to delete user profile',
-                HttpStatus.BAD_REQUEST,
-              ),
-          ),
-        ),
-      );
+    return this.usersService.remove(id, req.user.id);
   }
 }

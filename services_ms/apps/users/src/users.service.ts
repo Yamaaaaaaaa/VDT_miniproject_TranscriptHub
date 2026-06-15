@@ -1,11 +1,8 @@
-import {
-  Injectable,
-  NotFoundException,
-  ConflictException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { UsersRepository } from './repositories/users.repository';
 import { CreateUserProfileDto } from './dto/create-user-profile.dto';
 import { UpdateUserProfileDto } from './dto/update-user-profile.dto';
+import { AppException, ErrorCodes } from '../../../libs/common/src/exceptions/error-code';
 
 @Injectable()
 export class UsersService {
@@ -27,7 +24,7 @@ export class UsersService {
   async findOne(id: number) {
     const profile = await this.usersRepo.findByIdWithAccount(id);
     if (!profile)
-      throw new NotFoundException(`User profile with id ${id} not found`);
+      throw new AppException(ErrorCodes.USER_NOT_EXISTED, `User profile with id ${id} not found`);
 
     const roleName = profile.account?.roles?.[0]?.role?.name ?? 'USER';
     const { account: _account, ...rest } = profile;
@@ -46,7 +43,8 @@ export class UsersService {
       createUserProfileDto.email,
     );
     if (existing)
-      throw new ConflictException(
+      throw new AppException(
+        ErrorCodes.EMAIL_EXISTED,
         `Profile with email ${createUserProfileDto.email} already exists`,
       );
 

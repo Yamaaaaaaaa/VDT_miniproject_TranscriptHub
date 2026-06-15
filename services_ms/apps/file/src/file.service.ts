@@ -1,33 +1,29 @@
-import {
-  Injectable,
-  BadRequestException,
-  NotFoundException,
-  ForbiddenException,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { AppException, ErrorCodes } from '../../../libs/common/src/exceptions/error-code';
 import { FileRepository } from './repositories/file.repository';
 import { KafkaGateway } from './gateways/kafka.gateway';
 import * as Minio from 'minio';
 import * as crypto from 'crypto';
-import { v4 as uuidv4 } from 'uuid';
 import { UploadInitDto } from './dto/upload-init.dto';
 
 @Injectable()
 export class FileService implements OnModuleInit {
   private readonly minioClient: Minio.Client;
-  private readonly bucketName =
-    process.env.MINIO_BUCKET || 'transcripthub-bucket';
+  private readonly bucketName: string;
 
   constructor(
     private readonly fileRepo: FileRepository,
     private readonly kafkaGateway: KafkaGateway,
+    private readonly configService: ConfigService,
   ) {
+    this.bucketName = this.configService.get<string>('MINIO_BUCKET', 'transcripthub-bucket');
     this.minioClient = new Minio.Client({
-      endPoint: process.env.MINIO_ENDPOINT || 'localhost',
-      port: parseInt(process.env.MINIO_PORT || '9000', 10),
+      endPoint: this.configService.get<string>('MINIO_ENDPOINT', 'localhost'),
+      port: this.configService.get<number>('MINIO_PORT', 9000),
       useSSL: false,
-      accessKey: process.env.MINIO_ACCESS_KEY || 'minioadmin',
-      secretKey: process.env.MINIO_SECRET_KEY || 'minioadmin',
+      accessKey: this.configService.get<string>('MINIO_ACCESS_KEY', 'minioadmin'),
+      secretKey: this.configService.get<string>('MINIO_SECRET_KEY', 'minioadmin'),
     });
   }
 
@@ -47,12 +43,14 @@ export class FileService implements OnModuleInit {
     objectKey: string,
     expiresInSeconds: number,
   ): string {
-    const publicHost = process.env.MINIO_PUBLIC_ENDPOINT || 'localhost';
+    const publicHost = this.configService.get<string>('MINIO_PUBLIC_ENDPOINT', 'localhost');
     const publicPort =
-      process.env.MINIO_PUBLIC_PORT || process.env.MINIO_PORT || '9000';
+      this.configService.get<string>('MINIO_PUBLIC_PORT') ||
+      this.configService.get<string>('MINIO_PORT') ||
+      '9000';
     const host = `${publicHost}:${publicPort}`;
-    const accessKey = process.env.MINIO_ACCESS_KEY || 'minioadmin';
-    const secretKey = process.env.MINIO_SECRET_KEY || 'minioadmin';
+    const accessKey = this.configService.get<string>('MINIO_ACCESS_KEY', 'minioadmin');
+    const secretKey = this.configService.get<string>('MINIO_SECRET_KEY', 'minioadmin');
     const region = 'us-east-1'; // MinIO luôn dùng region mặc định này
     const service = 's3';
 
@@ -198,7 +196,7 @@ export class FileService implements OnModuleInit {
 
   async initializeUpload(dto: UploadInitDto, uploaderId: number) {
     await this.ensureBucketExists();
-    const fileId = uuidv4();
+    const fileId = crypto.randomUUID();
     const objectKey = `${uploaderId}/${fileId}_${dto.fileName}`;
 
     try {
@@ -227,17 +225,18 @@ export class FileService implements OnModuleInit {
       };
     } catch (error) {
       console.error('Failed to initialize upload:', error);
-      throw new BadRequestException('Failed to initialize upload link');
+      throw new AppException(ErrorCodes.FILE_UPLOAD_FAILED, 'Failed to initialize upload link');
     }
   }
 
   async completeUpload(fileId: string, uploaderId: number) {
     const audioFile = await this.fileRepo.findById(fileId);
     if (!audioFile) {
-      throw new NotFoundException(`File with ID ${fileId} not found`);
+      throw new AppException(ErrorCodes.FILE_NOT_FOUND, `File with ID ${fileId} not found`);
     }
     if (audioFile.uploaderId !== uploaderId) {
-      throw new ForbiddenException(
+      throw new AppException(
+        ErrorCodes.UNAUTHORIZED,
         'You do not have permission to access this file',
       );
     }
@@ -274,17 +273,17 @@ export class FileService implements OnModuleInit {
       return updated;
     } catch (error) {
       console.error(`Failed to complete upload for fileId: ${fileId}`, error);
-      throw new BadRequestException('Failed to complete upload');
+      throw new AppException(ErrorCodes.FILE_MERGE_FAILED, 'Failed to complete upload');
     }
   }
 
   async uploadSingleFile(file: Express.Multer.File, uploaderId: number) {
     if (!file || !file.buffer) {
-      throw new BadRequestException('File buffer is empty');
+      throw new AppException(ErrorCodes.FILE_EMPTY, 'File buffer is empty');
     }
     await this.ensureBucketExists();
 
-    const fileId = uuidv4();
+    const fileId = crypto.randomUUID();
     const originalName = file.originalname || `audio_${fileId}`;
     const objectKey = `${uploaderId}/${fileId}_${originalName}`;
     const fileSize = file.size;
@@ -322,14 +321,14 @@ export class FileService implements OnModuleInit {
       return created;
     } catch (error) {
       console.error('Failed to upload single file:', error);
-      throw new BadRequestException('Failed to upload file');
+      throw new AppException(ErrorCodes.FILE_UPLOAD_FAILED, 'Failed to upload file');
     }
   }
 
   async streamAudio(fileId: string, rangeHeader: string | undefined, res: any) {
     const audioFile = await this.fileRepo.findById(fileId);
     if (!audioFile || audioFile.status !== 'READY') {
-      throw new NotFoundException('Audio file not found or not ready');
+      throw new AppException(ErrorCodes.FILE_NOT_FOUND, 'Audio file not found or not ready');
     }
 
     const fileSize = Number(audioFile.fileSize);
@@ -400,7 +399,7 @@ export class FileService implements OnModuleInit {
   async getMetadata(fileId: string) {
     const audioFile = await this.fileRepo.findById(fileId);
     if (!audioFile) {
-      throw new NotFoundException(`File with ID ${fileId} not found`);
+      throw new AppException(ErrorCodes.FILE_NOT_FOUND, `File with ID ${fileId} not found`);
     }
     return audioFile;
   }
@@ -408,10 +407,11 @@ export class FileService implements OnModuleInit {
   async deleteFile(fileId: string, uploaderId: number) {
     const audioFile = await this.fileRepo.findById(fileId);
     if (!audioFile) {
-      throw new NotFoundException(`File with ID ${fileId} not found`);
+      throw new AppException(ErrorCodes.FILE_NOT_FOUND, `File with ID ${fileId} not found`);
     }
     if (audioFile.uploaderId !== uploaderId) {
-      throw new ForbiddenException(
+      throw new AppException(
+        ErrorCodes.UNAUTHORIZED,
         'You do not have permission to delete this file',
       );
     }
@@ -444,10 +444,11 @@ export class FileService implements OnModuleInit {
   async updateMetadata(fileId: string, fileName: string, uploaderId: number) {
     const audioFile = await this.fileRepo.findById(fileId);
     if (!audioFile) {
-      throw new NotFoundException(`File with ID ${fileId} not found`);
+      throw new AppException(ErrorCodes.FILE_NOT_FOUND, `File with ID ${fileId} not found`);
     }
     if (audioFile.uploaderId !== uploaderId) {
-      throw new ForbiddenException(
+      throw new AppException(
+        ErrorCodes.UNAUTHORIZED,
         'You do not have permission to modify this file',
       );
     }
@@ -481,7 +482,7 @@ export class FileService implements OnModuleInit {
   private publishUploadedEvent(audioFile: any) {
     try {
       const event = {
-        eventId: uuidv4(),
+        eventId: crypto.randomUUID(),
         eventType: 'AUDIO_FILE_UPLOADED',
         timestamp: new Date().toISOString(),
         payload: {

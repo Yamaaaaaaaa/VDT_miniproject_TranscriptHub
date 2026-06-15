@@ -1,8 +1,11 @@
 import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ApiGatewayModule } from './api-gateway.module';
+import { GlobalHttpExceptionFilter } from './filters/http-exception.filter';
+import { TransformInterceptor } from '../../../libs/common/src/interceptors/transform.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(ApiGatewayModule);
@@ -23,7 +26,11 @@ async function bootstrap() {
     }),
   );
 
-  // 3. Set global prefix for API endpoints
+  // 3. Đăng ký Global Interceptor và Filter cho định dạng Response/Error đồng bộ Java
+  app.useGlobalFilters(new GlobalHttpExceptionFilter());
+  app.useGlobalInterceptors(new TransformInterceptor());
+
+  // 4. Set global prefix for API endpoints
   app.setGlobalPrefix('api');
 
   // 4. Setup Swagger API documentation
@@ -46,7 +53,8 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
-  const port = process.env.PORT ?? 3000;
+  const configService = app.get(ConfigService);
+  const port = configService.get<number>('PORT', 3000);
   await app.listen(port);
   console.log(`🌐 API Gateway is running on: http://localhost:${port}/api`);
   console.log(

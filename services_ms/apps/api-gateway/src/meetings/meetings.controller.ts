@@ -8,8 +8,6 @@ import {
   Body,
   Query,
   Req,
-  HttpException,
-  HttpStatus,
   UseGuards,
   ParseIntPipe,
 } from '@nestjs/common';
@@ -20,39 +18,12 @@ import {
   ApiTags,
   ApiQuery,
 } from '@nestjs/swagger';
-import { catchError, map, throwError } from 'rxjs';
 import { JwtIdentityGuard } from '../identity/guards/jwt-identity.guard';
 import { MeetingsService } from './meetings.service';
 import { CreateMeetingDto } from './dto/create-meeting.dto';
 import { UpdateMeetingDto } from './dto/update-meeting.dto';
 import { AddMemberDto } from './dto/add-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
-
-function mapException(err: any) {
-  const message = err?.message || 'Internal server error';
-  let status = HttpStatus.INTERNAL_SERVER_ERROR;
-
-  if (
-    message.toLowerCase().includes('not found') ||
-    message.toLowerCase().includes('notfound')
-  ) {
-    status = HttpStatus.NOT_FOUND;
-  } else if (
-    message.toLowerCase().includes('permission') ||
-    message.toLowerCase().includes('forbidden') ||
-    message.toLowerCase().includes('do not have permission')
-  ) {
-    status = HttpStatus.FORBIDDEN;
-  } else if (
-    message.toLowerCase().includes('already') ||
-    message.toLowerCase().includes('invalid') ||
-    message.toLowerCase().includes('must not')
-  ) {
-    status = HttpStatus.BAD_REQUEST;
-  }
-
-  return throwError(() => new HttpException(message, status));
-}
 
 @ApiTags('Meetings')
 @ApiBearerAuth()
@@ -71,10 +42,7 @@ export class MeetingsController {
   @ApiResponse({ status: 404, description: 'Audio file not found.' })
   create(@Body() dto: CreateMeetingDto, @Req() req: any) {
     const creatorId = req.user.id;
-    return this.meetingsService.create(dto, creatorId).pipe(
-      map((res) => ({ result: res })),
-      catchError(mapException),
-    );
+    return this.meetingsService.create(dto, creatorId);
   }
 
   @Get(':id')
@@ -106,17 +74,12 @@ export class MeetingsController {
     @Req() req: any,
   ) {
     const requesterId = req.user.id;
-    return this.meetingsService
-      .findOne(
-        id,
-        requesterId,
-        includeAudioFile === 'true',
-        includeTranscript === 'true',
-      )
-      .pipe(
-        map((res) => ({ result: res })),
-        catchError(mapException),
-      );
+    return this.meetingsService.findOne(
+      id,
+      requesterId,
+      includeAudioFile === 'true',
+      includeTranscript === 'true',
+    );
   }
 
   @Get()
@@ -149,18 +112,13 @@ export class MeetingsController {
     @Req() req: any,
   ) {
     const userId = req.user.id;
-    return this.meetingsService
-      .findAll(
-        userId,
-        parseInt(page, 10),
-        parseInt(size, 10),
-        includeAudioFile === 'true',
-        includeTranscript === 'true',
-      )
-      .pipe(
-        map((res) => ({ result: res })),
-        catchError(mapException),
-      );
+    return this.meetingsService.findAll(
+      userId,
+      parseInt(page, 10),
+      parseInt(size, 10),
+      includeAudioFile === 'true',
+      includeTranscript === 'true',
+    );
   }
 
   @Put(':id')
@@ -177,10 +135,7 @@ export class MeetingsController {
     @Req() req: any,
   ) {
     const requesterId = req.user.id;
-    return this.meetingsService.update(id, dto, requesterId).pipe(
-      map((res) => ({ result: res })),
-      catchError(mapException),
-    );
+    return this.meetingsService.update(id, dto, requesterId);
   }
 
   @Delete(':id')
@@ -190,10 +145,7 @@ export class MeetingsController {
   @ApiResponse({ status: 404, description: 'Meeting not found.' })
   remove(@Param('id') id: string, @Req() req: any) {
     const requesterId = req.user.id;
-    return this.meetingsService.remove(id, requesterId).pipe(
-      map((res) => ({ result: res.message })),
-      catchError(mapException),
-    );
+    return this.meetingsService.remove(id, requesterId);
   }
 
   @Get(':id/members')
@@ -207,10 +159,7 @@ export class MeetingsController {
   @ApiResponse({ status: 403, description: 'Forbidden.' })
   getMembers(@Param('id') id: string, @Req() req: any) {
     const requesterId = req.user.id;
-    return this.meetingsService.getMembers(id, requesterId).pipe(
-      map((res) => ({ result: res })),
-      catchError(mapException),
-    );
+    return this.meetingsService.getMembers(id, requesterId);
   }
 
   @Post(':id/members')
@@ -225,10 +174,7 @@ export class MeetingsController {
     @Req() req: any,
   ) {
     const requesterId = req.user.id;
-    return this.meetingsService.addMember(id, dto, requesterId).pipe(
-      map((res) => ({ result: res })),
-      catchError(mapException),
-    );
+    return this.meetingsService.addMember(id, dto, requesterId);
   }
 
   @Put(':id/members/:userId')
@@ -246,12 +192,7 @@ export class MeetingsController {
     @Req() req: any,
   ) {
     const requesterId = req.user.id;
-    return this.meetingsService
-      .updateMemberRole(id, targetUserId, dto, requesterId)
-      .pipe(
-        map((res) => ({ result: res })),
-        catchError(mapException),
-      );
+    return this.meetingsService.updateMemberRole(id, targetUserId, dto, requesterId);
   }
 
   @Delete(':id/members/:userId')
@@ -268,11 +209,6 @@ export class MeetingsController {
     @Req() req: any,
   ) {
     const requesterId = req.user.id;
-    return this.meetingsService
-      .removeMember(id, targetUserId, requesterId)
-      .pipe(
-        map((res) => ({ result: res.message })),
-        catchError(mapException),
-      );
+    return this.meetingsService.removeMember(id, targetUserId, requesterId);
   }
 }

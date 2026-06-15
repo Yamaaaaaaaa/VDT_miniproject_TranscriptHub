@@ -18,9 +18,10 @@ RUN npx prisma generate
 
 # Copy source files
 COPY apps ./apps/
+COPY libs ./libs/
 
 # Compile the Identity app to JS
-RUN npx tsc --project apps/identity/tsconfig.app.json
+RUN npx nest build identity
 
 # ── Stage 2: Runtime ───────────────────────────────────────────
 FROM node:22-alpine AS production

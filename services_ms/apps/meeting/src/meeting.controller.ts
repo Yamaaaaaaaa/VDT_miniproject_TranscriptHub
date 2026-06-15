@@ -1,5 +1,5 @@
 import { Controller } from '@nestjs/common';
-import { MessagePattern, Payload, RpcException } from '@nestjs/microservices';
+import { MessagePattern, Payload } from '@nestjs/microservices';
 import { MeetingService } from './meeting.service';
 import { CreateMeetingDto } from './dto/create-meeting.dto';
 import { UpdateMeetingDto } from './dto/update-meeting.dto';
@@ -14,14 +14,10 @@ export class MeetingController {
   async createMeeting(
     @Payload() payload: { dto: CreateMeetingDto; creatorId: number },
   ) {
-    try {
-      return await this.meetingService.createMeeting(
-        payload.dto,
-        payload.creatorId,
-      );
-    } catch (error) {
-      throw new RpcException(error.message);
-    }
+    return this.meetingService.createMeeting(
+      payload.dto,
+      payload.creatorId,
+    );
   }
 
   @MessagePattern('get_meeting')
@@ -34,16 +30,12 @@ export class MeetingController {
       includeTranscript: boolean;
     },
   ) {
-    try {
-      return await this.meetingService.getMeeting(
-        payload.id,
-        payload.requesterId,
-        payload.includeAudioFile,
-        payload.includeTranscript,
-      );
-    } catch (error) {
-      throw new RpcException(error.message);
-    }
+    return this.meetingService.getMeeting(
+      payload.id,
+      payload.requesterId,
+      payload.includeAudioFile,
+      payload.includeTranscript,
+    );
   }
 
   @MessagePattern('list_meetings')
@@ -57,17 +49,13 @@ export class MeetingController {
       includeTranscript: boolean;
     },
   ) {
-    try {
-      return await this.meetingService.listMeetings(
-        payload.userId,
-        payload.page,
-        payload.size,
-        payload.includeAudioFile,
-        payload.includeTranscript,
-      );
-    } catch (error) {
-      throw new RpcException(error.message);
-    }
+    return this.meetingService.listMeetings(
+      payload.userId,
+      payload.page,
+      payload.size,
+      payload.includeAudioFile,
+      payload.includeTranscript,
+    );
   }
 
   @MessagePattern('update_meeting')
@@ -79,54 +67,38 @@ export class MeetingController {
       requesterId: number;
     },
   ) {
-    try {
-      return await this.meetingService.updateMeeting(
-        payload.id,
-        payload.dto,
-        payload.requesterId,
-      );
-    } catch (error) {
-      throw new RpcException(error.message);
-    }
+    return this.meetingService.updateMeeting(
+      payload.id,
+      payload.dto,
+      payload.requesterId,
+    );
   }
 
   @MessagePattern('delete_meeting')
   async deleteMeeting(@Payload() payload: { id: string; requesterId: number }) {
-    try {
-      return await this.meetingService.deleteMeeting(
-        payload.id,
-        payload.requesterId,
-      );
-    } catch (error) {
-      throw new RpcException(error.message);
-    }
+    return this.meetingService.deleteMeeting(
+      payload.id,
+      payload.requesterId,
+    );
   }
 
   @MessagePattern('get_meeting_members')
   async getMembers(@Payload() payload: { id: string; requesterId: number }) {
-    try {
-      return await this.meetingService.getMembers(
-        payload.id,
-        payload.requesterId,
-      );
-    } catch (error) {
-      throw new RpcException(error.message);
-    }
+    return this.meetingService.getMembers(
+      payload.id,
+      payload.requesterId,
+    );
   }
 
   @MessagePattern('add_meeting_member')
   async addMember(
     @Payload() payload: { id: string; dto: AddMemberDto; requesterId: number },
   ) {
-    try {
-      return await this.meetingService.addMember(
-        payload.id,
-        payload.dto,
-        payload.requesterId,
-      );
-    } catch (error) {
-      throw new RpcException(error.message);
-    }
+    return this.meetingService.addMember(
+      payload.id,
+      payload.dto,
+      payload.requesterId,
+    );
   }
 
   @MessagePattern('update_meeting_member_role')
@@ -139,16 +111,12 @@ export class MeetingController {
       requesterId: number;
     },
   ) {
-    try {
-      return await this.meetingService.updateMemberRole(
-        payload.id,
-        payload.targetUserId,
-        payload.dto,
-        payload.requesterId,
-      );
-    } catch (error) {
-      throw new RpcException(error.message);
-    }
+    return this.meetingService.updateMemberRole(
+      payload.id,
+      payload.targetUserId,
+      payload.dto,
+      payload.requesterId,
+    );
   }
 
   @MessagePattern('remove_meeting_member')
@@ -160,14 +128,10 @@ export class MeetingController {
       requesterId: number;
     },
   ) {
-    try {
-      return await this.meetingService.removeMember(
-        payload.id,
-        payload.targetUserId,
-        payload.requesterId,
-      );
-    } catch (error) {
-      throw new RpcException(error.message);
-    }
+    return this.meetingService.removeMember(
+      payload.id,
+      payload.targetUserId,
+      payload.requesterId,
+    );
   }
 }

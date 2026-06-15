@@ -18,9 +18,10 @@ RUN npx prisma generate
 
 # Copy source files
 COPY apps ./apps/
+COPY libs ./libs/
 
 # Compile the Meeting app to JS
-RUN npx tsc --project apps/meeting/tsconfig.app.json
+RUN npx nest build meeting
 
 # ── Stage 2: Runtime ───────────────────────────────────────────
 FROM node:22-alpine AS production

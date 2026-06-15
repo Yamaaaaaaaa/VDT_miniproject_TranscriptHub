@@ -23,17 +23,23 @@ import {
 } from '@nestjs/swagger';
 import * as express from 'express';
 import * as http from 'http';
-import { throwError } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { ConfigService } from '@nestjs/config';
 import { JwtIdentityGuard } from '../identity/guards/jwt-identity.guard';
 import { FilesService } from './files.service';
 
 @ApiTags('Files')
 @Controller('files')
 export class FilesController {
-  private readonly fileServiceUrl = `http://${process.env.FILE_SERVICE_HOST || 'localhost'}:${process.env.FILE_SERVICE_PORT || '3003'}`;
+  private readonly fileServiceUrl: string;
 
-  constructor(private readonly filesService: FilesService) {}
+  constructor(
+    private readonly filesService: FilesService,
+    private readonly configService: ConfigService,
+  ) {
+    const host = this.configService.get<string>('FILE_SERVICE_HOST', 'localhost');
+    const port = this.configService.get<number>('FILE_SERVICE_PORT', 3003);
+    this.fileServiceUrl = `http://${host}:${port}`;
+  }
 
   private doProxy(
     req: express.Request,
@@ -176,13 +182,7 @@ export class FilesController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get file metadata by ID' })
   getMetadata(@Param('fileId') fileId: string) {
-    return this.filesService.getMetadata(fileId).pipe(
-      catchError((err) => {
-        const status = err?.status || HttpStatus.INTERNAL_SERVER_ERROR;
-        const message = err?.message || 'Failed to retrieve metadata';
-        return throwError(() => new HttpException(message, status));
-      }),
-    );
+    return this.filesService.getMetadata(fileId);
   }
 
   @Put(':fileId')
@@ -207,13 +207,7 @@ export class FilesController {
     if (!uploaderId) {
       throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
     }
-    return this.filesService.updateMetadata(fileId, fileName, uploaderId).pipe(
-      catchError((err) => {
-        const status = err?.status || HttpStatus.INTERNAL_SERVER_ERROR;
-        const message = err?.message || 'Failed to update metadata';
-        return throwError(() => new HttpException(message, status));
-      }),
-    );
+    return this.filesService.updateMetadata(fileId, fileName, uploaderId);
   }
 
   @Delete(':fileId')
@@ -225,13 +219,7 @@ export class FilesController {
     if (!uploaderId) {
       throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
     }
-    return this.filesService.deleteFile(fileId, uploaderId).pipe(
-      catchError((err) => {
-        const status = err?.status || HttpStatus.INTERNAL_SERVER_ERROR;
-        const message = err?.message || 'Failed to delete file';
-        return throwError(() => new HttpException(message, status));
-      }),
-    );
+    return this.filesService.deleteFile(fileId, uploaderId);
   }
 
   @Get()
@@ -249,14 +237,6 @@ export class FilesController {
     if (!uploaderId) {
       throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
     }
-    return this.filesService
-      .listFiles(uploaderId, parseInt(page, 10), parseInt(size, 10))
-      .pipe(
-        catchError((err) => {
-          const status = err?.status || HttpStatus.INTERNAL_SERVER_ERROR;
-          const message = err?.message || 'Failed to list files';
-          return throwError(() => new HttpException(message, status));
-        }),
-      );
+    return this.filesService.listFiles(uploaderId, parseInt(page, 10), parseInt(size, 10));
   }
 }

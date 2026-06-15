@@ -1,8 +1,6 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { AppException, ErrorCodes } from '../../../libs/common/src/exceptions/error-code';
 import { TranscriptRepository } from './repositories/transcript.repository';
 import { FileGateway } from './gateways/file.gateway';
 
@@ -11,13 +9,15 @@ export class TranscriptService {
   constructor(
     private readonly transcriptRepo: TranscriptRepository,
     private readonly fileGateway: FileGateway,
+    private readonly configService: ConfigService,
   ) {}
 
   async getTranscriptByAudioFileId(audioFileId: string) {
     console.log(`Fetching transcript for audioFileId: ${audioFileId}`);
     const transcript = await this.transcriptRepo.findByAudioFileId(audioFileId);
     if (!transcript) {
-      throw new NotFoundException(
+      throw new AppException(
+        ErrorCodes.TRANSCRIPT_NOT_FOUND,
         `Transcript not found for audio file ${audioFileId}`,
       );
     }
@@ -58,11 +58,12 @@ export class TranscriptService {
     try {
       const exists = await this.fileGateway.checkFileExists(fileId);
       if (!exists) {
-        throw new NotFoundException('Audio file not found in File Service');
+        throw new AppException(ErrorCodes.AUDIO_FILE_NOT_FOUND, 'Audio file not found in File Service');
       }
     } catch (error) {
+      if (error instanceof AppException) throw error;
       console.error('Failed to check file existence in file-service', error);
-      throw new BadRequestException('Failed to verify audio file existence');
+      throw new AppException(ErrorCodes.INVALID_KEY, 'Failed to verify audio file existence');
     }
 
     let transcript = await this.transcriptRepo.findByAudioFileId(fileId);
@@ -137,8 +138,8 @@ export class TranscriptService {
   private async transcribe(
     fileId: string,
   ): Promise<{ rawText: string; segments: any[] }> {
-    const apiKey = process.env.GEMINI_API_KEY;
-    const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const apiKey = this.configService.get<string>('GEMINI_API_KEY');
+    const modelName = this.configService.get<string>('GEMINI_MODEL', 'gemini-2.5-flash');
 
     if (
       !apiKey ||
@@ -163,8 +164,8 @@ export class TranscriptService {
     }
 
     // Tải file âm thanh từ file-service
-    const fileServiceHost = process.env.FILE_SERVICE_HOST || 'localhost';
-    const fileServicePort = process.env.FILE_SERVICE_PORT || '3003';
+    const fileServiceHost = this.configService.get<string>('FILE_SERVICE_HOST', 'localhost');
+    const fileServicePort = this.configService.get<number>('FILE_SERVICE_PORT', 3003);
     const fileUrl = `http://${fileServiceHost}:${fileServicePort}/api/v1/files/stream/${fileId}`;
 
     console.log(`Downloading file bytes for fileId: ${fileId} from ${fileUrl}`);
@@ -271,7 +272,7 @@ Requirements:
     console.log(`Deleting transcript with ID: ${id}`);
     const transcript = await this.transcriptRepo.findById(id);
     if (!transcript) {
-      throw new NotFoundException(`Transcript with ID ${id} not found`);
+      throw new AppException(ErrorCodes.TRANSCRIPT_NOT_FOUND, `Transcript with ID ${id} not found`);
     }
     await this.transcriptRepo.delete(id);
     return { message: 'Transcript deleted successfully', id };

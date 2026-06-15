@@ -1,9 +1,5 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { AppException, ErrorCodes } from '../../../libs/common/src/exceptions/error-code';
 import { MeetingRepository } from './repositories/meeting.repository';
 import { UserGateway } from './gateways/user.gateway';
 import { FileGateway } from './gateways/file.gateway';
@@ -82,20 +78,18 @@ export class MeetingService {
         dto.audioFileId,
       );
       if (!fileExists) {
-        throw new NotFoundException('Audio file not found');
+        throw new AppException(ErrorCodes.AUDIO_FILE_NOT_FOUND);
       }
     } catch (err) {
-      if (err instanceof NotFoundException) throw err;
+      if (err instanceof AppException) throw err;
       console.error('Failed to connect to file-service for validation', err);
-      throw new NotFoundException('Audio file not found');
+      throw new AppException(ErrorCodes.AUDIO_FILE_NOT_FOUND);
     }
 
     // 2. Check if audio file is already linked to another meeting
     const linked = await this.meetingRepo.findByAudioFileId(dto.audioFileId);
     if (linked) {
-      throw new BadRequestException(
-        'Audio file is already linked to another meeting',
-      );
+      throw new AppException(ErrorCodes.AUDIO_FILE_ALREADY_LINKED);
     }
 
     // 3. Save meeting and add creator as HOST
@@ -118,7 +112,7 @@ export class MeetingService {
     );
     const meeting = await this.meetingRepo.findById(meetingId);
     if (!meeting) {
-      throw new NotFoundException('Meeting not found');
+      throw new AppException(ErrorCodes.MEETING_NOT_FOUND);
     }
 
     // Check membership
@@ -127,7 +121,7 @@ export class MeetingService {
       requesterId,
     );
     if (!membership) {
-      throw new ForbiddenException('You do not have permission');
+      throw new AppException(ErrorCodes.UNAUTHORIZED);
     }
 
     return this.enrichMeeting(meeting, includeAudioFile, includeTranscript);
@@ -174,7 +168,7 @@ export class MeetingService {
     console.log(`Updating meeting: ${meetingId} by requester: ${requesterId}`);
     const meeting = await this.meetingRepo.findById(meetingId);
     if (!meeting) {
-      throw new NotFoundException('Meeting not found');
+      throw new AppException(ErrorCodes.MEETING_NOT_FOUND);
     }
 
     // Requester must be HOST or EDITOR to update meeting
@@ -183,7 +177,7 @@ export class MeetingService {
       !member ||
       (member.role !== MeetingRole.HOST && member.role !== MeetingRole.EDITOR)
     ) {
-      throw new ForbiddenException('You do not have permission');
+      throw new AppException(ErrorCodes.UNAUTHORIZED);
     }
 
     const data: any = {
@@ -199,19 +193,17 @@ export class MeetingService {
           dto.audioFileId,
         );
         if (!fileExists) {
-          throw new NotFoundException('Audio file not found');
+          throw new AppException(ErrorCodes.AUDIO_FILE_NOT_FOUND);
         }
       } catch (err) {
-        if (err instanceof NotFoundException) throw err;
+        if (err instanceof AppException) throw err;
         console.error('Failed to connect to file-service for validation', err);
-        throw new NotFoundException('Audio file not found');
+        throw new AppException(ErrorCodes.AUDIO_FILE_NOT_FOUND);
       }
 
       const linked = await this.meetingRepo.findByAudioFileId(dto.audioFileId);
       if (linked && linked.id !== meetingId) {
-        throw new BadRequestException(
-          'Audio file is already linked to another meeting',
-        );
+        throw new AppException(ErrorCodes.AUDIO_FILE_ALREADY_LINKED);
       }
 
       data.audioFileId = dto.audioFileId;
@@ -224,13 +216,13 @@ export class MeetingService {
     console.log(`Deleting meeting: ${meetingId} by requester: ${requesterId}`);
     const meeting = await this.meetingRepo.findById(meetingId);
     if (!meeting) {
-      throw new NotFoundException('Meeting not found');
+      throw new AppException(ErrorCodes.MEETING_NOT_FOUND);
     }
 
     // Requester must be HOST to delete meeting
     const member = await this.meetingRepo.findMember(meetingId, requesterId);
     if (!member || member.role !== MeetingRole.HOST) {
-      throw new ForbiddenException('You do not have permission');
+      throw new AppException(ErrorCodes.UNAUTHORIZED);
     }
 
     await this.meetingRepo.delete(meetingId);
@@ -249,7 +241,7 @@ export class MeetingService {
       requesterId,
     );
     if (!requesterMembership) {
-      throw new ForbiddenException('You do not have permission');
+      throw new AppException(ErrorCodes.UNAUTHORIZED);
     }
 
     return this.meetingRepo.findMembersByMeetingId(meetingId);
@@ -263,7 +255,7 @@ export class MeetingService {
     // Requester must be HOST to add members
     const requester = await this.meetingRepo.findMember(meetingId, requesterId);
     if (!requester || requester.role !== MeetingRole.HOST) {
-      throw new ForbiddenException('You do not have permission');
+      throw new AppException(ErrorCodes.UNAUTHORIZED);
     }
 
     let targetUserId = dto.userId;
@@ -271,31 +263,31 @@ export class MeetingService {
       try {
         const user = await this.userGateway.findProfileByEmail(dto.email);
         if (!user || !user.id) {
-          throw new NotFoundException('User not found');
+          throw new AppException(ErrorCodes.USER_NOT_FOUND);
         }
         targetUserId = user.id;
       } catch (err) {
-        throw new NotFoundException('User not found');
+        throw new AppException(ErrorCodes.USER_NOT_FOUND);
       }
     } else if (targetUserId) {
       try {
         const user = await this.userGateway.findOneProfile(targetUserId);
         if (!user || !user.id) {
-          throw new NotFoundException('User not found');
+          throw new AppException(ErrorCodes.USER_NOT_FOUND);
         }
       } catch (err) {
-        throw new NotFoundException('User not found');
+        throw new AppException(ErrorCodes.USER_NOT_FOUND);
       }
     }
 
     if (!targetUserId) {
-      throw new BadRequestException('Invalid action or permission');
+      throw new AppException(ErrorCodes.INVALID_ACTION);
     }
 
     // Check if member already exists
     const existing = await this.meetingRepo.findMember(meetingId, targetUserId);
     if (existing) {
-      throw new BadRequestException('User is already a member of this meeting');
+      throw new AppException(ErrorCodes.MEMBER_ALREADY_EXISTS);
     }
 
     return this.meetingRepo.addMember(meetingId, targetUserId, dto.role);
@@ -314,7 +306,7 @@ export class MeetingService {
     // Requester must be HOST to update roles
     const requester = await this.meetingRepo.findMember(meetingId, requesterId);
     if (!requester || requester.role !== MeetingRole.HOST) {
-      throw new ForbiddenException('You do not have permission');
+      throw new AppException(ErrorCodes.UNAUTHORIZED);
     }
 
     const targetMember = await this.meetingRepo.findMember(
@@ -322,17 +314,17 @@ export class MeetingService {
       targetUserId,
     );
     if (!targetMember) {
-      throw new NotFoundException('Member not found in meeting');
+      throw new AppException(ErrorCodes.MEMBER_NOT_FOUND);
     }
 
     const meeting = await this.meetingRepo.findById(meetingId);
     if (!meeting) {
-      throw new NotFoundException('Meeting not found');
+      throw new AppException(ErrorCodes.MEETING_NOT_FOUND);
     }
 
     // Prevent changing the creator's role (the creator must always be HOST)
     if (targetUserId === meeting.creatorId && dto.role !== MeetingRole.HOST) {
-      throw new BadRequestException('Invalid action or permission');
+      throw new AppException(ErrorCodes.INVALID_ACTION);
     }
 
     // Prevent self-role modification if it degrades the host count
@@ -342,7 +334,7 @@ export class MeetingService {
         (m) => m.role === MeetingRole.HOST,
       ).length;
       if (hostCount <= 1) {
-        throw new BadRequestException('Invalid action or permission');
+        throw new AppException(ErrorCodes.INVALID_ACTION);
       }
     }
 
@@ -360,22 +352,22 @@ export class MeetingService {
 
     const meeting = await this.meetingRepo.findById(meetingId);
     if (!meeting) {
-      throw new NotFoundException('Meeting not found');
+      throw new AppException(ErrorCodes.MEETING_NOT_FOUND);
     }
 
     // Prevent removing the creator of the meeting (creator cannot leave or be removed)
     if (targetUserId === meeting.creatorId) {
-      throw new BadRequestException('Invalid action or permission');
+      throw new AppException(ErrorCodes.INVALID_ACTION);
     }
 
     const isSelf = targetUserId === requesterId;
     const requester = await this.meetingRepo.findMember(meetingId, requesterId);
     if (!requester) {
-      throw new ForbiddenException('You do not have permission');
+      throw new AppException(ErrorCodes.UNAUTHORIZED);
     }
 
     if (!isSelf && requester.role !== MeetingRole.HOST) {
-      throw new ForbiddenException('You do not have permission');
+      throw new AppException(ErrorCodes.UNAUTHORIZED);
     }
 
     const targetMember = await this.meetingRepo.findMember(
@@ -383,7 +375,7 @@ export class MeetingService {
       targetUserId,
     );
     if (!targetMember) {
-      throw new NotFoundException('Member not found in meeting');
+      throw new AppException(ErrorCodes.MEMBER_NOT_FOUND);
     }
 
     // If a HOST is leaving, verify they are not the sole HOST
@@ -393,7 +385,7 @@ export class MeetingService {
         (m) => m.role === MeetingRole.HOST,
       ).length;
       if (hostCount <= 1) {
-        throw new BadRequestException('Invalid action or permission');
+        throw new AppException(ErrorCodes.INVALID_ACTION);
       }
     }
 

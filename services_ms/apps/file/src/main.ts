@@ -1,8 +1,11 @@
 import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { FileModule } from './file.module';
+import { MicroserviceExceptionFilter } from '../../../libs/common/src/filters/microservice-exception.filter';
+import { TransformInterceptor } from '../../../libs/common/src/interceptors/transform.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(FileModule);
@@ -15,7 +18,13 @@ async function bootstrap() {
     }),
   );
 
-  const tcpPort = parseInt(process.env.FILE_SERVICE_TCP_PORT || '3004', 10);
+  // Đăng ký Exception Filter và Interceptor toàn cục để định dạng response thống nhất
+  app.useGlobalFilters(new MicroserviceExceptionFilter());
+  app.useGlobalInterceptors(new TransformInterceptor());
+
+  const configService = app.get(ConfigService);
+
+  const tcpPort = configService.get<number>('FILE_SERVICE_TCP_PORT', 3004);
   app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.TCP,
     options: {
@@ -29,7 +38,7 @@ async function bootstrap() {
     `🚀 File Microservice TCP listener is active on port: ${tcpPort}`,
   );
 
-  const port = process.env.FILE_SERVICE_PORT || 3003;
+  const port = configService.get<number>('FILE_SERVICE_PORT', 3003);
   await app.listen(port);
   console.log(
     `🚀 File Service is running on HTTP port: http://localhost:${port}`,
