@@ -5,6 +5,8 @@ import { IdentityController } from './identity.controller';
 import { IdentityService } from './identity.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
+import { IdentityRepository } from './repositories/identity.repository';
+import { UserGateway } from './gateways/user.gateway';
 
 @Module({
   imports: [
@@ -23,6 +25,6 @@ import { RedisModule } from './redis/redis.module';
     ]),
   ],
   controllers: [IdentityController],
-  providers: [IdentityService],
+  providers: [IdentityService, IdentityRepository, UserGateway],
 })
-export class IdentityModule { }
+export class IdentityModule {}

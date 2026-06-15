@@ -11,7 +11,7 @@ async function bootstrap() {
       transport: Transport.TCP,
       options: {
         host: '0.0.0.0', // Lắng nghe trên tất cả các card mạng
-        port: 3001,      // Port giao tiếp TCP
+        port: 3001, // Port giao tiếp TCP
       },
     },
   );

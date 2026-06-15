@@ -6,8 +6,14 @@ import { TranscriptsModule } from './transcripts/transcripts.module';
 import { MeetingsModule } from './meetings/meetings.module';
 
 @Module({
-  imports: [UsersModule, IdentityModule, FilesModule, TranscriptsModule, MeetingsModule],
+  imports: [
+    UsersModule,
+    IdentityModule,
+    FilesModule,
+    TranscriptsModule,
+    MeetingsModule,
+  ],
   controllers: [],
   providers: [],
 })
-export class ApiGatewayModule { }
+export class ApiGatewayModule {}

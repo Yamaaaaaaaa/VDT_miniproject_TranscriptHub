@@ -25,7 +25,12 @@ export class MeetingsService {
     includeTranscript: boolean,
   ): Observable<any> {
     return this.meetingClient
-      .send('get_meeting', { id, requesterId, includeAudioFile, includeTranscript })
+      .send('get_meeting', {
+        id,
+        requesterId,
+        includeAudioFile,
+        includeTranscript,
+      })
       .pipe(catchError((err) => throwError(() => err)));
   }
 
@@ -37,11 +42,21 @@ export class MeetingsService {
     includeTranscript: boolean,
   ): Observable<any> {
     return this.meetingClient
-      .send('list_meetings', { userId, page, size, includeAudioFile, includeTranscript })
+      .send('list_meetings', {
+        userId,
+        page,
+        size,
+        includeAudioFile,
+        includeTranscript,
+      })
       .pipe(catchError((err) => throwError(() => err)));
   }
 
-  update(id: string, dto: UpdateMeetingDto, requesterId: number): Observable<any> {
+  update(
+    id: string,
+    dto: UpdateMeetingDto,
+    requesterId: number,
+  ): Observable<any> {
     return this.meetingClient
       .send('update_meeting', { id, dto, requesterId })
       .pipe(catchError((err) => throwError(() => err)));
@@ -59,7 +74,11 @@ export class MeetingsService {
       .pipe(catchError((err) => throwError(() => err)));
   }
 
-  addMember(id: string, dto: AddMemberDto, requesterId: number): Observable<any> {
+  addMember(
+    id: string,
+    dto: AddMemberDto,
+    requesterId: number,
+  ): Observable<any> {
     return this.meetingClient
       .send('add_meeting_member', { id, dto, requesterId })
       .pipe(catchError((err) => throwError(() => err)));
@@ -72,11 +91,20 @@ export class MeetingsService {
     requesterId: number,
   ): Observable<any> {
     return this.meetingClient
-      .send('update_meeting_member_role', { id, targetUserId, dto, requesterId })
+      .send('update_meeting_member_role', {
+        id,
+        targetUserId,
+        dto,
+        requesterId,
+      })
       .pipe(catchError((err) => throwError(() => err)));
   }
 
-  removeMember(id: string, targetUserId: number, requesterId: number): Observable<any> {
+  removeMember(
+    id: string,
+    targetUserId: number,
+    requesterId: number,
+  ): Observable<any> {
     return this.meetingClient
       .send('remove_meeting_member', { id, targetUserId, requesterId })
       .pipe(catchError((err) => throwError(() => err)));

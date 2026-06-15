@@ -3,7 +3,7 @@
 import React, { useState, useEffect, use, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { meetingsApi, usersApi } from '@/lib/api';
+import { meetingsApi, usersApi, filesApi } from '@/lib/api';
 import { 
   Video, 
   ArrowLeft, 
@@ -64,6 +64,8 @@ function MeetingDetailInner({ id }: MeetingDetailInnerProps) {
   const [meeting, setMeeting] = useState<MeetingResponse | null>(null);
   const [members, setMembers] = useState<MeetingMemberResponse[]>([]);
   const [allUsersList, setAllUsersList] = useState<UserProfileResponse[]>([]);
+  const [files, setFiles] = useState<any[]>([]);
+  const [meetingsList, setMeetingsList] = useState<any[]>([]);
   
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -75,6 +77,7 @@ function MeetingDetailInner({ id }: MeetingDetailInnerProps) {
   const [title, setTitle] = useState<string>('');
   const [description, setDescription] = useState<string>('');
   const [status, setStatus] = useState<'CREATING' | 'PROCESSING' | 'COMPLETED'>('CREATING');
+  const [audioFileId, setAudioFileId] = useState<string>('');
 
   // Form inputs for adding a member
   const [newMemberEmail, setNewMemberEmail] = useState<string>('');
@@ -103,19 +106,24 @@ function MeetingDetailInner({ id }: MeetingDetailInnerProps) {
     setLoading(true);
     setError('');
     try {
-      const [meetingData, membersList, usersList] = await Promise.all([
+      const [meetingData, membersList, usersList, filesPage, meetingsPage] = await Promise.all([
         meetingsApi.getOne(id, true, false),
         meetingsApi.getMembers(id),
-        usersApi.getAll()
+        usersApi.getAll(),
+        filesApi.list(0, 100),
+        meetingsApi.list(0, 100, false, false)
       ]);
 
       setMeeting(meetingData);
       setTitle(meetingData.title);
       setDescription(meetingData.description || '');
       setStatus(meetingData.status);
+      setAudioFileId(meetingData.audioFileId || '');
       
       setMembers(membersList || []);
       setAllUsersList(usersList || []);
+      setFiles(filesPage.content || []);
+      setMeetingsList(meetingsPage.content || []);
     } catch (err: any) {
       console.error(err);
       setError(err.response?.data?.message || err.message || 'Không thể tải chi tiết cuộc họp.');
@@ -129,12 +137,26 @@ function MeetingDetailInner({ id }: MeetingDetailInnerProps) {
     loadInitialData();
   }, [loadInitialData]);
 
+  // Get all files that are not linked to any other meeting
+  const getAvailableFiles = () => {
+    const linkedFileIds = new Set(
+      meetingsList
+        .filter(m => m.id !== id && m.audioFileId)
+        .map(m => m.audioFileId)
+    );
+    return files.filter(f => !linkedFileIds.has(f.id) || f.id === meeting?.audioFileId);
+  };
+
   // Handle meeting detail update
   const handleUpdateMeeting = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!id) return;
     if (!title.trim()) {
       setActionError('Tiêu đề cuộc họp không được để trống.');
+      return;
+    }
+    if (!audioFileId) {
+      setActionError('Vui lòng chọn một tệp ghi âm liên kết.');
       return;
     }
 
@@ -144,10 +166,11 @@ function MeetingDetailInner({ id }: MeetingDetailInnerProps) {
       const updated = await meetingsApi.update(id, {
         title: title.trim(),
         description: description.trim(),
-        status
+        status,
+        audioFileId
       });
-      setMeeting(updated);
       addToast('success', 'Đã lưu các thay đổi của cuộc họp thành công!');
+      await loadInitialData();
     } catch (err: any) {
       console.error(err);
       setActionError(err.response?.data?.message || err.message || 'Lỗi khi cập nhật chi tiết cuộc họp.');
@@ -372,6 +395,29 @@ function MeetingDetailInner({ id }: MeetingDetailInnerProps) {
                     <option value="CREATING">Khởi tạo (CREATING)</option>
                     <option value="PROCESSING">Đang xử lý (PROCESSING)</option>
                     <option value="COMPLETED">Đã hoàn thành (COMPLETED)</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tệp ghi âm liên kết *</label>
+                  <select 
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-700 focus:outline-none focus:border-red-500 focus:bg-white transition-all cursor-pointer"
+                    value={audioFileId}
+                    onChange={e => setAudioFileId(e.target.value)}
+                    disabled={submitting}
+                    required
+                  >
+                    <option value="" disabled>-- Chọn tệp ghi âm liên kết --</option>
+                    {getAvailableFiles().map(f => (
+                      <option key={f.id} value={f.id}>
+                        {f.fileName} ({(Number(f.fileSize) / 1024 / 1024).toFixed(2)} MB)
+                      </option>
+                    ))}
+                    {audioFileId && !getAvailableFiles().some(f => f.id === audioFileId) && (
+                      <option value={audioFileId} disabled>
+                        File liên kết hiện tại đã bị xóa (ID: {audioFileId.slice(0, 8)}...)
+                      </option>
+                    )}
                   </select>
                 </div>
 

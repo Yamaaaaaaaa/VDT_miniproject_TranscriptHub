@@ -1,10 +1,17 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsInt, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 import { MeetingRole } from '@prisma/client';
 
 export class AddMemberDto {
   @ApiProperty({
-    description: 'The user ID to add as a member (optional if email is provided)',
+    description:
+      'The user ID to add as a member (optional if email is provided)',
     example: 2,
     required: false,
   })
@@ -13,7 +20,8 @@ export class AddMemberDto {
   userId?: number;
 
   @ApiProperty({
-    description: 'The user email to add as a member (optional if userId is provided)',
+    description:
+      'The user email to add as a member (optional if userId is provided)',
     example: 'user2@example.com',
     required: false,
   })

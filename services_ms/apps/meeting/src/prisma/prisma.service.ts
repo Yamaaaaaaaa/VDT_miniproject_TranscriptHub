@@ -5,23 +5,24 @@ import { Pool } from 'pg';
 
 @Injectable()
 export class PrismaService
-    extends PrismaClient
-    implements OnModuleInit, OnModuleDestroy {
-    constructor() {
-        const pool = new Pool({
-            connectionString: process.env.DATABASE_URL,
-        });
-        const adapter = new PrismaPg(pool);
+  extends PrismaClient
+  implements OnModuleInit, OnModuleDestroy
+{
+  constructor() {
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+    });
+    const adapter = new PrismaPg(pool);
 
-        super({ adapter });
-    }
+    super({ adapter });
+  }
 
-    async onModuleInit() {
-        await this.$connect();
-        console.log('📦 Prisma connected to PostgreSQL (Meeting Service)');
-    }
+  async onModuleInit() {
+    await this.$connect();
+    console.log('📦 Prisma connected to PostgreSQL (Meeting Service)');
+  }
 
-    async onModuleDestroy() {
-        await this.$disconnect();
-    }
+  async onModuleDestroy() {
+    await this.$disconnect();
+  }
 }

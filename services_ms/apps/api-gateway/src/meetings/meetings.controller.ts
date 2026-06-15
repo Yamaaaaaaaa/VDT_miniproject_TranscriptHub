@@ -1,8 +1,25 @@
 import {
-  Controller, Get, Post, Put, Delete, Param, Body, Query, Req,
-  HttpException, HttpStatus, UseGuards, ParseIntPipe
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Param,
+  Body,
+  Query,
+  Req,
+  HttpException,
+  HttpStatus,
+  UseGuards,
+  ParseIntPipe,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags, ApiQuery } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { catchError, map, throwError } from 'rxjs';
 import { JwtIdentityGuard } from '../identity/guards/jwt-identity.guard';
 import { MeetingsService } from './meetings.service';
@@ -16,19 +33,19 @@ function mapException(err: any) {
   let status = HttpStatus.INTERNAL_SERVER_ERROR;
 
   if (
-    message.toLowerCase().includes('not found') || 
+    message.toLowerCase().includes('not found') ||
     message.toLowerCase().includes('notfound')
   ) {
     status = HttpStatus.NOT_FOUND;
   } else if (
-    message.toLowerCase().includes('permission') || 
-    message.toLowerCase().includes('forbidden') || 
+    message.toLowerCase().includes('permission') ||
+    message.toLowerCase().includes('forbidden') ||
     message.toLowerCase().includes('do not have permission')
   ) {
     status = HttpStatus.FORBIDDEN;
   } else if (
-    message.toLowerCase().includes('already') || 
-    message.toLowerCase().includes('invalid') || 
+    message.toLowerCase().includes('already') ||
+    message.toLowerCase().includes('invalid') ||
     message.toLowerCase().includes('must not')
   ) {
     status = HttpStatus.BAD_REQUEST;
@@ -47,7 +64,10 @@ export class MeetingsController {
   @Post()
   @ApiOperation({ summary: 'Create a new meeting (Requires Auth)' })
   @ApiResponse({ status: 201, description: 'Meeting created successfully.' })
-  @ApiResponse({ status: 400, description: 'Validation failed or audio file already linked.' })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation failed or audio file already linked.',
+  })
   @ApiResponse({ status: 404, description: 'Audio file not found.' })
   create(@Body() dto: CreateMeetingDto, @Req() req: any) {
     const creatorId = req.user.id;
@@ -58,10 +78,25 @@ export class MeetingsController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a single meeting by ID (Requires Auth & Membership)' })
-  @ApiQuery({ name: 'includeAudioFile', required: false, type: Boolean, example: false })
-  @ApiQuery({ name: 'includeTranscript', required: false, type: Boolean, example: false })
-  @ApiResponse({ status: 200, description: 'Meeting details retrieved successfully.' })
+  @ApiOperation({
+    summary: 'Get a single meeting by ID (Requires Auth & Membership)',
+  })
+  @ApiQuery({
+    name: 'includeAudioFile',
+    required: false,
+    type: Boolean,
+    example: false,
+  })
+  @ApiQuery({
+    name: 'includeTranscript',
+    required: false,
+    type: Boolean,
+    example: false,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Meeting details retrieved successfully.',
+  })
   @ApiResponse({ status: 403, description: 'Forbidden (Not a member).' })
   @ApiResponse({ status: 404, description: 'Meeting not found.' })
   findOne(
@@ -85,12 +120,27 @@ export class MeetingsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List all meetings for the current user (Requires Auth)' })
+  @ApiOperation({
+    summary: 'List all meetings for the current user (Requires Auth)',
+  })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 0 })
   @ApiQuery({ name: 'size', required: false, type: Number, example: 10 })
-  @ApiQuery({ name: 'includeAudioFile', required: false, type: Boolean, example: false })
-  @ApiQuery({ name: 'includeTranscript', required: false, type: Boolean, example: false })
-  @ApiResponse({ status: 200, description: 'Paged meetings list retrieved successfully.' })
+  @ApiQuery({
+    name: 'includeAudioFile',
+    required: false,
+    type: Boolean,
+    example: false,
+  })
+  @ApiQuery({
+    name: 'includeTranscript',
+    required: false,
+    type: Boolean,
+    example: false,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Paged meetings list retrieved successfully.',
+  })
   findAll(
     @Query('page') page = '0',
     @Query('size') size = '10',
@@ -114,11 +164,18 @@ export class MeetingsController {
   }
 
   @Put(':id')
-  @ApiOperation({ summary: 'Update meeting title, description, or status (Requires Auth & Host/Editor)' })
+  @ApiOperation({
+    summary:
+      'Update meeting title, description, or status (Requires Auth & Host/Editor)',
+  })
   @ApiResponse({ status: 200, description: 'Meeting updated successfully.' })
   @ApiResponse({ status: 403, description: 'Forbidden.' })
   @ApiResponse({ status: 404, description: 'Meeting not found.' })
-  update(@Param('id') id: string, @Body() dto: UpdateMeetingDto, @Req() req: any) {
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateMeetingDto,
+    @Req() req: any,
+  ) {
     const requesterId = req.user.id;
     return this.meetingsService.update(id, dto, requesterId).pipe(
       map((res) => ({ result: res })),
@@ -140,8 +197,13 @@ export class MeetingsController {
   }
 
   @Get(':id/members')
-  @ApiOperation({ summary: 'Get all members of a meeting (Requires Auth & Membership)' })
-  @ApiResponse({ status: 200, description: 'List of members successfully retrieved.' })
+  @ApiOperation({
+    summary: 'Get all members of a meeting (Requires Auth & Membership)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of members successfully retrieved.',
+  })
   @ApiResponse({ status: 403, description: 'Forbidden.' })
   getMembers(@Param('id') id: string, @Req() req: any) {
     const requesterId = req.user.id;
@@ -157,7 +219,11 @@ export class MeetingsController {
   @ApiResponse({ status: 400, description: 'User already a member.' })
   @ApiResponse({ status: 403, description: 'Forbidden.' })
   @ApiResponse({ status: 404, description: 'User not found.' })
-  addMember(@Param('id') id: string, @Body() dto: AddMemberDto, @Req() req: any) {
+  addMember(
+    @Param('id') id: string,
+    @Body() dto: AddMemberDto,
+    @Req() req: any,
+  ) {
     const requesterId = req.user.id;
     return this.meetingsService.addMember(id, dto, requesterId).pipe(
       map((res) => ({ result: res })),
@@ -167,7 +233,10 @@ export class MeetingsController {
 
   @Put(':id/members/:userId')
   @ApiOperation({ summary: 'Update a member role (Requires Auth & Host)' })
-  @ApiResponse({ status: 200, description: 'Member role updated successfully.' })
+  @ApiResponse({
+    status: 200,
+    description: 'Member role updated successfully.',
+  })
   @ApiResponse({ status: 400, description: 'Invalid role update.' })
   @ApiResponse({ status: 403, description: 'Forbidden.' })
   updateMemberRole(
@@ -177,14 +246,19 @@ export class MeetingsController {
     @Req() req: any,
   ) {
     const requesterId = req.user.id;
-    return this.meetingsService.updateMemberRole(id, targetUserId, dto, requesterId).pipe(
-      map((res) => ({ result: res })),
-      catchError(mapException),
-    );
+    return this.meetingsService
+      .updateMemberRole(id, targetUserId, dto, requesterId)
+      .pipe(
+        map((res) => ({ result: res })),
+        catchError(mapException),
+      );
   }
 
   @Delete(':id/members/:userId')
-  @ApiOperation({ summary: 'Remove a member from a meeting or leave (Requires Auth & Host or Self)' })
+  @ApiOperation({
+    summary:
+      'Remove a member from a meeting or leave (Requires Auth & Host or Self)',
+  })
   @ApiResponse({ status: 200, description: 'Member removed successfully.' })
   @ApiResponse({ status: 400, description: 'Invalid member removal.' })
   @ApiResponse({ status: 403, description: 'Forbidden.' })
@@ -194,9 +268,11 @@ export class MeetingsController {
     @Req() req: any,
   ) {
     const requesterId = req.user.id;
-    return this.meetingsService.removeMember(id, targetUserId, requesterId).pipe(
-      map((res) => ({ result: res.message })),
-      catchError(mapException),
-    );
+    return this.meetingsService
+      .removeMember(id, targetUserId, requesterId)
+      .pipe(
+        map((res) => ({ result: res.message })),
+        catchError(mapException),
+      );
   }
 }

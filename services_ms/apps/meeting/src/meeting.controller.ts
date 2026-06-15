@@ -11,16 +11,29 @@ export class MeetingController {
   constructor(private readonly meetingService: MeetingService) {}
 
   @MessagePattern('create_meeting')
-  async createMeeting(@Payload() payload: { dto: CreateMeetingDto; creatorId: number }) {
+  async createMeeting(
+    @Payload() payload: { dto: CreateMeetingDto; creatorId: number },
+  ) {
     try {
-      return await this.meetingService.createMeeting(payload.dto, payload.creatorId);
+      return await this.meetingService.createMeeting(
+        payload.dto,
+        payload.creatorId,
+      );
     } catch (error) {
       throw new RpcException(error.message);
     }
   }
 
   @MessagePattern('get_meeting')
-  async getMeeting(@Payload() payload: { id: string; requesterId: number; includeAudioFile: boolean; includeTranscript: boolean }) {
+  async getMeeting(
+    @Payload()
+    payload: {
+      id: string;
+      requesterId: number;
+      includeAudioFile: boolean;
+      includeTranscript: boolean;
+    },
+  ) {
     try {
       return await this.meetingService.getMeeting(
         payload.id,
@@ -34,7 +47,16 @@ export class MeetingController {
   }
 
   @MessagePattern('list_meetings')
-  async listMeetings(@Payload() payload: { userId: number; page: number; size: number; includeAudioFile: boolean; includeTranscript: boolean }) {
+  async listMeetings(
+    @Payload()
+    payload: {
+      userId: number;
+      page: number;
+      size: number;
+      includeAudioFile: boolean;
+      includeTranscript: boolean;
+    },
+  ) {
     try {
       return await this.meetingService.listMeetings(
         payload.userId,
@@ -49,9 +71,20 @@ export class MeetingController {
   }
 
   @MessagePattern('update_meeting')
-  async updateMeeting(@Payload() payload: { id: string; dto: UpdateMeetingDto; requesterId: number }) {
+  async updateMeeting(
+    @Payload()
+    payload: {
+      id: string;
+      dto: UpdateMeetingDto;
+      requesterId: number;
+    },
+  ) {
     try {
-      return await this.meetingService.updateMeeting(payload.id, payload.dto, payload.requesterId);
+      return await this.meetingService.updateMeeting(
+        payload.id,
+        payload.dto,
+        payload.requesterId,
+      );
     } catch (error) {
       throw new RpcException(error.message);
     }
@@ -60,7 +93,10 @@ export class MeetingController {
   @MessagePattern('delete_meeting')
   async deleteMeeting(@Payload() payload: { id: string; requesterId: number }) {
     try {
-      return await this.meetingService.deleteMeeting(payload.id, payload.requesterId);
+      return await this.meetingService.deleteMeeting(
+        payload.id,
+        payload.requesterId,
+      );
     } catch (error) {
       throw new RpcException(error.message);
     }
@@ -69,23 +105,40 @@ export class MeetingController {
   @MessagePattern('get_meeting_members')
   async getMembers(@Payload() payload: { id: string; requesterId: number }) {
     try {
-      return await this.meetingService.getMembers(payload.id, payload.requesterId);
+      return await this.meetingService.getMembers(
+        payload.id,
+        payload.requesterId,
+      );
     } catch (error) {
       throw new RpcException(error.message);
     }
   }
 
   @MessagePattern('add_meeting_member')
-  async addMember(@Payload() payload: { id: string; dto: AddMemberDto; requesterId: number }) {
+  async addMember(
+    @Payload() payload: { id: string; dto: AddMemberDto; requesterId: number },
+  ) {
     try {
-      return await this.meetingService.addMember(payload.id, payload.dto, payload.requesterId);
+      return await this.meetingService.addMember(
+        payload.id,
+        payload.dto,
+        payload.requesterId,
+      );
     } catch (error) {
       throw new RpcException(error.message);
     }
   }
 
   @MessagePattern('update_meeting_member_role')
-  async updateMemberRole(@Payload() payload: { id: string; targetUserId: number; dto: UpdateMemberDto; requesterId: number }) {
+  async updateMemberRole(
+    @Payload()
+    payload: {
+      id: string;
+      targetUserId: number;
+      dto: UpdateMemberDto;
+      requesterId: number;
+    },
+  ) {
     try {
       return await this.meetingService.updateMemberRole(
         payload.id,
@@ -99,9 +152,20 @@ export class MeetingController {
   }
 
   @MessagePattern('remove_meeting_member')
-  async removeMember(@Payload() payload: { id: string; targetUserId: number; requesterId: number }) {
+  async removeMember(
+    @Payload()
+    payload: {
+      id: string;
+      targetUserId: number;
+      requesterId: number;
+    },
+  ) {
     try {
-      return await this.meetingService.removeMember(payload.id, payload.targetUserId, payload.requesterId);
+      return await this.meetingService.removeMember(
+        payload.id,
+        payload.targetUserId,
+        payload.requesterId,
+      );
     } catch (error) {
       throw new RpcException(error.message);
     }

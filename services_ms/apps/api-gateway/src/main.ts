@@ -29,7 +29,9 @@ async function bootstrap() {
   // 4. Setup Swagger API documentation
   const config = new DocumentBuilder()
     .setTitle('TranscriptHub API Documentation')
-    .setDescription('The API documentation for the TranscriptHub microservices backend')
+    .setDescription(
+      'The API documentation for the TranscriptHub microservices backend',
+    )
     .setVersion('1.0')
     .addBearerAuth({
       type: 'http',
@@ -47,6 +49,8 @@ async function bootstrap() {
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
   console.log(`🌐 API Gateway is running on: http://localhost:${port}/api`);
-  console.log(`📑 API Documentation is available at: http://localhost:${port}/api/docs`);
+  console.log(
+    `📑 API Documentation is available at: http://localhost:${port}/api/docs`,
+  );
 }
 bootstrap();

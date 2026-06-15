@@ -6,7 +6,7 @@ import { UpdateUserProfileDto } from './dto/update-user-profile.dto';
 
 @Controller()
 export class UsersController {
-  constructor(private readonly usersService: UsersService) { }
+  constructor(private readonly usersService: UsersService) {}
 
   @MessagePattern('find_all_profiles')
   async findAll() {
@@ -45,9 +45,18 @@ export class UsersController {
   }
 
   @MessagePattern('update_user_profile')
-  async update(@Payload() payload: { id: number; updateUserProfileDto: UpdateUserProfileDto }) {
+  async update(
+    @Payload()
+    payload: {
+      id: number;
+      updateUserProfileDto: UpdateUserProfileDto;
+    },
+  ) {
     try {
-      return await this.usersService.update(Number(payload.id), payload.updateUserProfileDto);
+      return await this.usersService.update(
+        Number(payload.id),
+        payload.updateUserProfileDto,
+      );
     } catch (error) {
       throw new RpcException(error.message);
     }

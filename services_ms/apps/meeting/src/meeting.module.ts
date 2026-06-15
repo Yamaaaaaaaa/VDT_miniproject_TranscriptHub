@@ -3,7 +3,10 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { PrismaModule } from './prisma/prisma.module';
 import { MeetingController } from './meeting.controller';
 import { MeetingService } from './meeting.service';
-
+import { MeetingRepository } from './repositories/meeting.repository';
+import { UserGateway } from './gateways/user.gateway';
+import { FileGateway } from './gateways/file.gateway';
+import { TranscriptGateway } from './gateways/transcript.gateway';
 
 @Module({
   imports: [
@@ -36,6 +39,12 @@ import { MeetingService } from './meeting.service';
     ]),
   ],
   controllers: [MeetingController],
-  providers: [MeetingService],
+  providers: [
+    MeetingService,
+    MeetingRepository,
+    UserGateway,
+    FileGateway,
+    TranscriptGateway,
+  ],
 })
-export class MeetingModule { }
+export class MeetingModule {}

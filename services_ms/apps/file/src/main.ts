@@ -25,10 +25,14 @@ async function bootstrap() {
   });
 
   await app.startAllMicroservices();
-  console.log(`🚀 File Microservice TCP listener is active on port: ${tcpPort}`);
+  console.log(
+    `🚀 File Microservice TCP listener is active on port: ${tcpPort}`,
+  );
 
   const port = process.env.FILE_SERVICE_PORT || 3003;
   await app.listen(port);
-  console.log(`🚀 File Service is running on HTTP port: http://localhost:${port}`);
+  console.log(
+    `🚀 File Service is running on HTTP port: http://localhost:${port}`,
+  );
 }
 bootstrap();

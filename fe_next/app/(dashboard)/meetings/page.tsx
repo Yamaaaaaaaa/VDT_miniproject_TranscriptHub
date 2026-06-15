@@ -285,7 +285,7 @@ export default function MeetingManagement() {
                           {new Date(m.createdAt).toLocaleString('vi-VN')}
                         </td>
                         <td className="py-3.5 pr-2 text-right">
-                          <div className="flex justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition-all">
+                          <div className="flex justify-end gap-1.5 transition-all">
                             {m.audioFileId && m.status === 'COMPLETED' && (
                               <Link 
                                 href={`/transcripts/${m.audioFileId}`}

@@ -13,4 +13,8 @@ export class UpdateMeetingDto {
   @IsEnum(MeetingStatus)
   @IsOptional()
   status?: MeetingStatus;
+
+  @IsString()
+  @IsOptional()
+  audioFileId?: string;
 }

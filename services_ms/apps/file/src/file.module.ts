@@ -3,6 +3,8 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { FileController } from './file.controller';
 import { FileService } from './file.service';
 import { PrismaModule } from './prisma/prisma.module';
+import { FileRepository } from './repositories/file.repository';
+import { KafkaGateway } from './gateways/kafka.gateway';
 
 @Module({
   imports: [
@@ -24,6 +26,6 @@ import { PrismaModule } from './prisma/prisma.module';
     ]),
   ],
   controllers: [FileController],
-  providers: [FileService],
+  providers: [FileService, FileRepository, KafkaGateway],
 })
-export class FileModule { }
+export class FileModule {}

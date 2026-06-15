@@ -640,7 +640,7 @@ export default function FileManagementPage() {
                             </td>
                             <td className="py-3.5 text-slate-400">{formatDate(file.createdAt)}</td>
                             <td className="py-3.5 pr-2 text-right">
-                              <div className="flex items-center justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition-all">
+                              <div className="flex items-center justify-end gap-1.5 transition-all">
                                 <button
                                   onClick={() => openRenameModal(file)}
                                   className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-700 rounded-lg transition-all cursor-pointer"

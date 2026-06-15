@@ -28,11 +28,20 @@ export default function MeetingCreate() {
   useEffect(() => {
     const fetchFiles = async () => {
       try {
-        const filesPage = await filesApi.list(0, 100);
-        const content = filesPage.content || [];
-        setFiles(content);
-        if (content.length > 0) {
-          setAudioFileId(content[0].id);
+        const [filesPage, meetingsPage] = await Promise.all([
+          filesApi.list(0, 100),
+          meetingsApi.list(0, 100, false, false)
+        ]);
+        const allFiles = filesPage.content || [];
+        const allMeetings = meetingsPage.content || [];
+        const linkedFileIds = new Set(
+          allMeetings.filter((m: any) => m.audioFileId).map((m: any) => m.audioFileId)
+        );
+        const availableFiles = allFiles.filter((f: any) => !linkedFileIds.has(f.id));
+        
+        setFiles(availableFiles);
+        if (availableFiles.length > 0) {
+          setAudioFileId(availableFiles[0].id);
         }
       } catch (err: any) {
         console.error(err);

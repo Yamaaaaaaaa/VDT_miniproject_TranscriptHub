@@ -20,7 +20,8 @@ export class CreateMeetingDto {
   description?: string;
 
   @ApiProperty({
-    description: 'The UUID of the uploaded audio file to link with this meeting',
+    description:
+      'The UUID of the uploaded audio file to link with this meeting',
     example: '123e4567-e89b-12d3-a456-426614174000',
   })
   @IsUUID(4, { message: 'Audio file ID must be a valid UUID' })

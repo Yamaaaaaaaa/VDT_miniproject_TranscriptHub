@@ -5,21 +5,21 @@ import { TranscriptsService } from './transcripts.service';
 import { IdentityModule } from '../identity/identity.module';
 
 @Module({
-    imports: [
-        IdentityModule,
-        ClientsModule.register([
-            {
-                name: 'TRANSCRIPT_CLIENT',
-                transport: Transport.TCP,
-                options: {
-                    host: process.env.TRANSCRIPT_SERVICE_HOST ?? 'localhost',
-                    port: parseInt(process.env.TRANSCRIPT_SERVICE_TCP_PORT ?? '3005', 10),
-                },
-            },
-        ]),
-    ],
-    controllers: [TranscriptsController],
-    providers: [TranscriptsService],
-    exports: [TranscriptsService],
+  imports: [
+    IdentityModule,
+    ClientsModule.register([
+      {
+        name: 'TRANSCRIPT_CLIENT',
+        transport: Transport.TCP,
+        options: {
+          host: process.env.TRANSCRIPT_SERVICE_HOST ?? 'localhost',
+          port: parseInt(process.env.TRANSCRIPT_SERVICE_TCP_PORT ?? '3005', 10),
+        },
+      },
+    ]),
+  ],
+  controllers: [TranscriptsController],
+  providers: [TranscriptsService],
+  exports: [TranscriptsService],
 })
-export class TranscriptsModule { }
+export class TranscriptsModule {}

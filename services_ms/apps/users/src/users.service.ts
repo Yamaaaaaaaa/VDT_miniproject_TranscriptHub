@@ -1,30 +1,22 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
-import { PrismaService } from './prisma/prisma.service';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
+import { UsersRepository } from './repositories/users.repository';
 import { CreateUserProfileDto } from './dto/create-user-profile.dto';
 import { UpdateUserProfileDto } from './dto/update-user-profile.dto';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly usersRepo: UsersRepository) {}
 
   async findAll() {
-    const profiles = await this.prisma.userProfile.findMany({
-      include: {
-        account: {
-          include: {
-            roles: {
-              include: {
-                role: true,
-              },
-            },
-          },
-        },
-      },
-    });
+    const profiles = await this.usersRepo.findAllWithAccount();
 
     return profiles.map((p) => {
       const roleName = p.account?.roles?.[0]?.role?.name ?? 'USER';
-      const { account, ...rest } = p;
+      const { account: _account, ...rest } = p;
       return {
         ...rest,
         role: roleName,
@@ -33,55 +25,42 @@ export class UsersService {
   }
 
   async findOne(id: number) {
-    const profile = await this.prisma.userProfile.findUnique({
-      where: { id },
-      include: {
-        account: {
-          include: {
-            roles: {
-              include: {
-                role: true,
-              },
-            },
-          },
-        },
-      },
-    });
-    if (!profile) throw new NotFoundException(`User profile with id ${id} not found`);
+    const profile = await this.usersRepo.findByIdWithAccount(id);
+    if (!profile)
+      throw new NotFoundException(`User profile with id ${id} not found`);
 
     const roleName = profile.account?.roles?.[0]?.role?.name ?? 'USER';
-    const { account, ...rest } = profile;
+    const { account: _account, ...rest } = profile;
     return {
       ...rest,
       role: roleName,
     };
   }
 
-
   async findByEmail(email: string) {
-    return this.prisma.userProfile.findUnique({ where: { email } });
+    return this.usersRepo.findByEmail(email);
   }
 
   async create(createUserProfileDto: CreateUserProfileDto) {
-    const existing = await this.prisma.userProfile.findUnique({ where: { email: createUserProfileDto.email } });
-    if (existing) throw new ConflictException(`Profile with email ${createUserProfileDto.email} already exists`);
+    const existing = await this.usersRepo.findByEmail(
+      createUserProfileDto.email,
+    );
+    if (existing)
+      throw new ConflictException(
+        `Profile with email ${createUserProfileDto.email} already exists`,
+      );
 
-    return this.prisma.userProfile.create({
-      data: createUserProfileDto,
-    });
+    return this.usersRepo.create(createUserProfileDto);
   }
 
   async update(id: number, updateUserProfileDto: UpdateUserProfileDto) {
     await this.findOne(id);
-    return this.prisma.userProfile.update({
-      where: { id },
-      data: updateUserProfileDto,
-    });
+    return this.usersRepo.update(id, updateUserProfileDto);
   }
 
   async remove(id: number) {
     await this.findOne(id);
-    await this.prisma.userProfile.delete({ where: { id } });
+    await this.usersRepo.delete(id);
     return { message: `User profile ${id} deleted successfully` };
   }
 }

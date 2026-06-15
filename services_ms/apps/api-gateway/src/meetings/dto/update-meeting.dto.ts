@@ -29,4 +29,13 @@ export class UpdateMeetingDto {
   @IsEnum(MeetingStatus)
   @IsOptional()
   status?: MeetingStatus;
+
+  @ApiProperty({
+    description: 'Optional ID of the audio file to link',
+    example: 'f41e4c68-b789-4ee9-bf80-edbd6851bc1e',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  audioFileId?: string;
 }

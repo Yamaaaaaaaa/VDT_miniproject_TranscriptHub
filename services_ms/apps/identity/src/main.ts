@@ -25,6 +25,8 @@ async function bootstrap() {
   );
 
   await app.listen();
-  console.log(`🚀 Identity Microservice is listening on TCP port ${process.env.IDENTITY_SERVICE_PORT ?? '3002'}`);
+  console.log(
+    `🚀 Identity Microservice is listening on TCP port ${process.env.IDENTITY_SERVICE_PORT ?? '3002'}`,
+  );
 }
 bootstrap();
