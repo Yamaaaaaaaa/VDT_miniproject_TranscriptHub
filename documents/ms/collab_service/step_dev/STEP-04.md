@@ -12,12 +12,15 @@ Tạo y-websocket server - một standalone Node.js server (không phải NestJS
 
 ## Checklist
 
-- [ ] Tạo thư mục `services_ms/apps/collab-ws`
-- [ ] Cài đặt dependencies (y-websocket, yjs, etc.)
-- [ ] Implement JWT authentication middleware
-- [ ] Implement WebSocket server với room management
-- [ ] Implement TCP RPC client để giao tiếp với Collab Service
-- [ ] Test WebSocket connection
+- [x] Tạo thư mục `services_ms/apps/collab-ws`
+- [x] Cài đặt dependencies (y-websocket, yjs, etc.)
+- [x] Implement Redis cache wrapper cho role caching
+- [x] Implement JWT authentication middleware
+- [x] Implement Identity Service integration (gọi HTTP để lấy role)
+- [x] Implement WebSocket server với room management
+- [x] Implement role-based write filtering (HOST/EDITOR allowed, VIEWER blocked)
+- [x] Implement TCP RPC client để giao tiếp với Collab Service
+- [x] Test WebSocket connection
 
 ---
 
@@ -46,6 +49,7 @@ mkdir -p services_ms/apps/collab-ws/src
   "dependencies": {
     "yjs": "^13.6.0",
     "y-websocket": "^2.0.0",
+    "y-protocols": "^1.0.0",
     "lib0": "^0.2.99",
     "ws": "^8.16.0",
     "jsonwebtoken": "^9.0.0",
@@ -102,14 +106,131 @@ export const config = {
   wsPort: parseInt(process.env.WS_PORT || '3008'),
   collabServiceHost: process.env.COLLAB_SERVICE_HOST || 'localhost',
   collabServicePort: parseInt(process.env.COLLAB_SERVICE_PORT || '3007'),
+  identityServiceHost: process.env.IDENTITY_SERVICE_HOST || 'identity-service',
+  identityServicePort: parseInt(process.env.IDENTITY_SERVICE_PORT || '3002'),
   jwtSecret: process.env.JWT_SECRET || 'your-jwt-secret',
   redisHost: process.env.REDIS_HOST || 'localhost',
   redisPort: parseInt(process.env.REDIS_PORT || '6379'),
-  identityServiceUrl: process.env.IDENTITY_SERVICE_URL || 'http://localhost:3002',
+  // Cache settings
+  roleCacheTtl: 300, // 5 minutes in seconds
 };
 ```
 
-### 2.2. TCP RPC Client Wrapper
+### 2.2. Redis Cache Wrapper (cho role caching)
+
+```typescript
+// services_ms/apps/collab-ws/src/cache.ts
+import Redis from 'ioredis';
+import { config } from './config';
+
+const redis = new Redis({
+  host: config.redisHost,
+  port: config.redisPort,
+  retryStrategy: (times) => Math.min(times * 50, 2000),
+});
+
+export async function getCached<T>(key: string): Promise<T | null> {
+  const data = await redis.get(key);
+  return data ? JSON.parse(data) : null;
+}
+
+export async function setCache(key: string, value: any, ttl: number): Promise<void> {
+  await redis.setex(key, ttl, JSON.stringify(value));
+}
+
+export async function deleteCache(key: string): Promise<void> {
+  await redis.del(key);
+}
+
+export { redis };
+```
+
+### 2.3. TCP RPC Client cho Identity Service
+
+```typescript
+// services_ms/apps/collab-ws/src/identity-client.ts
+import * as net from 'net';
+import { config } from './config';
+
+export interface IdentityUser {
+  id: number;
+  email: string;
+  roles?: string[];
+}
+
+export class IdentityClient {
+  private static encodeMessage(pattern: any, data: any): Buffer {
+    const payload = JSON.stringify({ pattern, data });
+    const buffer = Buffer.alloc(4 + Buffer.byteLength(payload));
+    buffer.writeUInt32BE(Buffer.byteLength(payload), 0);
+    buffer.write(payload, 4);
+    return buffer;
+  }
+
+  static async send(pattern: string, data: any): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const client = new net.Socket();
+      let responseData = '';
+
+      const timeout = setTimeout(() => {
+        client.destroy();
+        reject(new Error('TCP request timeout'));
+      }, 5000);
+
+      client.connect(
+        config.identityServicePort,
+        config.identityServiceHost,
+        () => {
+          const message = this.encodeMessage({ cmd: pattern }, data);
+          client.write(message);
+        },
+      );
+
+      client.on('data', (chunk) => {
+        responseData += chunk.toString();
+      });
+
+      client.on('end', () => {
+        clearTimeout(timeout);
+        try {
+          const response = JSON.parse(responseData);
+          resolve(response);
+        } catch (e) {
+          reject(new Error('Failed to parse TCP response'));
+        }
+      });
+
+      client.on('error', (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
+  }
+
+  // Validate JWT token via Identity Service TCP
+  static async validateToken(token: string): Promise<IdentityUser> {
+    const response = await this.send('validate_token', { token });
+    if (!response.success) {
+      throw new Error(response.message || 'Token validation failed');
+    }
+    return response.data;
+  }
+
+  // Get user role in a specific meeting via Identity Service TCP
+  static async getMeetingRole(meetingId: string, userId: number): Promise<'HOST' | 'EDITOR' | 'VIEWER'> {
+    const response = await this.send('get_meeting_role', { meetingId, userId });
+    if (!response.success) {
+      if (response.message?.includes('not found')) {
+        return 'VIEWER'; // Default to VIEWER if not found
+      }
+      throw new Error(response.message || 'Failed to get meeting role');
+    }
+    return response.data.role;
+  }
+}
+```
+
+### 2.4. TCP RPC Client Wrapper cho Collab Service
 
 ```typescript
 // services_ms/apps/collab-ws/src/collab-client.ts
@@ -270,55 +391,92 @@ export class RoomManager {
       }
     }
   }
-
-  canEdit(role: string): boolean {
-    return role === 'HOST' || role === 'EDITOR';
-  }
 }
 
 export const roomManager = new RoomManager();
 ```
 
-### 2.4. JWT Auth Middleware
+### 2.5. JWT Auth & Identity Service Integration (TCP RPC)
 
 ```typescript
 // services_ms/apps/collab-ws/src/auth.ts
 import * as jwt from 'jsonwebtoken';
 import { config } from './config';
+import { getCached, setCache } from './cache';
+import { IdentityClient } from './identity-client';
 
 export interface AuthResult {
   valid: boolean;
   userId?: number;
+  email?: string;
   role?: 'HOST' | 'EDITOR' | 'VIEWER';
   error?: string;
 }
 
+export interface UserInfo {
+  userId: number;
+  role: 'HOST' | 'EDITOR' | 'VIEWER';
+  meetingId: string;
+}
+
+// Verify JWT token via Identity Service TCP RPC
 export async function verifyToken(token: string): Promise<AuthResult> {
   try {
-    const decoded = jwt.verify(token, config.jwtSecret) as any;
+    // Call Identity Service via TCP RPC for full validation
+    const user = await IdentityClient.validateToken(token);
     return {
       valid: true,
-      userId: decoded.sub || decoded.userId,
+      userId: user.id,
+      email: user.email,
     };
   } catch (err) {
     return {
       valid: false,
-      error: 'Invalid token',
+      error: 'Invalid or expired token',
     };
   }
 }
 
+// Get user role from Identity Service with Redis caching
 export async function getUserRole(
   userId: number,
   meetingId: string,
 ): Promise<'HOST' | 'EDITOR' | 'VIEWER'> {
-  // TODO: Gọi Identity Service để lấy role
-  // Hiện tại trả về EDITOR để test
-  return 'EDITOR';
+  const cacheKey = `meeting:${meetingId}:user:${userId}:role`;
+
+  // Check Redis cache first
+  const cachedRole = await getCached<'HOST' | 'EDITOR' | 'VIEWER'>(cacheKey);
+  if (cachedRole) {
+    console.log(`[Auth] Role cache hit: ${cacheKey} = ${cachedRole}`);
+    return cachedRole;
+  }
+
+  // Call Identity Service via TCP RPC
+  try {
+    const role = await IdentityClient.getMeetingRole(meetingId, userId);
+
+    // Cache the role for 5 minutes
+    await setCache(cacheKey, role, config.roleCacheTtl);
+    console.log(`[Auth] Role cached: ${cacheKey} = ${role}`);
+
+    return role;
+  } catch (err) {
+    console.error(`[Auth] Failed to get role from Identity Service:`, err);
+    // Fallback to VIEWER on error (conservative approach)
+    return 'VIEWER';
+  }
+}
+
+// Invalidate role cache (call when user role changes)
+export async function invalidateRoleCache(meetingId: string, userId: number): Promise<void> {
+  const cacheKey = `meeting:${meetingId}:user:${userId}:role`;
+  const { deleteCache } = await import('./cache');
+  await deleteCache(cacheKey);
+  console.log(`[Auth] Role cache invalidated: ${cacheKey}`);
 }
 ```
 
-### 2.5. Main WebSocket Server
+### 2.6. Main WebSocket Server
 
 ```typescript
 // services_ms/apps/collab-ws/src/main.ts
@@ -331,7 +489,8 @@ import * as decoding from 'lib0/decoding';
 import { config } from './config';
 import { CollabClient } from './collab-client';
 import { RoomManager, roomManager } from './room-manager';
-import { verifyToken, getUserRole } from './auth';
+import { verifyToken, getUserRole, UserInfo } from './auth';
+import { IdentityClient } from './identity-client';
 
 const msgSync = 0;
 const msgAwareness = 1;
@@ -339,7 +498,12 @@ const msgAwareness = 1;
 interface ConnectionInfo {
   meetingId: string;
   userId: number;
-  role: string;
+  role: 'HOST' | 'EDITOR' | 'VIEWER';
+}
+
+// Check if user can edit (HOST or EDITOR can write)
+function canEdit(role: string): boolean {
+  return role === 'HOST' || role === 'EDITOR';
 }
 
 const docs = new Map<string, Y.Doc>();
@@ -356,14 +520,19 @@ function getDoc(meetingId: string): Y.Doc {
 }
 
 async function handleConnection(ws: WebSocket, meetingId: string, token: string) {
+  // Step 1: Verify JWT token
   const authResult = await verifyToken(token);
   if (!authResult.valid || !authResult.userId) {
+    console.log(`[WS] Auth failed: ${authResult.error}`);
     ws.close(4001, 'Unauthorized');
     return;
   }
 
+  // Step 2: Get user role from Identity Service (with Redis caching)
   const role = await getUserRole(authResult.userId, meetingId);
+  console.log(`[WS] User ${authResult.userId} connected to meeting ${meetingId} with role ${role}`);
 
+  // Attach user info to socket
   connections.set(ws, {
     meetingId,
     userId: authResult.userId,
@@ -372,6 +541,18 @@ async function handleConnection(ws: WebSocket, meetingId: string, token: string)
 
   const doc = getDoc(meetingId);
   const awareness = awarenessMap.get(meetingId)!;
+
+  // Set awareness state with user info
+  awarenessProtocol.setLocalAwarenessField(
+    awareness,
+    authResult.userId,
+    {
+      userId: authResult.userId,
+      role: role,
+      name: `User ${authResult.userId}`,
+      color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
+    } as UserInfo
+  );
 
   // Gửi sync step 1
   const encoder = encoding.createEncoder();
@@ -401,6 +582,12 @@ async function handleConnection(ws: WebSocket, meetingId: string, token: string)
 
     switch (messageType) {
       case msgSync:
+        // Step 3: Validate write permission before applying update
+        if (!canEdit(info.role)) {
+          console.log(`[WS] User ${info.userId} (${info.role}) tried to edit - denied`);
+          return; // VIEWER cannot send updates
+        }
+
         const encoder = encoding.createEncoder();
         encoding.writeVarUint(encoder, msgSync);
         const syncMessageType = syncProtocol.readSyncMessage(
@@ -417,6 +604,7 @@ async function handleConnection(ws: WebSocket, meetingId: string, token: string)
         // Broadcast update to other clients
         if (syncMessageType === syncProtocol.messageYjsSyncStep2) {
           broadcastUpdate(meetingId, data, ws);
+          console.log(`[WS] Broadcast update from user ${info.userId}`);
         }
         break;
 
@@ -434,7 +622,10 @@ async function handleConnection(ws: WebSocket, meetingId: string, token: string)
   ws.on('close', () => {
     const info = connections.get(ws);
     if (info) {
+      console.log(`[WS] User ${info.userId} disconnected from meeting ${info.meetingId}`);
       roomManager.removeUser(info.meetingId, ws);
+      // Clear awareness state
+      awarenessProtocol.removeLocalAwarenessState(awareness, info.userId, null);
       connections.delete(ws);
     }
   });
@@ -469,11 +660,12 @@ wss.on('connection', async (ws, req) => {
     return;
   }
 
-  console.log(`New connection: meetingId=${meetingId}`);
+  console.log(`[WS] New connection: meetingId=${meetingId}`);
   await handleConnection(ws, meetingId, token);
 });
 
-console.log(`y-websocket server running on port ${config.wsPort}`);
+console.log(`[WS] y-websocket server running on port ${config.wsPort}`);
+```
 ```
 
 ---
@@ -487,9 +679,11 @@ services_ms/apps/collab-ws/
 ├── src/
 │   ├── main.ts              # Entry point
 │   ├── config.ts            # Environment config
-│   ├── auth.ts              # JWT authentication
-│   ├── collab-client.ts     # TCP RPC client
-│   └── room-manager.ts      # Room management
+│   ├── cache.ts             # Redis cache wrapper (role caching)
+│   ├── identity-client.ts   # TCP RPC client to Identity Service
+│   ├── collab-client.ts     # TCP RPC client to Collab Service
+│   ├── auth.ts              # JWT authentication + Identity Service integration
+│   └── room-manager.ts     # Room management
 └── dist/                    # Build output
 ```
 

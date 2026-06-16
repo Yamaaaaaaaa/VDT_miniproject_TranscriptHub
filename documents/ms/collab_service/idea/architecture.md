@@ -73,7 +73,7 @@ graph TB
 
     subgraph "Microservices Layer"
         yWS[y-websocket Server<br/>:3008<br/>CRDT Sync + JWT Auth<br/>TCP RPC Client]
-        Identity[Identity Service<br/>:3002<br/>HTTP]
+        Identity[Identity Service<br/>:3002<br/>TCP RPC Server]
         Collab[Collab Service<br/>:3007<br/>TCP RPC Server]
         Meeting[Meeting Service<br/>:3006<br/>TCP RPC]
     end
@@ -96,7 +96,7 @@ graph TB
     APIGateway -->|TCP| Collab
 
     %% WebSocket Service
-    yWS -->|JWT Verify| Identity
+    yWS ==>|TCP RPC| Identity
     yWS ==>|TCP RPC| Collab
     yWS -->|Pub/Sub| Redis
 
@@ -122,16 +122,16 @@ graph TB
 | Thành phần | Mô tả |
 |---|---|
 | **Nginx** | Reverse proxy, định tuyến HTTP → API Gateway, WS → y-websocket |
-| **API Gateway** | REST API Gateway (`:3000`), expose Collab HTTP endpoints |
+| **API Gateway** | REST API Gateway (`:3000`), expose Collab HTTP endpoints, giao tiếp với Identity & Collab qua TCP RPC |
 
 #### 3.2.3. Microservices Layer
 
 | Service | Cổng | Giao thức | Trách nhiệm |
 |---|---|---|---|
-| **y-websocket** | `:3008` | WebSocket + TCP RPC Client | CRDT sync, auth, init document, TCP RPC client to Collab |
+| **y-websocket** | `:3008` | WebSocket + TCP RPC Client | CRDT sync, auth, init document, TCP RPC client to Identity & Collab |
+| **Identity Service** | `:3002` | TCP RPC Server + HTTP (external) | JWT verification, user management, meeting roles |
 | **Collab Service** | `:3007` | TCP RPC Server | Snapshot management, version history, persistence |
 | **Meeting Service** | `:3006` | TCP RPC | Meeting CRUD, member management |
-| **Identity Service** | `:3002` | HTTP | JWT verification, user management |
 
 #### 3.2.4. Data Layer
 
@@ -144,7 +144,7 @@ graph TB
 
 ## 4. Luồng Giao Tiếp Chi Tiết
 
-### 4.1. WebSocket Flow - Init Document & Real-time Sync
+### 4.1. WebSocket Flow - Authentication & Init Document
 
 ```mermaid
 sequenceDiagram
@@ -156,31 +156,55 @@ sequenceDiagram
     participant Collab as Collab Service<br/>:3007
     participant Meeting as Meeting Service<br/>:3006
     participant PG as PostgreSQL DB
+    participant Redis as Redis Cache
 
     Client->>Nginx: WS connect<br/>/ws/collab?meetingId=X&token=JWT
     Nginx->>yWS: Upgrade to WebSocket
     yWS->>yWS: Extract token from URL params
-    yWS->>Identity: HTTP GET<br/>/identity/verify
-    Identity-->>yWS: { userId, valid: true }
-    yWS->>Identity: HTTP GET<br/>/identity/meetings/:id/members/:userId/role
-    Identity-->>yWS: { role: "EDITOR" }
-    yWS->>yWS: Attach userId + role to socket
-    Note over yWS: Auth thành công
 
+    Note over yWS: Step 1: Verify JWT via TCP RPC to Identity Service
+    yWS->>Identity: TCP RPC<br/>cmd: validate_token<br/>{ token }
+    alt Token Invalid
+        Identity-->>yWS: { success: false }
+        yWS-->>Client: WS close (4001 Unauthorized)
+    else Token Valid
+        Identity-->>yWS: { success: true, data: { id, email } }
+        Note over yWS: Token verified, extract userId
+    end
+
+    Note over yWS: Step 2: Get role from Identity Service via TCP RPC
+    yWS->>Redis: GET meeting:X:user:Y:role
+    alt Cache Hit
+        Redis-->>yWS: { role: "EDITOR" }
+    else Cache Miss
+        yWS->>Identity: TCP RPC<br/>cmd: get_meeting_role<br/>{ meetingId, userId }
+        Identity-->>yWS: { success: true, data: { role: "HOST" } }
+        yWS->>Redis: SETEX meeting:X:user:Y:role 300 "HOST"
+    end
+
+    Note over yWS: Auth completed with userId + role
+
+    Note over yWS: Step 3: Load document from Collab Service
     yWS->>Collab: TCP RPC<br/>cmd: get-transcript<br/>{ meetingId }
     Collab->>Meeting: TCP RPC<br/>cmd: get-audioFileId
     Meeting-->>Collab: { audioFileId: "xxx-xxx" }
     Collab->>PG: SELECT * FROM transcripts<br/>WHERE audioFileId = "xxx-xxx"
     PG-->>Collab: { id, rawText, structuredContent }
     Collab-->>yWS: { rawText, structuredContent }
-    yWS->>yWS: Parse structuredContent<br/>Init Yjs document with segments
+    yWS->>yWS: Init Yjs document with segments
+
     Note over yWS: Room ready for CRDT sync
 
-    yWS-->>Client: WS connection established
+    yWS-->>Client: WS connection established + sync step 1
     Client->>yWS: Yjs update (CRDT bytes)
-    yWS->>yWS: Validate user role (must be HOST or EDITOR)
-    yWS->>yWS: Apply update to local Yjs doc
-    yWS-->>Client: Yjs update (broadcast)
+
+    Note over yWS: Step 4: Validate write permission
+    alt role is HOST or EDITOR
+        yWS->>yWS: Apply update to local Yjs doc
+        yWS-->>Client: Yjs update (broadcast)
+    else role is VIEWER
+        yWS->>yWS: Reject update (log warning)
+    end
 ```
 
 ### 4.2. HTTP API Flow - Auto-save & Snapshots
@@ -348,14 +372,16 @@ API Gateway expose các HTTP endpoints cho client gọi.
 | Vai trò | Quyền |
 |---|---|
 | **HOST** | Full access: read, write, snapshot, restore |
-| **EDITOR** | Read, write, snapshot, restore |
+| **EDITOR** | Full access: read, write, snapshot, restore |
 | **VIEWER** | Read only: nhận CRDT updates nhưng KHÔNG gửi được |
 
 ### 9.3. Role Verification
 
-1. y-websocket verify JWT → lấy `userId`
-2. Gọi Identity Service → lấy `role` của user trong meeting
-3. Cache role trong Redis (5 phút) để giảm latency
+1. Client kết nối WebSocket với JWT token
+2. y-websocket verify JWT → lấy `userId`
+3. y-websocket gọi Identity Service → lấy `role` của user trong meeting
+4. Cache role trong Redis (5 phút) để giảm latency
+5. Khi nhận CRDT update từ client → kiểm tra role (HOST/EDITOR → cho phép, VIEWER → reject)
 
 ### 9.4. Security Checklist
 
