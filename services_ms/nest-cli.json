@@ -62,6 +62,15 @@
       "compilerOptions": {
         "tsConfigPath": "apps/meeting/tsconfig.app.json"
       }
+    },
+    "collab": {
+      "type": "application",
+      "root": "apps/collab",
+      "entryFile": "main",
+      "sourceRoot": "apps/collab/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/collab/tsconfig.app.json"
+      }
     }
   }
 }

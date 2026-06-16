@@ -271,6 +271,33 @@ services:
     networks:
       - transcripthub_net
 
+  # 4e. Collab Microservice (TCP :3007)
+  collab-service:
+    build:
+      context: ./services_ms
+      dockerfile: apps/collab/Dockerfile
+      target: production
+    container_name: transcripthub-collab-service
+    restart: always
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/transcripthub
+      COLLAB_SERVICE_TCP_PORT: 3007
+      MEETING_SERVICE_HOST: meeting-service
+      MEETING_SERVICE_TCP_PORT: 3006
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "3007:3007"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meeting-service:
+        condition: service_started
+    networks:
+      - transcripthub_net
+
   # 5. API Gateway (HTTP :3000)
   api-gateway:
     build:
@@ -292,6 +319,8 @@ services:
       TRANSCRIPT_SERVICE_TCP_PORT: 3005
       MEETING_SERVICE_HOST: meeting-service
       MEETING_SERVICE_TCP_PORT: 3006
+      COLLAB_SERVICE_HOST: collab-service
+      COLLAB_SERVICE_TCP_PORT: 3007
     ports:
       - "3000:3000"
     depends_on:
@@ -300,6 +329,7 @@ services:
       - file-service
       - transcript-service
       - meeting-service
+      - collab-service
     networks:
       - transcripthub_net
 

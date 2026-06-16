@@ -393,4 +393,17 @@ export class MeetingService {
 
     return { message: 'Member removed from meeting successfully' };
   }
+
+  async getAudioFileId(meetingId: string) {
+    const meeting = await this.meetingRepo.findById(meetingId);
+    if (!meeting) {
+      throw new AppException(ErrorCodes.MEETING_NOT_FOUND);
+    }
+
+    if (!meeting.audioFileId) {
+      throw new Error('Meeting has no audioFileId');
+    }
+
+    return { audioFileId: meeting.audioFileId };
+  }
 }

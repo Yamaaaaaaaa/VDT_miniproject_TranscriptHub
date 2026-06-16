@@ -111,8 +111,30 @@ model Transcript {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
+  // Relationship - lưu trữ các phiên bản (snapshots) của transcript
+  versions          TranscriptVersion[]
+
   @@map("transcripts")
   @@schema("transcripts")
+}
+
+// Phiên bản (snapshot) của transcript - phục vụ rollback
+model TranscriptVersion {
+  id                  Int      @id @default(autoincrement())
+  transcriptId        Int      @map("transcript_id")
+  versionName         String   @map("version_name") @db.VarChar(255)
+  rawText             String   @map("raw_text") @db.Text
+  structuredContent   Json     @map("structured_content") @db.JsonB
+  createdById         Int?     @map("created_by_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  // Relationship
+  transcript          Transcript @relation(fields: [transcriptId], references: [id], onDelete: Cascade)
+
+  @@map("transcript_versions")
+  @@schema("transcripts")
+  @@index([transcriptId])
+  @@index([createdAt])
 }
 
 // Meeting models (do Meeting Service quản lý độc quyền)

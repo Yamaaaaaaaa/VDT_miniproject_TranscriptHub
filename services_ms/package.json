@@ -36,6 +36,7 @@
     "dotenv": "^17.4.2",
     "ioredis": "^5.11.1",
     "kafkajs": "^2.2.4",
+    "lib0": "^0.2.99",
     "minio": "^8.0.7",
     "music-metadata": "^11.13.0",
     "passport": "^0.7.0",
@@ -44,7 +45,10 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "swagger-ui-express": "^5.0.1",
-    "uuid": "^14.0.0"
+    "uuid": "^14.0.0",
+    "y-protocols": "^1.0.6",
+    "y-websocket": "^2.0.4",
+    "yjs": "^13.6.20"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
