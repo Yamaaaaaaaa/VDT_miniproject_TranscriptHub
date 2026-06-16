@@ -298,6 +298,32 @@ services:
     networks:
       - transcripthub_net
 
+  # 4f. Collab Gateway (WebSocket :3008)
+  collab-gateway:
+    build:
+      context: ./services_ms
+      dockerfile: apps/collab-gateway/Dockerfile
+      target: production
+    container_name: transcripthub-collab-gateway
+    restart: always
+    environment:
+      WS_PORT: 3008
+      COLLAB_SERVICE_HOST: collab-service
+      COLLAB_SERVICE_PORT: 3007
+      IDENTITY_SERVICE_HOST: identity-service
+      IDENTITY_SERVICE_PORT: 3002
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: "th_jwt_s3cr3t_k3y_x9mK2pL8qR4nW6vY1bZ5cE0aF7gH3jN"
+    ports:
+      - "3008:3008"
+    depends_on:
+      - collab-service
+      - redis
+      - identity-service
+    networks:
+      - transcripthub_net
+
   # 5. API Gateway (HTTP :3000)
   api-gateway:
     build:
