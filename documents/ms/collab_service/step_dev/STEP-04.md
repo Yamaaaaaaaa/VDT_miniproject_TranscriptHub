@@ -1,8 +1,13 @@
-# STEP-04: y-websocket Server
+# STEP-04: Collab Gateway (NestJS WebSocket + y-protocols)
 
 ## Mục Tiêu
 
-Tạo y-websocket server - một standalone Node.js server (không phải NestJS) để xử lý real-time CRDT synchronization qua WebSocket.
+Tạo Collab Gateway - một NestJS WebSocket Gateway sử dụng `@nestjs/websockets` và **y-protocols** để xử lý real-time CRDT synchronization.
+
+**Lưu ý quan trọng:** Chúng ta **KHÔNG dùng y-websocket server** trực tiếp. Thay vào đó, chúng ta import và sử dụng riêng **y-protocols** (sync, awareness) để:
+- Tích hợp hoàn toàn với NestJS
+- Kiểm soát auth và business logic
+- Share TCP clients với các services khác
 
 ## Dependencies
 
@@ -12,555 +17,422 @@ Tạo y-websocket server - một standalone Node.js server (không phải NestJS
 
 ## Checklist
 
-- [x] Tạo thư mục `services_ms/apps/collab-ws`
-- [x] Cài đặt dependencies (y-websocket, yjs, etc.)
-- [x] Implement Redis cache wrapper cho role caching
-- [x] Implement JWT authentication middleware
-- [x] Implement Identity Service integration (gọi HTTP để lấy role)
-- [x] Implement WebSocket server với room management
+- [x] Tạo thư mục `services_ms/apps/collab-gateway`
+- [x] Cài đặt NestJS app với `@nestjs/websockets`
+- [x] Implement Redis cache module cho role caching
+- [x] Implement JWT WebSocket Guard (lấy token từ query params)
+- [x] Implement TCP client module cho Identity Service
+- [x] Implement TCP client module cho Collab Service
+- [x] Implement Collab Gateway (WebSocket) với y-protocols
+- [x] Implement Room Service cho Yjs document management
 - [x] Implement role-based write filtering (HOST/EDITOR allowed, VIEWER blocked)
-- [x] Implement TCP RPC client để giao tiếp với Collab Service
-- [x] Test WebSocket connection
+- [x] Cập nhật `nest-cli.json` để include collab-gateway
+- [ ] Test WebSocket connection
 
 ---
 
-## 1. Cài Đặt Project
+## 1. Tại Sao Dùng y-protocols Thay Vì y-websocket?
 
-### 1.1. Tạo thư mục
+### 1.1. Sự khác nhau giữa y-websocket và y-protocols
 
-```bash
-mkdir -p services_ms/apps/collab-ws/src
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         y-websocket                               │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │  WebSocket Server + Protocol + Auth + Document Management  ││
+│  └─────────────────────────────────────────────────────────────┘│
+│  • Hoạt động độc lập                                          │
+│  • Không tích hợp được với NestJS DI                          │
+│  • Auth logic cứng nhắc                                        │
+│  • Khó customize cho microservices architecture                  │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│                         y-protocols                              │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────┐ │
+│  │  syncProtocol    │  │ awarenessProtocol │  │  lib0       │ │
+│  │  (CRDT sync)    │  │  (Presence)      │  │  (encoding) │ │
+│  └──────────────────┘  └──────────────────┘  └──────────────┘ │
+│  • Chỉ là protocol implementations                             │
+│  • Dùng được với bất kỳ WebSocket server nào                  │
+│  • Hoàn toàn tích hợp được với NestJS                         │
+│  • Linh hoạt cho microservices                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### 1.2. Tạo `package.json`
+### 1.2. Khi nào nên dùng y-websocket trực tiếp?
 
-```json
-{
-  "name": "collab-ws",
-  "version": "1.0.0",
-  "description": "y-websocket server for collaborative editing",
-  "main": "dist/main.js",
-  "scripts": {
-    "build": "tsc",
-    "start": "node dist/main.js",
-    "dev": "ts-node src/main.ts",
-    "clean": "rm -rf dist"
-  },
-  "dependencies": {
-    "yjs": "^13.6.0",
-    "y-websocket": "^2.0.0",
-    "y-protocols": "^1.0.0",
-    "lib0": "^0.2.99",
-    "ws": "^8.16.0",
-    "jsonwebtoken": "^9.0.0",
-    "ioredis": "^5.3.0"
-  },
-  "devDependencies": {
-    "@types/jsonwebtoken": "^9.0.0",
-    "@types/ws": "^8.5.0",
-    "@types/node": "^20.0.0",
-    "typescript": "^5.0.0",
-    "ts-node": "^10.0.0"
-  }
-}
+- ✅ Prototype nhanh
+- ✅ Đơn giản, không cần microservices
+- ✅ Không cần NestJS
+
+### 1.3. Khi nào nên dùng y-protocols?
+
+- ✅ Microservices architecture
+- ✅ Cần tích hợp với NestJS
+- ✅ Cần custom auth, logging, monitoring
+- ✅ Cần share code với các services khác
+
+---
+
+## 2. Cài Đặt Project
+
+### 2.1. Cấu trúc files
+
 ```
-
-### 1.3. Tạo `tsconfig.json`
-
-```json
-{
-  "compilerOptions": {
-    "target": "ES2020",
-    "module": "commonjs",
-    "lib": ["ES2020"],
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "declaration": true
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
-}
-```
-
-### 1.4. Cài đặt dependencies
-
-```bash
-cd services_ms/apps/collab-ws
-npm install
+services_ms/apps/collab-gateway/
+├── src/
+│   ├── main.ts                          # Entry point
+│   ├── collab-gateway.module.ts         # WebSocket module
+│   ├── collab-gateway.gateway.ts        # WebSocket Gateway + y-protocols
+│   ├── auth/
+│   │   └── ws-jwt.guard.ts             # JWT Guard for WebSocket
+│   ├── collab-client/
+│   │   ├── collab-client.module.ts
+│   │   └── collab-client.service.ts     # TCP client to Collab
+│   ├── identity-client/
+│   │   ├── identity-client.module.ts
+│   │   └── identity-client.service.ts    # TCP client to Identity
+│   ├── room/
+│   │   ├── room.module.ts
+│   │   └── room.service.ts              # Yjs room management
+│   ├── cache/
+│   │   ├── cache.module.ts
+│   │   └── cache.service.ts             # Redis cache wrapper
+│   ├── common/
+│   │   ├── tcp-client.ts                # TCP RPC base class
+│   │   └── ws-exception.filter.ts        # WebSocket exception filter
+│   └── config/
+│       └── env.config.ts                # Environment variables
+├── tsconfig.app.json
+└── (package.json từ root monorepo)
 ```
 
 ---
 
-## 2. Implement WebSocket Server
+## 3. Chi Tiết y-protocols Implementation
 
-### 2.1. Cấu hình environment
-
-```typescript
-// services_ms/apps/collab-ws/src/config.ts
-export const config = {
-  wsPort: parseInt(process.env.WS_PORT || '3008'),
-  collabServiceHost: process.env.COLLAB_SERVICE_HOST || 'localhost',
-  collabServicePort: parseInt(process.env.COLLAB_SERVICE_PORT || '3007'),
-  identityServiceHost: process.env.IDENTITY_SERVICE_HOST || 'identity-service',
-  identityServicePort: parseInt(process.env.IDENTITY_SERVICE_PORT || '3002'),
-  jwtSecret: process.env.JWT_SECRET || 'your-jwt-secret',
-  redisHost: process.env.REDIS_HOST || 'localhost',
-  redisPort: parseInt(process.env.REDIS_PORT || '6379'),
-  // Cache settings
-  roleCacheTtl: 300, // 5 minutes in seconds
-};
-```
-
-### 2.2. Redis Cache Wrapper (cho role caching)
+### 3.1. Imports cần thiết
 
 ```typescript
-// services_ms/apps/collab-ws/src/cache.ts
-import Redis from 'ioredis';
-import { config } from './config';
-
-const redis = new Redis({
-  host: config.redisHost,
-  port: config.redisPort,
-  retryStrategy: (times) => Math.min(times * 50, 2000),
-});
-
-export async function getCached<T>(key: string): Promise<T | null> {
-  const data = await redis.get(key);
-  return data ? JSON.parse(data) : null;
-}
-
-export async function setCache(key: string, value: any, ttl: number): Promise<void> {
-  await redis.setex(key, ttl, JSON.stringify(value));
-}
-
-export async function deleteCache(key: string): Promise<void> {
-  await redis.del(key);
-}
-
-export { redis };
-```
-
-### 2.3. TCP RPC Client cho Identity Service
-
-```typescript
-// services_ms/apps/collab-ws/src/identity-client.ts
-import * as net from 'net';
-import { config } from './config';
-
-export interface IdentityUser {
-  id: number;
-  email: string;
-  roles?: string[];
-}
-
-export class IdentityClient {
-  private static encodeMessage(pattern: any, data: any): Buffer {
-    const payload = JSON.stringify({ pattern, data });
-    const buffer = Buffer.alloc(4 + Buffer.byteLength(payload));
-    buffer.writeUInt32BE(Buffer.byteLength(payload), 0);
-    buffer.write(payload, 4);
-    return buffer;
-  }
-
-  static async send(pattern: string, data: any): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const client = new net.Socket();
-      let responseData = '';
-
-      const timeout = setTimeout(() => {
-        client.destroy();
-        reject(new Error('TCP request timeout'));
-      }, 5000);
-
-      client.connect(
-        config.identityServicePort,
-        config.identityServiceHost,
-        () => {
-          const message = this.encodeMessage({ cmd: pattern }, data);
-          client.write(message);
-        },
-      );
-
-      client.on('data', (chunk) => {
-        responseData += chunk.toString();
-      });
-
-      client.on('end', () => {
-        clearTimeout(timeout);
-        try {
-          const response = JSON.parse(responseData);
-          resolve(response);
-        } catch (e) {
-          reject(new Error('Failed to parse TCP response'));
-        }
-      });
-
-      client.on('error', (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-    });
-  }
-
-  // Validate JWT token via Identity Service TCP
-  static async validateToken(token: string): Promise<IdentityUser> {
-    const response = await this.send('validate_token', { token });
-    if (!response.success) {
-      throw new Error(response.message || 'Token validation failed');
-    }
-    return response.data;
-  }
-
-  // Get user role in a specific meeting via Identity Service TCP
-  static async getMeetingRole(meetingId: string, userId: number): Promise<'HOST' | 'EDITOR' | 'VIEWER'> {
-    const response = await this.send('get_meeting_role', { meetingId, userId });
-    if (!response.success) {
-      if (response.message?.includes('not found')) {
-        return 'VIEWER'; // Default to VIEWER if not found
-      }
-      throw new Error(response.message || 'Failed to get meeting role');
-    }
-    return response.data.role;
-  }
-}
-```
-
-### 2.4. TCP RPC Client Wrapper cho Collab Service
-
-```typescript
-// services_ms/apps/collab-ws/src/collab-client.ts
-import * as net from 'net';
-import { config } from './config';
-
-export interface TcpRpcResult {
-  success: boolean;
-  data?: any;
-  message?: string;
-}
-
-export class CollabClient {
-  private static encodeMessage(pattern: any, data: any): Buffer {
-    const payload = JSON.stringify({ pattern, data });
-    const buffer = Buffer.alloc(4 + Buffer.byteLength(payload));
-    buffer.writeUInt32BE(Buffer.byteLength(payload), 0);
-    buffer.write(payload, 4);
-    return buffer;
-  }
-
-  static async send(pattern: string, data: any): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const client = new net.Socket();
-      let responseData = '';
-
-      const timeout = setTimeout(() => {
-        client.destroy();
-        reject(new Error('TCP request timeout'));
-      }, 5000);
-
-      client.connect(
-        config.collabServicePort,
-        config.collabServiceHost,
-        () => {
-          const message = this.encodeMessage({ cmd: pattern }, data);
-          client.write(message);
-        },
-      );
-
-      client.on('data', (chunk) => {
-        responseData += chunk.toString();
-      });
-
-      client.on('end', () => {
-        clearTimeout(timeout);
-        try {
-          const response = JSON.parse(responseData);
-          resolve(response);
-        } catch (e) {
-          reject(new Error('Failed to parse TCP response'));
-        }
-      });
-
-      client.on('error', (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-    });
-  }
-
-  static async getTranscript(meetingId: string): Promise<any> {
-    return this.send('get-transcript', { meetingId });
-  }
-
-  static async saveTranscript(
-    meetingId: string,
-    rawText: string,
-    structuredContent: any,
-  ): Promise<any> {
-    return this.send('save-transcript', { meetingId, rawText, structuredContent });
-  }
-
-  static async createSnapshot(
-    meetingId: string,
-    userId: number,
-    versionName: string,
-  ): Promise<any> {
-    return this.send('create-snapshot', { meetingId, userId, versionName });
-  }
-}
-```
-
-### 2.3. Room Manager
-
-```typescript
-// services_ms/apps/collab-ws/src/room-manager.ts
-import * as Y from 'yjs';
-import { CollabClient } from './collab-client';
-
-interface UserInfo {
-  id: number;
-  role: 'HOST' | 'EDITOR' | 'VIEWER';
-  name?: string;
-  color?: string;
-}
-
-interface Room {
-  doc: Y.Doc;
-  awareness: Map<number, UserInfo>;
-  users: Set<any>;
-}
-
-export class RoomManager {
-  private rooms: Map<string, Room> = new Map();
-
-  async getOrCreateRoom(meetingId: string): Promise<Room> {
-    if (this.rooms.has(meetingId)) {
-      return this.rooms.get(meetingId)!;
-    }
-
-    const doc = new Y.Doc();
-
-    // Load initial document state from Collab Service
-    try {
-      const response = await CollabClient.getTranscript(meetingId);
-      if (response.success && response.data) {
-        this.initializeDocFromContent(doc, response.data);
-      }
-    } catch (err) {
-      console.error('Failed to load initial document:', err);
-    }
-
-    const room: Room = {
-      doc,
-      awareness: new Map(),
-      users: new Set(),
-    };
-
-    this.rooms.set(meetingId, room);
-    return room;
-  }
-
-  private initializeDocFromContent(doc: Y.Doc, content: any) {
-    const yText = doc.getText('transcript');
-    const ySegments = doc.getArray('segments');
-
-    if (content.rawText) {
-      yText.insert(0, content.rawText);
-    }
-
-    if (content.structuredContent?.segments) {
-      ySegments.insert(0, content.structuredContent.segments);
-    }
-  }
-
-  getRoom(meetingId: string): Room | undefined {
-    return this.rooms.get(meetingId);
-  }
-
-  removeUser(meetingId: string, ws: any) {
-    const room = this.rooms.get(meetingId);
-    if (room) {
-      room.users.delete(ws);
-      if (room.users.size === 0) {
-        // Optionally persist on empty room
-        this.rooms.delete(meetingId);
-      }
-    }
-  }
-}
-
-export const roomManager = new RoomManager();
-```
-
-### 2.5. JWT Auth & Identity Service Integration (TCP RPC)
-
-```typescript
-// services_ms/apps/collab-ws/src/auth.ts
-import * as jwt from 'jsonwebtoken';
-import { config } from './config';
-import { getCached, setCache } from './cache';
-import { IdentityClient } from './identity-client';
-
-export interface AuthResult {
-  valid: boolean;
-  userId?: number;
-  email?: string;
-  role?: 'HOST' | 'EDITOR' | 'VIEWER';
-  error?: string;
-}
-
-export interface UserInfo {
-  userId: number;
-  role: 'HOST' | 'EDITOR' | 'VIEWER';
-  meetingId: string;
-}
-
-// Verify JWT token via Identity Service TCP RPC
-export async function verifyToken(token: string): Promise<AuthResult> {
-  try {
-    // Call Identity Service via TCP RPC for full validation
-    const user = await IdentityClient.validateToken(token);
-    return {
-      valid: true,
-      userId: user.id,
-      email: user.email,
-    };
-  } catch (err) {
-    return {
-      valid: false,
-      error: 'Invalid or expired token',
-    };
-  }
-}
-
-// Get user role from Identity Service with Redis caching
-export async function getUserRole(
-  userId: number,
-  meetingId: string,
-): Promise<'HOST' | 'EDITOR' | 'VIEWER'> {
-  const cacheKey = `meeting:${meetingId}:user:${userId}:role`;
-
-  // Check Redis cache first
-  const cachedRole = await getCached<'HOST' | 'EDITOR' | 'VIEWER'>(cacheKey);
-  if (cachedRole) {
-    console.log(`[Auth] Role cache hit: ${cacheKey} = ${cachedRole}`);
-    return cachedRole;
-  }
-
-  // Call Identity Service via TCP RPC
-  try {
-    const role = await IdentityClient.getMeetingRole(meetingId, userId);
-
-    // Cache the role for 5 minutes
-    await setCache(cacheKey, role, config.roleCacheTtl);
-    console.log(`[Auth] Role cached: ${cacheKey} = ${role}`);
-
-    return role;
-  } catch (err) {
-    console.error(`[Auth] Failed to get role from Identity Service:`, err);
-    // Fallback to VIEWER on error (conservative approach)
-    return 'VIEWER';
-  }
-}
-
-// Invalidate role cache (call when user role changes)
-export async function invalidateRoleCache(meetingId: string, userId: number): Promise<void> {
-  const cacheKey = `meeting:${meetingId}:user:${userId}:role`;
-  const { deleteCache } = await import('./cache');
-  await deleteCache(cacheKey);
-  console.log(`[Auth] Role cache invalidated: ${cacheKey}`);
-}
-```
-
-### 2.6. Main WebSocket Server
-
-```typescript
-// services_ms/apps/collab-ws/src/main.ts
-import { WebSocketServer, WebSocket } from 'ws';
-import * as Y from 'yjs';
+// y-protocols cho CRDT sync và awareness
 import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
+
+// lib0 cho binary encoding/decoding
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
-import { config } from './config';
-import { CollabClient } from './collab-client';
-import { RoomManager, roomManager } from './room-manager';
-import { verifyToken, getUserRole, UserInfo } from './auth';
-import { IdentityClient } from './identity-client';
+```
 
-const msgSync = 0;
-const msgAwareness = 1;
+### 3.2. Message Types
 
-interface ConnectionInfo {
-  meetingId: string;
-  userId: number;
-  role: 'HOST' | 'EDITOR' | 'VIEWER';
+y-protocols định nghĩa 2 message types cơ bản:
+
+```typescript
+const msgSync = 0;        // CRDT synchronization messages
+const msgAwareness = 1;   // Presence/awareness messages
+```
+
+### 3.3. Binary Protocol Format
+
+Mỗi message có format:
+
+```
+┌────────────┬─────────────────────────┐
+│ byte 0    │ bytes 1-4 + payload    │
+├────────────┼─────────────────────────┤
+│ msgType   │ length (4 bytes BE)    │
+│ (1 byte)  │ + JSON/binary data     │
+└────────────┴─────────────────────────┘
+```
+
+**Ví dụ encoding:**
+
+```typescript
+// Tạo encoder
+const encoder = encoding.createEncoder();
+
+// Viết message type (1 byte)
+encoding.writeVarUint(encoder, msgSync);
+
+// Viết sync step 1 (CRDT state)
+syncProtocol.writeSyncStep1(encoder, doc);
+
+// Chuyển thành Uint8Array để gửi qua WebSocket
+const message = encoding.toUint8Array(encoder);
+client.send(message);
+```
+
+**Ví dụ decoding:**
+
+```typescript
+// Khi nhận được message
+const data: Uint8Array = ...;
+
+// Tạo decoder
+const decoder = decoding.createDecoder(data);
+
+// Đọc message type
+const messageType = decoding.readVarUint(decoder);
+
+if (messageType === msgSync) {
+  // Xử lý sync message
+  syncProtocol.readSyncMessage(decoder, encoder, doc, client);
+} else if (messageType === msgAwareness) {
+  // Xử lý awareness message
+  const awarenessData = decoding.readVarUint8Array(decoder);
+  awarenessProtocol.applyAwarenessUpdate(awareness, awarenessData, client);
 }
+```
 
-// Check if user can edit (HOST or EDITOR can write)
-function canEdit(role: string): boolean {
-  return role === 'HOST' || role === 'EDITOR';
+### 3.4. Sync Protocol Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      SYNC PROTOCOL FLOW                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. CLIENT CONNECT                                                │
+│  ┌─────────┐                           ┌──────────────┐        │
+│  │ Client  │  ──── sync-step-1 ────▶  │   Gateway    │        │
+│  │         │  ◀────── ack ───────────│   (Y.Doc)   │        │
+│  └─────────┘                           └──────────────┘        │
+│                                                                  │
+│  2. CLIENT EDIT (CRDT UPDATE)                                    │
+│  ┌─────────┐                           ┌──────────────┐        │
+│  │ Client  │  ──── sync-step-2 ────▶  │   Gateway    │        │
+│  │         │  ◀──── broadcast ────────│   (Y.Doc)   │        │
+│  └─────────┘     (to all peers)       └──────────────┘        │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Sync Step 1 (Server gửi initial state):**
+
+```typescript
+// Khi client join, gửi full document state
+const encoder = encoding.createEncoder();
+encoding.writeVarUint(encoder, msgSync);
+syncProtocol.writeSyncStep1(encoder, doc);
+client.send(encoding.toUint8Array(encoder));
+```
+
+**Sync Step 2 (Client gửi local updates):**
+
+```typescript
+// Xử lý update từ client
+const encoder = encoding.createEncoder();
+encoding.writeVarUint(encoder, msgSync);
+const syncType = syncProtocol.readSyncMessage(decoder, encoder, doc, client);
+
+// Nếu là sync-step-2, broadcast cho các clients khác
+if (syncType === syncProtocol.messageYjsSyncStep2) {
+  this.broadcastToRoom(data);
 }
+```
 
-const docs = new Map<string, Y.Doc>();
-const awarenessMap = new Map<string, awarenessProtocol.Awareness>();
-const connections = new Map<WebSocket, ConnectionInfo>();
+### 3.5. Awareness Protocol Flow
 
-function getDoc(meetingId: string): Y.Doc {
-  if (!docs.has(meetingId)) {
-    const doc = new Y.Doc();
-    docs.set(meetingId, doc);
-    awarenessMap.set(meetingId, new awarenessProtocol.Awareness(doc));
-  }
-  return docs.get(meetingId)!;
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    AWARENESS PROTOCOL FLOW                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  AWARENESS STATE STRUCTURE:                                      │
+│  {                                                              │
+│    userId: 123,                                                 │
+│    name: "John",                                                │
+│    color: "#ff0000",                                            │
+│    cursor: { index: 10, length: 5 },  // optional               │
+│    isTyping: true                       // optional              │
+│  }                                                              │
+│                                                                  │
+│  FLOW:                                                          │
+│  ┌─────────┐                           ┌──────────────┐        │
+│  │ Client  │  ── awareness update ──▶  │   Gateway    │        │
+│  │         │  ◀─── broadcast ──────────│  (Awareness) │        │
+│  └─────────┘                           └──────────────┘        │
+│                                                                  │
+│  USAGE:                                                          │
+│  - Show online users (avatars)                                   │
+│  - Show cursor positions                                         │
+│  - Show who's editing what segment                               │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Set local awareness:**
+
+```typescript
+// Khi user join, set awareness state
+awareness.setLocalStateField('user', {
+  userId: userData.userId,
+  role: userData.role,
+  name: `User ${userData.userId}`,
+  color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
+});
+
+// Encode và gửi cho client
+const awarenessEncoder = encoding.createEncoder();
+encoding.writeVarUint(awarenessEncoder, msgAwareness);
+encoding.writeVarUint8Array(
+  awarenessEncoder,
+  awarenessProtocol.encodeAwarenessUpdate(
+    awareness,
+    Array.from(awareness.getStates().keys()),
+  ),
+);
+client.send(encoding.toUint8Array(awarenessEncoder));
+```
+
+**Apply remote awareness:**
+
+```typescript
+// Khi nhận awareness update từ client khác
+awarenessProtocol.applyAwarenessUpdate(
+  awareness,
+  decoding.readVarUint8Array(decoder),
+  client,
+);
+
+// Broadcast cho các clients khác
+this.broadcastToRoom(userData.meetingId, data, client.id);
+```
+
+---
+
+## 4. Source Files Chi Tiết
+
+### 4.1. WebSocket Gateway (Main) - Giải thích từng phần
+
+```typescript
+// services_ms/apps/collab-gateway/src/collab-gateway.gateway.ts
+import {
+  WebSocketGateway,          // Decorator để đánh dấu class là WebSocket gateway
+  WebSocketServer,           // Inject server instance
+  SubscribeMessage,          // Decorator để subscribe message
+  OnGatewayConnection,       // Lifecycle hook khi client connect
+  OnGatewayDisconnect,      // Lifecycle hook khi client disconnect
+  MessageBody,               // Decorator để lấy message body
+  ConnectedSocket,           // Decorator để lấy socket instance
+} from '@nestjs/websockets';
+
+import { Server, Socket } from 'socket.io';  // Socket.io types
+
+// y-protocols imports
+import * as syncProtocol from 'y-protocols/sync';        // CRDT sync
+import * as awarenessProtocol from 'y-protocols/awareness'; // Presence
+import * as encoding from 'lib0/encoding';                 // Binary encoding
+import * as decoding from 'lib0/decoding';                 // Binary decoding
+```
+
+**Message Type Constants:**
+
+```typescript
+// y-protocols định nghĩa các message types này
+// Chúng ta dùng constants để dễ đọc
+const msgSync = 0;        // 0 = sync protocol message
+const msgAwareness = 1;   // 1 = awareness protocol message
+```
+
+**@WebSocketGateway Decorator:**
+
+```typescript
+@WebSocketGateway({
+  cors: {
+    origin: '*',  // Cho phép CORS từ mọi origin
+  },
+})
+export class CollabGatewayGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  @WebSocketServer()
+  server: Server;  // Socket.io server instance
+```
+
+**OnGatewayConnection:**
+
+```typescript
+// Được gọi khi client kết nối
+handleConnection(client: Socket) {
+  // client.id = unique socket ID
+  // client.handshake = { query: { token, meetingId }, headers: {...} }
+  this.logger.log(`Client connected: ${client.id}`);
 }
+```
 
-async function handleConnection(ws: WebSocket, meetingId: string, token: string) {
-  // Step 1: Verify JWT token
-  const authResult = await verifyToken(token);
-  if (!authResult.valid || !authResult.userId) {
-    console.log(`[WS] Auth failed: ${authResult.error}`);
-    ws.close(4001, 'Unauthorized');
+**Sync Message Handler:**
+
+```typescript
+@UseGuards(WsJwtGuard)  // Áp dụng JWT auth guard
+@SubscribeMessage('sync')  // Listen for 'sync' events
+async handleSync(
+  @ConnectedSocket() client: Socket,
+  @MessageBody() data: number[],  // Binary data từ Socket.io
+) {
+  const userData = client.data.user;
+
+  // 1. Check write permission (VIEWER cannot edit)
+  if (!this.roomService.canEdit(userData.role)) {
+    this.logger.warn(`User ${userData.userId} tried to edit - denied`);
     return;
   }
 
-  // Step 2: Get user role from Identity Service (with Redis caching)
-  const role = await getUserRole(authResult.userId, meetingId);
-  console.log(`[WS] User ${authResult.userId} connected to meeting ${meetingId} with role ${role}`);
+  // 2. Get Y.Doc cho meeting
+  const { doc } = this.roomService.getOrCreateDoc(userData.meetingId);
 
-  // Attach user info to socket
-  connections.set(ws, {
-    meetingId,
-    userId: authResult.userId,
-    role,
+  // 3. Decode binary message
+  const uint8Data = new Uint8Array(data);
+  const decoder = decoding.createDecoder(uint8Data);
+  const messageType = decoding.readVarUint(decoder);
+
+  // 4. Xử lý sync message
+  if (messageType === msgSync) {
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, msgSync);
+
+    // syncProtocol.readSyncMessage xử lý:
+    // - Nếu là sync-step-1: trả về doc state
+    // - Nếu là sync-step-2: apply updates, broadcast
+    const syncType = syncProtocol.readSyncMessage(
+      decoder, encoder, doc, client
+    );
+
+    // Gửi response nếu cần
+    if (encoding.length(encoder) > 1) {
+      client.send(encoding.toUint8Array(encoder));
+    }
+
+    // Broadcast nếu là update (sync-step-2)
+    if (syncType === syncProtocol.messageYjsSyncStep2) {
+      this.broadcastToRoom(userData.meetingId, data, client.id);
+    }
+  }
+}
+```
+
+**Sync Step 1 Handler (Initial Connection):**
+
+```typescript
+@UseGuards(WsJwtGuard)
+@SubscribeMessage('sync-step-1')
+async handleSyncStep1(@ConnectedSocket() client: Socket) {
+  const userData = client.data.user;
+  const { doc, awareness } = this.roomService.getOrCreateDoc(userData.meetingId);
+
+  // 1. Set awareness state cho user
+  awareness.setLocalStateField('user', {
+    userId: userData.userId,
+    role: userData.role,
+    name: `User ${userData.userId}`,
+    color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
   });
 
-  const doc = getDoc(meetingId);
-  const awareness = awarenessMap.get(meetingId)!;
-
-  // Set awareness state with user info
-  awarenessProtocol.setLocalAwarenessField(
-    awareness,
-    authResult.userId,
-    {
-      userId: authResult.userId,
-      role: role,
-      name: `User ${authResult.userId}`,
-      color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
-    } as UserInfo
-  );
-
-  // Gửi sync step 1
+  // 2. Gửi sync-step-1 (full document state)
   const encoder = encoding.createEncoder();
   encoding.writeVarUint(encoder, msgSync);
   syncProtocol.writeSyncStep1(encoder, doc);
-  ws.send(encoding.toUint8Array(encoder));
+  client.send(encoding.toUint8Array(encoder));
 
-  // Gửi awareness state
+  // 3. Gửi awareness state
   const awarenessEncoder = encoding.createEncoder();
   encoding.writeVarUint(awarenessEncoder, msgAwareness);
   encoding.writeVarUint8Array(
@@ -570,202 +442,295 @@ async function handleConnection(ws: WebSocket, meetingId: string, token: string)
       Array.from(awareness.getStates().keys()),
     ),
   );
-  ws.send(encoding.toUint8Array(awarenessEncoder));
+  client.send(encoding.toUint8Array(awarenessEncoder));
 
-  ws.on('message', (message: Buffer) => {
-    const data = new Uint8Array(message);
-    const decoder = decoding.createDecoder(data);
-    const messageType = decoding.readVarUint(decoder);
-
-    const info = connections.get(ws);
-    if (!info) return;
-
-    switch (messageType) {
-      case msgSync:
-        // Step 3: Validate write permission before applying update
-        if (!canEdit(info.role)) {
-          console.log(`[WS] User ${info.userId} (${info.role}) tried to edit - denied`);
-          return; // VIEWER cannot send updates
-        }
-
-        const encoder = encoding.createEncoder();
-        encoding.writeVarUint(encoder, msgSync);
-        const syncMessageType = syncProtocol.readSyncMessage(
-          decoder,
-          encoder,
-          doc,
-          ws,
-        );
-
-        if (encoding.length(encoder) > 1) {
-          ws.send(encoding.toUint8Array(encoder));
-        }
-
-        // Broadcast update to other clients
-        if (syncMessageType === syncProtocol.messageYjsSyncStep2) {
-          broadcastUpdate(meetingId, data, ws);
-          console.log(`[WS] Broadcast update from user ${info.userId}`);
-        }
-        break;
-
-      case msgAwareness:
-        awarenessProtocol.applyAwarenessUpdate(
-          awareness,
-          decoding.readVarUint8Array(decoder),
-          ws,
-        );
-        broadcastAwareness(meetingId, data, ws);
-        break;
-    }
-  });
-
-  ws.on('close', () => {
-    const info = connections.get(ws);
-    if (info) {
-      console.log(`[WS] User ${info.userId} disconnected from meeting ${info.meetingId}`);
-      roomManager.removeUser(info.meetingId, ws);
-      // Clear awareness state
-      awarenessProtocol.removeLocalAwarenessState(awareness, info.userId, null);
-      connections.delete(ws);
-    }
-  });
+  this.logger.log(`User ${userData.userId} joined meeting ${userData.meetingId}`);
 }
+```
 
-function broadcastUpdate(meetingId: string, data: Uint8Array, sender: WebSocket) {
-  connections.forEach((info, ws) => {
-    if (info.meetingId === meetingId && ws !== sender && ws.readyState === WebSocket.OPEN) {
-      ws.send(Buffer.from(data));
-    }
-  });
+**Awareness Message Handler:**
+
+```typescript
+@UseGuards(WsJwtGuard)
+@SubscribeMessage('awareness')
+handleAwareness(
+  @ConnectedSocket() client: Socket,
+  @MessageBody() data: number[],
+) {
+  const userData = client.data.user;
+  const { awareness } = this.roomService.getOrCreateDoc(userData.meetingId);
+
+  // Apply awareness update (cursor, selection, etc.)
+  awarenessProtocol.applyAwarenessUpdate(
+    awareness,
+    new Uint8Array(data),
+    client,
+  );
+
+  // Broadcast cho các clients khác
+  this.broadcastToRoom(userData.meetingId, data, client.id);
 }
+```
 
-function broadcastAwareness(meetingId: string, data: Uint8Array, sender: WebSocket) {
-  connections.forEach((info, ws) => {
-    if (info.meetingId === meetingId && ws !== sender && ws.readyState === WebSocket.OPEN) {
-      ws.send(Buffer.from(data));
-    }
-  });
+**Broadcast Helper:**
+
+```typescript
+private broadcastToRoom(meetingId: string, data: any, excludeClientId: string) {
+  // Emit cho tất cả clients trong room
+  // Lưu ý: Trong production, cần dùng Redis adapter để
+  // broadcast qua nhiều instances
+  this.server.emit('sync', data);
 }
+```
 
-// Start WebSocket server
-const wss = new WebSocketServer({ port: config.wsPort });
+---
 
-wss.on('connection', async (ws, req) => {
-  const url = new URL(req.url || '', `http://localhost:${config.wsPort}`);
-  const meetingId = url.searchParams.get('meetingId');
-  const token = url.searchParams.get('token');
+## 5. JWT Guard Chi Tiết
 
-  if (!meetingId || !token) {
-    ws.close(4000, 'Missing meetingId or token');
-    return;
+### 5.1. Tại sao cần WebSocket Guard?
+
+```
+HTTP Guard:                                    WebSocket Guard:
+┌──────────────┐                              ┌──────────────┐
+│ Request      │                              │ Connection   │
+│ Headers      │                              │ handshake    │
+│ Authorization│                              │ query.token  │
+└──────────────┘                              └──────────────┘
+       │                                             │
+       ▼                                             ▼
+  @UseGuards(Guard)                           @UseGuards(WsJwtGuard)
+       │                                             │
+       ▼                                             ▼
+  canActivate()                                 canActivate()
+  - Read headers                                - Read handshake.query
+  - Validate JWT                               - Validate JWT
+  - Attach user                                - Attach user to socket.data
+```
+
+### 5.2. Implementation
+
+```typescript
+@Injectable()
+export class WsJwtGuard implements CanActivate {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    // 1. Lấy socket từ context
+    const client: Socket = context.switchToWs().getClient();
+
+    // 2. Lấy token và meetingId từ query params
+    // (WebSocket không có headers, chỉ có query)
+    const token = client.handshake.query.token as string;
+    const meetingId = client.handshake.query.meetingId as string;
+
+    if (!token || !meetingId) {
+      throw new WsException('Missing token or meetingId');
+    }
+
+    try {
+      // 3. Validate token qua Identity Service
+      const user = await this.identityClient.validateToken(token);
+
+      // 4. Get user role với caching
+      const role = await this.getUserRoleWithCache(meetingId, user.id);
+
+      // 5. Attach user info vào socket.data
+      // (socket.data sẽ persist trong suốt connection)
+      client.data.user = {
+        userId: user.id,
+        email: user.email,
+        role,
+        meetingId,
+      };
+
+      return true;
+    } catch (error) {
+      throw new WsException('Unauthorized');
+    }
+  }
+}
+```
+
+---
+
+## 6. Room Service Chi Tiết
+
+### 6.1. Room Management
+
+```typescript
+@Injectable()
+export class RoomService implements OnModuleDestroy {
+  // Map<meetingId, Y.Doc>
+  private docs = new Map<string, Y.Doc>();
+
+  // Map<meetingId, Awareness>
+  private awarenessMap = new Map<string, awarenessProtocol.Awareness>();
+
+  getOrCreateDoc(meetingId: string): { doc: Y.Doc; awareness: awarenessProtocol.Awareness } {
+    if (!this.docs.has(meetingId)) {
+      // Tạo mới Y.Doc
+      const doc = new Y.Doc();
+
+      // Tạo awareness instance cho document
+      // Awareness tự động sync presence state
+      const awareness = new awarenessProtocol.Awareness(doc);
+
+      // Lưu vào maps
+      this.docs.set(meetingId, doc);
+      this.awarenessMap.set(meetingId, awareness);
+
+      // Load initial state từ Collab Service
+      this.loadDocument(meetingId, doc);
+
+      return { doc, awareness };
+    }
+
+    return {
+      doc: this.docs.get(meetingId)!,
+      awareness: this.awarenessMap.get(meetingId)!,
+    };
   }
 
-  console.log(`[WS] New connection: meetingId=${meetingId}`);
-  await handleConnection(ws, meetingId, token);
-});
+  // Check quyền edit dựa trên role
+  canEdit(role: string): boolean {
+    return role === 'HOST' || role === 'EDITOR';
+  }
 
-console.log(`[WS] y-websocket server running on port ${config.wsPort}`);
+  onModuleDestroy() {
+    // Cleanup khi service shutdown
+    this.docs.forEach((doc) => doc.destroy());
+  }
+}
 ```
+
+### 6.2. Initialize Document từ Content
+
+```typescript
+private initializeDocFromContent(doc: Y.Doc, content: any) {
+  // Y.Text cho raw transcript
+  const yText = doc.getText('transcript');
+  if (content.rawText) {
+    yText.insert(0, content.rawText);
+  }
+
+  // Y.Array cho structured segments
+  const ySegments = doc.getArray('segments');
+  if (content.structuredContent?.segments) {
+    ySegments.insert(0, content.structuredContent.segments);
+  }
+}
 ```
 
 ---
 
-## 3. File Cần Tạo
+## 7. Environment Variables
 
+**Collab Gateway:**
 ```
-services_ms/apps/collab-ws/
-├── package.json
-├── tsconfig.json
-├── src/
-│   ├── main.ts              # Entry point
-│   ├── config.ts            # Environment config
-│   ├── cache.ts             # Redis cache wrapper (role caching)
-│   ├── identity-client.ts   # TCP RPC client to Identity Service
-│   ├── collab-client.ts     # TCP RPC client to Collab Service
-│   ├── auth.ts              # JWT authentication + Identity Service integration
-│   └── room-manager.ts     # Room management
-└── dist/                    # Build output
+WS_PORT=3008
+COLLAB_SERVICE_HOST=collab-service
+COLLAB_SERVICE_TCP_PORT=3007
+IDENTITY_SERVICE_HOST=identity-service
+IDENTITY_SERVICE_TCP_PORT=3002
+REDIS_HOST=redis
+REDIS_PORT=6379
+ROLE_CACHE_TTL=300
 ```
 
 ---
 
-## Làm Sao Để Test?
+## 8. Test WebSocket Connection
 
-### Test 1: Build collab-ws
-
-```bash
-cd services_ms/apps/collab-ws
-npm run build
-```
-
-**Expected:** Build thành công không có errors
-
-### Test 2: Start collab-ws
-
-```bash
-cd services_ms/apps/collab-ws
-npm run dev
-```
-
-**Expected:**
-```
-y-websocket server running on port 3008
-```
-
-### Test 3: WebSocket Connection Test
-
-Tạo file `test-ws.js`:
+### 8.1. Test Script
 
 ```javascript
-const WebSocket = require('ws');
+// test-ws.js
+const { io } = require('socket.io-client');
 
-const ws = new WebSocket('ws://localhost:3008/ws/collab?meetingId=test-123&token=test-token');
-
-ws.on('open', () => {
-  console.log('Connected to y-websocket');
+const socket = io('http://localhost:3008', {
+  query: {
+    meetingId: 'test-123',
+    token: 'your-jwt-token',
+  },
 });
 
-ws.on('message', (data) => {
-  console.log('Received message:', data.toString('hex').substring(0, 100));
+socket.on('connect', () => {
+  console.log('✅ Connected to Collab Gateway');
+
+  // Request sync step 1 (initial document state)
+  socket.emit('sync-step-1');
 });
 
-ws.on('close', (code, reason) => {
-  console.log('Disconnected:', code, reason);
+socket.on('sync', (data) => {
+  console.log('📨 Received sync message:', data.byteLength, 'bytes');
 });
 
-ws.on('error', (err) => {
-  console.log('Error:', err.message);
+socket.on('awareness', (data) => {
+  console.log('👥 Received awareness update:', data.byteLength, 'bytes');
 });
 
-// Disconnect after 5 seconds
+socket.on('error', (err) => {
+  console.log('❌ Error:', err);
+});
+
+socket.on('disconnect', () => {
+  console.log('🔌 Disconnected');
+});
+
+// Auto disconnect after 30 seconds
 setTimeout(() => {
-  ws.close();
-}, 5000);
+  socket.disconnect();
+  process.exit(0);
+}, 30000);
 ```
 
+### 8.2. Chạy test
+
 ```bash
+# Start collab-gateway
+cd services_ms
+npm run start:dev -- collab-gateway
+
+# Run test (in another terminal)
 node test-ws.js
 ```
 
-**Expected:**
-```
-Connected to y-websocket
-Received message: <binary data>
-```
+---
+
+## 9. Troubleshooting
+
+### 9.1. Client không nhận được sync message
+
+1. Check JWT token có hợp lệ không
+2. Check meetingId có đúng format không
+3. Check `sync-step-1` event được emit chưa
+
+### 9.2. Awareness không hoạt động
+
+1. Check awareness instance được tạo cho mỗi document
+2. Check `setLocalStateField` được gọi khi join
+3. Check `applyAwarenessUpdate` được gọi khi nhận
+
+### 9.3. Role-based edit không hoạt động
+
+1. Check `canEdit()` method
+2. Check role được attach vào socket.data
+3. Check `WsJwtGuard` chạy trước message handlers
 
 ---
 
-## Output Sau Step Này
+## 10. Output Sau Step Này
 
 Sau khi hoàn thành STEP-04:
 
-1. ✅ y-websocket server chạy trên port 3008
-2. ✅ JWT authentication được implement
+1. ✅ Collab Gateway (NestJS) chạy trên port 3008
+2. ✅ JWT authentication được implement (WsJwtGuard)
 3. ✅ Room management với Yjs document
 4. ✅ TCP RPC client để giao tiếp với Collab Service
+5. ✅ Role-based write filtering (HOST/EDITOR allowed, VIEWER blocked)
+6. ✅ y-protocols integration (sync + awareness)
+7. ✅ Binary protocol với lib0 encoding
 
 ---
 
-## Tiếp Theo
+## 11. Tiếp Theo
 
 👉 **[STEP-05: Frontend Integration](./STEP-05.md)** - Tích hợp collaborative editor vào Next.js frontend

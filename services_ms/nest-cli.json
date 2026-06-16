@@ -71,6 +71,15 @@
       "compilerOptions": {
         "tsConfigPath": "apps/collab/tsconfig.app.json"
       }
+    },
+    "collab-gateway": {
+      "type": "application",
+      "root": "apps/collab-gateway",
+      "entryFile": "main",
+      "sourceRoot": "apps/collab-gateway/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/collab-gateway/tsconfig.app.json"
+      }
     }
   }
 }

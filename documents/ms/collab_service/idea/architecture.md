@@ -17,18 +17,108 @@ Cho phép nhiều người dùng cùng chỉnh sửa bản dịch cuộc họp *
 ### 1.2. Công nghệ sử dụng
 
 | Công nghệ | Vai trò |
-|---|---|
+|---|
 | **Yjs** | CRDT library - đảm bảo tính nhất quán khi nhiều người cùng sửa đồng thời |
-| **y-websocket** | WebSocket server - sync CRDT updates giữa các clients |
+| **y-protocols** | Protocol implementations - sync, awareness (chúng ta dùng cái này!) |
+| **@nestjs/websockets** | NestJS WebSocket Gateway - handle WebSocket connections trong NestJS |
+| **lib0 (y-protocols dependency)** | Binary encoding/decoding cho y-protocols |
 | **Quill** | Rich text editor (frontend) |
-| **Redis Pub/Sub** | Đồng bộ giữa nhiều instances y-websocket |
+| **Redis Pub/Sub** | Đồng bộ giữa nhiều instances Collab Gateway |
 | **PostgreSQL** | Lưu trữ transcript & phiên bản lịch sử |
 
 ---
 
-## 2. Nguyên Tắc Thiết Kế
+## 2. Tại Sao Dùng y-protocols Thay Vì y-websocket?
 
-### 2.1. Separation of Concerns
+### 2.1. Vấn đề khi dùng trực tiếp y-websocket
+
+**y-websocket là một package hoàn chỉnh** bao gồm:
+- WebSocket server
+- Yjs document management
+- Protocol implementation
+- Authentication mặc định
+
+**Nhược điểm khi dùng trực tiếp:**
+
+```javascript
+// ❌ y-websocket server hoạt động độc lập
+const { WebSocketServer } = require('y-websocket');
+const server = new WebSocketServer({ port: 3008 });
+
+// Vấn đề:
+// 1. Không tích hợp được với NestJS DI system
+// 2. Không share được TCP clients với các services khác
+// 3. Auth logic phải viết riêng, không dùng chung
+// 4. Không theo patterns của monorepo
+```
+
+### 2.2. Giải pháp: Dùng y-protocols + Socket.io
+
+**y-protocols** là các protocol implementations rời rạc mà y-websocket sử dụng bên trong:
+
+```javascript
+// ✅ Chúng ta dùng riêng lẻ
+import * as syncProtocol from 'y-protocols/sync';      // CRDT sync protocol
+import * as awarenessProtocol from 'y-protocols/awareness'; // Presence protocol
+import * as encoding from 'lib0/encoding';              // Binary encoding
+```
+
+**Lợi ích:**
+
+| Aspect | y-websocket | y-protocols + Socket.io |
+|--------|-------------|--------------------------|
+| **Tích hợp NestJS** | ❌ Không | ✅ Hoàn toàn |
+| **Dependency Injection** | ❌ Không | ✅ Có |
+| **Custom Auth** | ⚠️ Hạn chế | ✅ Tùy ý |
+| **TCP Client Sharing** | ❌ Không | ✅ Có thể share |
+| **Module System** | ❌ Không | ✅ Có |
+| **Testing** | ⚠️ Khó | ✅ Dễ |
+| **Maintainability** | ⚠️ Lock vào y-websocket | ✅ Tự kiểm soát |
+
+### 2.3. Kiến trúc Protocol
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        CLIENT (Browser)                          │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
+│  │   Quill     │  │    Yjs      │  │   y-websocket Provider  │  │
+│  │  Editor     │──│   Doc       │──│   (Socket.io client)   │  │
+│  └─────────────┘  └─────────────┘  └───────────┬─────────────┘  │
+└────────────────────────────────────────────────┼────────────────┘
+                                                 │ WebSocket
+                                                 │ Binary (lib0)
+                                                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    COLLAB GATEWAY (NestJS)                      │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │              @WebSocketGateway (Socket.io)                │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                              │                                   │
+│                              ▼                                   │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                  y-protocols (lib0 encoding)              │  │
+│  │  ┌─────────────────┐  ┌─────────────────┐                │  │
+│  │  │  syncProtocol   │  │ awarenessProtocol│                │  │
+│  │  │  (CRDT sync)    │  │  (Presence)     │                │  │
+│  │  └─────────────────┘  └─────────────────┘                │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                              │                                   │
+│                              ▼                                   │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                    Y.Doc (In-memory)                       │  │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐   │  │
+│  │  │  Y.Text     │  │  Y.Array    │  │  Y.Map          │   │  │
+│  │  │ (segments)  │  │ (segments)  │  │  (metadata)     │   │  │
+│  │  └─────────────┘  └─────────────┘  └─────────────────┘   │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 3. Nguyên Tắc Thiết Kế
+
+### 3.1. Separation of Concerns
 
 Hệ thống được chia thành **2 phần chính**:
 
@@ -39,25 +129,147 @@ Hệ thống được chia thành **2 phần chính**:
 
 **Nguyên tắc:** WebSocket chỉ tập trung vào **real-time sync**. Các thao tác CRUD thuần túy (save, snapshot, versions, restore) đi qua **HTTP API Gateway**.
 
-### 2.2. Tại sao tách?
+### 3.2. Tại sao tách?
 
 1. **WebSocket** chỉ lo CRDT sync → đơn giản, hiệu quả
 2. **HTTP API** xử lý các thao tác không cần realtime → dễ scale, dễ cache
-3. **Scalability**: Khi deploy nhiều instances y-websocket, cần **Redis Pub/Sub** để sync giữa các instances
+3. **Scalability**: Khi deploy nhiều instances Collab Gateway, cần **Redis Pub/Sub** để sync giữa các instances
 
-### 2.3. Nguyên tắc truy cập dữ liệu
+### 3.3. Nguyên tắc truy cập dữ liệu
 
 **Quan trọng:**
-- **y-websocket KHÔNG truy cập trực tiếp PostgreSQL.**
-- **y-websocket** giao tiếp với **Collab Service qua TCP RPC** (không qua HTTP).
+- **Collab Gateway (WebSocket) KHÔNG truy cập trực tiếp PostgreSQL.**
+- **Collab Gateway** giao tiếp với **Collab Service qua TCP RPC** (không qua HTTP).
 - **API Gateway** giao tiếp với **Collab Service qua TCP RPC** cho các HTTP endpoints.
 - **Collab Service** giao tiếp với **Meeting Service qua TCP RPC** để lấy `audioFileId`, sau đó dùng **Prisma direct** vào bảng `transcripts` và `transcript_versions`.
 
 ---
 
-## 3. Sơ Đồ Kiến Trúc
+## 4. Y-Protocol Chi Tiết
 
-### 3.1. Sơ đồ tổng quan (Architecture Overview)
+### 4.1. Message Types (y-protocols định nghĩa)
+
+```typescript
+// Message type constants
+const msgSync = 0;        // CRDT synchronization
+const msgAwareness = 1;   // Presence/awareness
+```
+
+### 4.2. Sync Protocol (`y-protocols/sync`)
+
+Sync protocol xử lý việc đồng bộ CRDT state giữa các clients:
+
+```typescript
+import * as syncProtocol from 'y-protocols/sync';
+import * as encoding from 'lib0/encoding';
+import * as decoding from 'lib0/decoding';
+
+// Các hàm chính:
+// - syncProtocol.writeSyncStep1(encoder, doc)  // Server → Client (initial state)
+// - syncProtocol.writeSyncStep2(encoder, doc)  // Client → Server (after receiving step1)
+// - syncProtocol.readSyncMessage(decoder, encoder, doc, ws)  // Xử lý message
+
+// Sync flow:
+// 1. Client connect → Server gửi sync-step-1 (full state)
+// 2. Client nhận → gửi sync-step-2 (missing updates)
+// 3. Server nhận → áp dụng và gửi lại những gì client miss
+```
+
+**Sync Step 1 (Server gửi initial state):**
+```
+┌──────────────┐     sync-step-1      ┌──────────────┐
+│   Server     │ ──────────────────▶ │   Client 1   │
+│   (Y.Doc)    │   [full state]      │   (Y.Doc)   │
+└──────────────┘                      └──────────────┘
+```
+
+**Sync Step 2 (Client sync lại):**
+```
+┌──────────────┐     sync-step-2      ┌──────────────┐
+│   Client 2   │ ──────────────────▶ │   Server     │
+│   (Y.Doc)   │   [local updates]    │   (Y.Doc)   │
+└──────────────┘                      └──────────────┘
+       │                                    │
+       │     Server gửi lại                │
+       │     missing updates               │
+       └────────────────────────────────────┘
+```
+
+### 4.3. Awareness Protocol (`y-protocols/awareness`)
+
+Awareness protocol xử lý presence - ai đang online, cursor ở đâu:
+
+```typescript
+import * as awarenessProtocol from 'y-protocols/awareness';
+
+// Tạo awareness instance cho mỗi document
+const awareness = new awarenessProtocol.Awareness(doc);
+
+// Set local state (khi user thay đổi cursor/selection)
+awareness.setLocalStateField('user', {
+  userId: 123,
+  role: 'EDITOR',
+  name: 'John',
+  color: '#ff0000',
+  cursor: { index: 10, length: 5 },
+});
+
+// Encode awareness state để gửi qua network
+const update = awarenessProtocol.encodeAwarenessUpdate(
+  awareness,
+  [clientId1, clientId2]  // Chỉ gửi state của các client này
+);
+
+// Decode và apply
+awarenessProtocol.applyAwarenessUpdate(awareness, update, ws);
+
+// Remove client khi disconnect
+awarenessProtocol.removeAwarenessStates(awareness, [clientId], null);
+```
+
+### 4.4. Binary Encoding với lib0
+
+**Tại sao dùng binary?**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    TEXT PROTOCOL                         │
+│  {"type":"sync","data":"hello world"}                  │
+│  → 46 bytes, parse JSON overhead                        │
+├─────────────────────────────────────────────────────────┤
+│                    BINARY PROTOCOL                      │
+│  [0x00][0x05]hello                                   │
+│  → 7 bytes, direct binary                             │
+│                                                         │
+│  Format: [messageType(1byte)][length(4bytes)][data]    │
+└─────────────────────────────────────────────────────────┘
+```
+
+**lib0 encoding/decoding:**
+
+```typescript
+import * as encoding from 'lib0/encoding';
+import * as decoding from 'lib0/decoding';
+
+// Encoding (server side)
+const encoder = encoding.createEncoder();
+encoding.writeVarUint(encoder, msgSync);  // Message type
+syncProtocol.writeSyncStep1(encoder, doc);
+const message = encoding.toUint8Array(encoder);
+
+// Decoding (when receive)
+const decoder = decoding.createDecoder(data);
+const messageType = decoding.readVarUint(decoder);
+if (messageType === msgSync) {
+  // Xử lý sync message
+}
+```
+
+---
+
+## 5. Sơ Đồ Kiến Trúc
+
+### 5.1. Sơ đồ tổng quan (Architecture Overview)
 
 ```mermaid
 graph TB
@@ -72,7 +284,7 @@ graph TB
     end
 
     subgraph "Microservices Layer"
-        yWS[y-websocket Server<br/>:3008<br/>CRDT Sync + JWT Auth<br/>TCP RPC Client]
+        CollabWS[NestJS Collab Gateway<br/>:3008<br/>WebSocket + y-protocols<br/>TCP RPC Client]
         Identity[Identity Service<br/>:3002<br/>TCP RPC Server]
         Collab[Collab Service<br/>:3007<br/>TCP RPC Server]
         Meeting[Meeting Service<br/>:3006<br/>TCP RPC]
@@ -89,16 +301,16 @@ graph TB
 
     %% Gateway Routing
     Nginx -->|HTTP| APIGateway
-    Nginx -->|ws://| yWS
+    Nginx -->|ws://| CollabWS
 
     %% API Gateway -> Services
     APIGateway -->|TCP| Identity
     APIGateway -->|TCP| Collab
 
     %% WebSocket Service
-    yWS ==>|TCP RPC| Identity
-    yWS ==>|TCP RPC| Collab
-    yWS -->|Pub/Sub| Redis
+    CollabWS ==>|TCP RPC| Identity
+    CollabWS ==>|TCP RPC| Collab
+    CollabWS -->|Pub/Sub| Redis
 
     %% Internal Service Communication
     Collab -->|TCP RPC| Meeting
@@ -108,50 +320,50 @@ graph TB
     Meeting -->|Prisma| PG
 ```
 
-### 3.2. Các thành phần chi tiết
+### 5.2. Các thành phần chi tiết
 
-#### 3.2.1. Client Layer (Browser)
+#### 5.2.1. Client Layer (Browser)
 
 - **Next.js App**: Giao diện người dùng
 - **Quill Editor**: Rich text editor cho từng segment bản dịch
 - **Yjs Client**: CRDT document client
-- **y-websocket Provider**: Kết nối WebSocket tới y-websocket server
+- **y-websocket Provider**: Kết nối WebSocket tới Collab Gateway
 
-#### 3.2.2. Gateway Layer
+#### 5.2.2. Gateway Layer
 
 | Thành phần | Mô tả |
-|---|---|
-| **Nginx** | Reverse proxy, định tuyến HTTP → API Gateway, WS → y-websocket |
+|---|
+| **Nginx** | Reverse proxy, định tuyến HTTP → API Gateway, WS → Collab Gateway |
 | **API Gateway** | REST API Gateway (`:3000`), expose Collab HTTP endpoints, giao tiếp với Identity & Collab qua TCP RPC |
 
-#### 3.2.3. Microservices Layer
+#### 5.2.3. Microservices Layer
 
 | Service | Cổng | Giao thức | Trách nhiệm |
 |---|---|---|---|
-| **y-websocket** | `:3008` | WebSocket + TCP RPC Client | CRDT sync, auth, init document, TCP RPC client to Identity & Collab |
+| **Collab Gateway** | `:3008` | WebSocket + TCP RPC Client | CRDT sync, auth, init document, TCP RPC client to Identity & Collab |
 | **Identity Service** | `:3002` | TCP RPC Server + HTTP (external) | JWT verification, user management, meeting roles |
 | **Collab Service** | `:3007` | TCP RPC Server | Snapshot management, version history, persistence |
 | **Meeting Service** | `:3006` | TCP RPC | Meeting CRUD, member management |
 
-#### 3.2.4. Data Layer
+#### 5.2.4. Data Layer
 
 | Thành phần | Mô tả |
-|---|---|
-| **Redis** | Pub/Sub cho multi-instance y-websocket |
+|---|
+| **Redis** | Pub/Sub cho multi-instance Collab Gateway |
 | **PostgreSQL** | Shared database với nhiều schemas |
 
 ---
 
-## 4. Luồng Giao Tiếp Chi Tiết
+## 6. Luồng Giao Tiếp Chi Tiết
 
-### 4.1. WebSocket Flow - Authentication & Init Document
+### 6.1. WebSocket Flow - Authentication & Init Document
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant Client as Client (Editor)
     participant Nginx as Nginx
-    participant yWS as y-websocket<br/>:3008
+    participant CollabWS as Collab Gateway<br/>:3008
     participant Identity as Identity Service<br/>:3002
     participant Collab as Collab Service<br/>:3007
     participant Meeting as Meeting Service<br/>:3006
@@ -159,139 +371,92 @@ sequenceDiagram
     participant Redis as Redis Cache
 
     Client->>Nginx: WS connect<br/>/ws/collab?meetingId=X&token=JWT
-    Nginx->>yWS: Upgrade to WebSocket
-    yWS->>yWS: Extract token from URL params
+    Nginx->>CollabWS: Upgrade to WebSocket
+    CollabWS->>CollabWS: Extract token from URL params
 
-    Note over yWS: Step 1: Verify JWT via TCP RPC to Identity Service
-    yWS->>Identity: TCP RPC<br/>cmd: validate_token<br/>{ token }
+    Note over CollabWS: Step 1: Verify JWT via TCP RPC to Identity Service
+    CollabWS->>Identity: TCP RPC<br/>cmd: validate_token<br/>{ token }
     alt Token Invalid
-        Identity-->>yWS: { success: false }
-        yWS-->>Client: WS close (4001 Unauthorized)
+        Identity-->>CollabWS: { success: false }
+        CollabWS-->>Client: WS close (4001 Unauthorized)
     else Token Valid
-        Identity-->>yWS: { success: true, data: { id, email } }
-        Note over yWS: Token verified, extract userId
+        Identity-->>CollabWS: { success: true, data: { id, email } }
+        Note over CollabWS: Token verified, extract userId
     end
 
-    Note over yWS: Step 2: Get role from Identity Service via TCP RPC
-    yWS->>Redis: GET meeting:X:user:Y:role
+    Note over CollabWS: Step 2: Get role from Identity Service via TCP RPC
+    CollabWS->>Redis: GET meeting:X:user:Y:role
     alt Cache Hit
-        Redis-->>yWS: { role: "EDITOR" }
+        Redis-->>CollabWS: { role: "EDITOR" }
     else Cache Miss
-        yWS->>Identity: TCP RPC<br/>cmd: get_meeting_role<br/>{ meetingId, userId }
-        Identity-->>yWS: { success: true, data: { role: "HOST" } }
-        yWS->>Redis: SETEX meeting:X:user:Y:role 300 "HOST"
+        CollabWS->>Identity: TCP RPC<br/>cmd: get_meeting_role<br/>{ meetingId, userId }
+        Identity-->>CollabWS: { success: true, data: { role: "HOST" } }
+        CollabWS->>Redis: SETEX meeting:X:user:Y:role 300 "HOST"
     end
 
-    Note over yWS: Auth completed with userId + role
+    Note over CollabWS: Auth completed with userId + role
 
-    Note over yWS: Step 3: Load document from Collab Service
-    yWS->>Collab: TCP RPC<br/>cmd: get-transcript<br/>{ meetingId }
+    Note over CollabWS: Step 3: Load document from Collab Service
+    CollabWS->>Collab: TCP RPC<br/>cmd: get-transcript<br/>{ meetingId }
     Collab->>Meeting: TCP RPC<br/>cmd: get-audioFileId
     Meeting-->>Collab: { audioFileId: "xxx-xxx" }
     Collab->>PG: SELECT * FROM transcripts<br/>WHERE audioFileId = "xxx-xxx"
     PG-->>Collab: { id, rawText, structuredContent }
-    Collab-->>yWS: { rawText, structuredContent }
-    yWS->>yWS: Init Yjs document with segments
+    Collab-->>CollabWS: { rawText, structuredContent }
+    CollabWS->>CollabWS: Init Yjs document with segments
 
-    Note over yWS: Room ready for CRDT sync
+    Note over CollabWS: Room ready for CRDT sync
 
-    yWS-->>Client: WS connection established + sync step 1
-    Client->>yWS: Yjs update (CRDT bytes)
+    CollabWS-->>Client: WS connection established + sync step 1
+    Client->>CollabWS: Yjs update (CRDT bytes)
 
-    Note over yWS: Step 4: Validate write permission
+    Note over CollabWS: Step 4: Validate write permission
     alt role is HOST or EDITOR
-        yWS->>yWS: Apply update to local Yjs doc
-        yWS-->>Client: Yjs update (broadcast)
+        CollabWS->>CollabWS: Apply update to local Yjs doc
+        CollabWS-->>Client: Yjs update (broadcast)
     else role is VIEWER
-        yWS->>yWS: Reject update (log warning)
+        CollabWS->>CollabWS: Reject update (log warning)
     end
 ```
 
-### 4.2. HTTP API Flow - Auto-save & Snapshots
+### 6.2. Y-Protocol Message Flow
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    participant Client as Client (Editor)
-    participant APIGateway as API Gateway<br/>:3000
-    participant Collab as Collab Service<br/>:3007
-    participant Meeting as Meeting Service<br/>:3006
-    participant PG as PostgreSQL DB
+    participant Client1 as Client 1 (Editor)
+    participant Gateway as Collab Gateway
+    participant Client2 as Client 2 (Viewer)
 
-    Note over Client: FE: Đếm 5 ký tự → gọi API
-    Client->>APIGateway: POST /v1/collab/transcript<br/>{ meetingId, rawText, structuredContent }
-    APIGateway->>Collab: TCP RPC<br/>cmd: save-transcript
-    Collab->>Meeting: TCP RPC<br/>cmd: get-audioFileId
-    Meeting-->>Collab: { audioFileId }
-    Collab->>PG: UPDATE transcripts<br/>SET rawText, structuredContent<br/>WHERE audioFileId = X
-    PG-->>Collab: { success }
-    Collab-->>APIGateway: { success }
-    APIGateway-->>Client: { success }
-```
+    Note over Client1,Client2: Initial Connection Flow
 
-### 4.3. HTTP API Flow - Create Snapshot
+    Client1->>Gateway: socket.emit('sync-step-1')
+    Gateway->>Gateway: WsJwtGuard validates token
+    Gateway->>Gateway: Load Y.Doc from Collab Service
+    Gateway->>Client1: sync message (step1 + awareness)
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Client as Client (Editor)
-    participant APIGateway as API Gateway<br/>:3000
-    participant Collab as Collab Service<br/>:3007
-    participant Meeting as Meeting Service<br/>:3006
-    participant PG as PostgreSQL DB
+    Note over Client1,Client2: Real-time Edit Flow
 
-    Client->>APIGateway: POST /v1/collab/snapshot<br/>{ meetingId, versionName }
-    APIGateway->>Collab: TCP RPC<br/>cmd: create-snapshot
-    Collab->>Meeting: TCP RPC<br/>cmd: get-audioFileId
-    Meeting-->>Collab: { audioFileId }
-    Collab->>PG: SELECT FROM transcripts
-    Collab->>PG: INSERT INTO transcript_versions
-    Collab-->>APIGateway: { versionId, success }
-    APIGateway-->>Client: { versionId, success }
-```
+    Client1->>Gateway: socket.emit('sync', CRDT_update)
+    Gateway->>Gateway: Check role (HOST/EDITOR)
+    Gateway->>Gateway: syncProtocol.readSyncMessage()
+    Gateway->>Gateway: Apply to Y.Doc
+    Gateway->>Client2: socket.emit('sync', CRDT_update)
 
-### 4.4. HTTP API Flow - Get Versions & Restore
+    Note over Client1,Client2: Presence Flow
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Client as Client (Editor)
-    participant APIGateway as API Gateway<br/>:3000
-    participant Collab as Collab Service<br/>:3007
-    participant Meeting as Meeting Service<br/>:3006
-    participant PG as PostgreSQL DB
-
-    Client->>APIGateway: GET /v1/collab/:meetingId/versions
-    APIGateway->>Collab: TCP RPC<br/>cmd: get-versions
-    Collab->>Meeting: TCP RPC<br/>cmd: get-audioFileId
-    Meeting-->>Collab: { audioFileId }
-    Collab->>PG: SELECT FROM transcript_versions
-    PG-->>Collab: [versions...]
-    Collab-->>APIGateway: { versions }
-    APIGateway-->>Client: { versions }
-
-    Client->>APIGateway: POST /v1/collab/restore<br/>{ meetingId, versionId }
-    APIGateway->>Collab: TCP RPC<br/>cmd: restore-version
-    Collab->>Meeting: TCP RPC<br/>cmd: get-audioFileId
-    Meeting-->>Collab: { audioFileId }
-    Collab->>PG: SELECT FROM transcript_versions
-    Collab->>PG: UPDATE transcripts
-    Collab-->>APIGateway: { rawText, structuredContent }
-    APIGateway-->>Client: { rawText, structuredContent }
-
-    Note over Client: FE update Yjs doc với phiên bản cũ
-    Client->>yWS: Yjs update (restore)
-    yWS-->>Client: Broadcast to others
+    Client1->>Gateway: socket.emit('awareness', awareness_data)
+    Gateway->>Gateway: awarenessProtocol.applyAwarenessUpdate()
+    Gateway->>Client2: socket.emit('awareness', awareness_data)
 ```
 
 ---
 
-## 5. Bảng Tóm Tắt Luồng
+## 7. Bảng Tóm Tắt Luồng
 
 | Luồng | Trigger | Cần Realtime? | Đi qua |
 |-------|---------|---------------|--------|
-| **Init Document** | WS Connect | ✅ Yes | WebSocket → y-websocket → Collab |
-| **Real-time Edit** | Typing | ✅ Yes | WebSocket (CRDT sync) |
+| **Init Document** | WS Connect | ✅ Yes | WebSocket → Collab Gateway → Collab |
+| **Real-time Edit** | Typing | ✅ Yes | WebSocket (y-protocol sync) |
 | **Auto-save** | 5 ký tự | ❌ No | HTTP → API Gateway → Collab |
 | **Create Snapshot** | Manual button | ❌ No | HTTP → API Gateway → Collab |
 | **Get Versions** | View history | ❌ No | HTTP → API Gateway → Collab |
@@ -299,9 +464,9 @@ sequenceDiagram
 
 ---
 
-## 6. Database Schema
+## 8. Database Schema
 
-### 6.1. Bảng Transcripts (Đã có)
+### 8.1. Bảng Transcripts (Đã có)
 
 Bảng lưu trữ nội dung bản dịch hiện tại, được auto-save định kỳ.
 
@@ -315,7 +480,7 @@ Bảng lưu trữ nội dung bản dịch hiện tại, được auto-save đị
 | `created_at` | TIMESTAMP | Thời điểm tạo |
 | `updated_at` | TIMESTAMP | Thời điểm cập nhật cuối |
 
-### 6.2. Bảng TranscriptVersions (Mới)
+### 8.2. Bảng TranscriptVersions (Mới)
 
 Bảng lưu trữ lịch sử phiên bản (snapshots) của transcript.
 
@@ -331,21 +496,21 @@ Bảng lưu trữ lịch sử phiên bản (snapshots) của transcript.
 
 ---
 
-## 7. TCP RPC Commands (Internal)
+## 9. TCP RPC Commands (Internal)
 
-Collab Service expose các commands qua TCP RPC để y-websocket và API Gateway gọi.
+Collab Service expose các commands qua TCP RPC để Collab Gateway và API Gateway gọi.
 
 | Command | Mô tả | Called by |
 |---------|-------|----------|
-| `get-transcript` | Lấy transcript hiện tại để init Yjs | y-websocket |
-| `save-transcript` | Auto-save transcript state | y-websocket, API Gateway |
-| `create-snapshot` | Tạo snapshot phiên bản | y-websocket, API Gateway |
+| `get-transcript` | Lấy transcript hiện tại để init Yjs | Collab Gateway |
+| `save-transcript` | Auto-save transcript state | Collab Gateway, API Gateway |
+| `create-snapshot` | Tạo snapshot phiên bản | Collab Gateway, API Gateway |
 | `get-versions` | Lấy danh sách phiên bản | API Gateway |
 | `restore-version` | Khôi phục phiên bản cũ | API Gateway |
 
 ---
 
-## 8. HTTP REST Endpoints (External)
+## 10. HTTP REST Endpoints (External)
 
 API Gateway expose các HTTP endpoints cho client gọi.
 
@@ -358,32 +523,32 @@ API Gateway expose các HTTP endpoints cho client gọi.
 
 ---
 
-## 9. Bảo Mật
+## 11. Bảo Mật
 
-### 9.1. Authentication (JWT)
+### 11.1. Authentication (JWT)
 
 - Client gửi JWT token qua URL param: `?token=<JWT>` (WebSocket)
 - Client gửi JWT token qua Authorization header: `Bearer <JWT>` (HTTP)
-- y-websocket server verify token bằng `JWT_SECRET`
+- Collab Gateway verify token bằng cách gọi TCP RPC tới Identity Service
 - Check token blacklist trong Redis (support logout)
 
-### 9.2. Authorization (Role-based)
+### 11.2. Authorization (Role-based)
 
 | Vai trò | Quyền |
-|---|---|
+|---|
 | **HOST** | Full access: read, write, snapshot, restore |
 | **EDITOR** | Full access: read, write, snapshot, restore |
 | **VIEWER** | Read only: nhận CRDT updates nhưng KHÔNG gửi được |
 
-### 9.3. Role Verification
+### 11.3. Role Verification
 
 1. Client kết nối WebSocket với JWT token
-2. y-websocket verify JWT → lấy `userId`
-3. y-websocket gọi Identity Service → lấy `role` của user trong meeting
+2. Collab Gateway verify JWT → lấy `userId`
+3. Collab Gateway gọi Identity Service → lấy `role` của user trong meeting
 4. Cache role trong Redis (5 phút) để giảm latency
 5. Khi nhận CRDT update từ client → kiểm tra role (HOST/EDITOR → cho phép, VIEWER → reject)
 
-### 9.4. Security Checklist
+### 11.4. Security Checklist
 
 - [x] JWT authentication ở handshake
 - [x] Role-based write filtering (server-side)
@@ -394,9 +559,9 @@ API Gateway expose các HTTP endpoints cho client gọi.
 
 ---
 
-## 10. Các Tính Năng Đặc Biệt
+## 12. Các Tính Năng Đặc Biệt
 
-### 10.1. CRDT (Conflict-free Replicated Data Type)
+### 12.1. CRDT (Conflict-free Replicated Data Type)
 
 **Vấn đề giải quyết:**
 - Khi 2 người cùng sửa 1 đoạn text cùng lúc, ai giữ quyền?
@@ -404,11 +569,11 @@ API Gateway expose các HTTP endpoints cho client gọi.
 
 **Cách hoạt động:**
 - Mỗi client có 1 bản sao Yjs document
-- Khi có thay đổi, client gửi **delta** (update) tới y-websocket
-- y-websocket broadcast delta tới tất cả clients
+- Khi có thay đổi, client gửi **delta** (update) tới Collab Gateway
+- Collab Gateway broadcast delta tới tất cả clients
 - Mỗi client apply delta vào local doc → **tất cả docs converge về cùng 1 state**
 
-### 10.2. Awareness (Presence)
+### 12.2. Awareness (Presence)
 
 Cho phép hiển thị:
 - Ai đang online trong phòng
@@ -417,10 +582,10 @@ Cho phép hiển thị:
 
 **Cách hoạt động:**
 - Client set local awareness state: `{ name: "John", color: "#ff0000" }`
-- y-websocket broadcast awareness states tới all clients
+- Collab Gateway broadcast awareness states tới all clients
 - Frontend render avatars và cursors dựa trên awareness data
 
-### 10.3. Character-count Auto-save (FE-side)
+### 12.3. Character-count Auto-save (FE-side)
 
 **Vấn đề:**
 - Nếu auto-save mỗi lần user gõ 1 ký tự → quá tải database
@@ -433,38 +598,37 @@ Cho phép hiển thị:
 
 ---
 
-## 11. Directory Structure
+## 13. Directory Structure
 
 ```
 services_ms/
 ├── apps/
 │   ├── collab/                              # Collab Service (TCP RPC Server)
-│   │   ├── Dockerfile
 │   │   └── src/
 │   │       ├── main.ts                      # TCP port 3007
 │   │       ├── collab.module.ts
 │   │       ├── collab.controller.ts        # TCP RPC handlers
-│   │       ├── collab.service.ts
-│   │       ├── collab.repository.ts
-│   │       ├── config/env.config.ts
-│   │       ├── gateways/meeting.gateway.ts # TCP client to Meeting
-│   │       └── prisma/
+│   │       └── collab.service.ts
 │   │
-│   ├── collab-ws/                          # y-websocket Server
-│   │   ├── Dockerfile
+│   ├── collab-gateway/                      # Collab Gateway (NestJS WebSocket)
 │   │   └── src/
 │   │       ├── main.ts                      # WebSocket port 3008
-│   │       ├── auth/                        # JWT middleware
-│   │       ├── room/                        # Room & persistence
+│   │       ├── collab-gateway.module.ts
+│   │       ├── collab-gateway.gateway.ts   # @WebSocketGateway + y-protocols
+│   │       ├── auth/
+│   │       │   └── ws-jwt.guard.ts        # JWT guard for WebSocket
 │   │       ├── collab-client/              # TCP RPC client to Collab
-│   │       └── config/
+│   │       ├── identity-client/            # TCP RPC client to Identity
+│   │       ├── room/
+│   │       │   └── room.service.ts        # Yjs document management
+│   │       └── cache/
+│   │           └── cache.service.ts      # Redis for role caching
 │   │
 │   └── api-gateway/
 │       └── src/
 │           └── collab/                     # Collab HTTP Module
 │               ├── collab.controller.ts    # HTTP REST endpoints
-│               ├── collab.service.ts      # TCP client to Collab
-│               └── dto/
+│               └── collab.service.ts      # TCP client to Collab
 
 fe_next/
 ├── lib/
@@ -478,58 +642,44 @@ fe_next/
 
 ---
 
-## 12. Environment Variables
+## 14. Environment Variables
 
-**Collab Service:**
-```
-COLLAB_SERVICE_TCP_PORT=3007
-DATABASE_URL=postgresql://...
-MEETING_SERVICE_HOST=meeting-service
-MEETING_SERVICE_TCP_PORT=3006
-```
-
-**API Gateway:**
-```
-COLLAB_SERVICE_HOST=collab-service
-COLLAB_SERVICE_TCP_PORT=3007
-```
-
-**y-websocket Server:**
+**Collab Gateway (NestJS):**
 ```
 WS_PORT=3008
 COLLAB_SERVICE_HOST=collab-service
 COLLAB_SERVICE_TCP_PORT=3007
-JWT_SECRET=...
-IDENTITY_SERVICE_URL=http://identity-service:3002
+IDENTITY_SERVICE_HOST=identity-service
+IDENTITY_SERVICE_TCP_PORT=3002
 REDIS_HOST=redis
 REDIS_PORT=6379
 ```
 
 ---
 
-## 13. Monitoring & Troubleshooting
+## 15. Monitoring & Troubleshooting
 
-### 13.1. Health Checks
+### 15.1. Health Checks
 
 ```bash
 # Check Collab Service (TCP)
 nc -zv collab-service 3007
 
-# Check y-websocket
+# Check Collab Gateway
 curl http://localhost:3008/health
 ```
 
-### 13.2. Logs
+### 15.2. Logs
 
 ```bash
 # Collab Service
 docker logs transcripthub-collab-service -f
 
-# y-websocket
-docker logs transcripthub-collab-ws -f
+# Collab Gateway
+docker logs transcripthub-collab-gateway -f
 ```
 
-### 13.3. Common Issues
+### 15.3. Common Issues
 
 | Issue | Cause | Solution |
 |-------|-------|----------|
@@ -541,9 +691,10 @@ docker logs transcripthub-collab-ws -f
 
 ---
 
-## 14. References
+## 16. References
 
 - [Yjs Documentation](https://docs.yjs.dev/)
-- [y-websocket Documentation](https://github.com/yjs/y-websocket)
-- [Quill Editor](https://quilljs.com/)
+- [y-protocols GitHub](https://github.com/yjs/y-protocols)
+- [lib0 (y-protocols dependency)](https://github.com/dmonad/lib0)
+- [NestJS WebSockets](https://docs.nestjs.com/websockets/gateways)
 - [CRDT Paper](https://arxiv.org/abs/2010.03625)
