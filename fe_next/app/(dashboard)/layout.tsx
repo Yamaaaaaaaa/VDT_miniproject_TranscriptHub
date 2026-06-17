@@ -5,12 +5,13 @@ import { useAuth } from "@/hooks/use-auth";
 import { signOut } from "next-auth/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Users, LayoutDashboard, LogOut, Settings, Bell, Search, Shield, FileAudio, FileText, Video } from "lucide-react";
+import { Users, LayoutDashboard, LogOut, Settings, Bell, Search, Shield, FileAudio, FileText, Video, PanelLeftClose, PanelLeft } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, hasPermission } = useAuth();
   const pathname = usePathname();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -63,8 +64,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="min-h-screen flex bg-slate-50 text-slate-800">
       {/* Left Sidebar - Styled like Wheelzie */}
-      <aside className="w-64 border-r border-slate-100 bg-white flex flex-col justify-between shrink-0">
-        <div className="p-6">
+      <aside className={`border-r border-slate-100 bg-white flex flex-col justify-between shrink-0 transition-all duration-300 ${isSidebarOpen ? "w-64" : "w-0 overflow-hidden"}`}>
+        <div className="p-6 min-w-64">
           {/* Logo Brand */}
           <div className="flex items-center gap-2 mb-8">
             <div className="w-8 h-8 rounded-full border-[5px] border-red-500 flex items-center justify-center">
@@ -121,14 +122,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Header - Styled like Wheelzie */}
         <header className="h-20 bg-white border-b border-slate-100 flex justify-between items-center px-10 shrink-0">
-          {/* Left: Search Box */}
-          <div className="relative w-80">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            <input
-              type="text"
-              placeholder="Tìm kiếm..."
-              className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2 pl-11 pr-4 text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:border-red-500 focus:bg-white transition-all"
-            />
+          {/* Left: Toggle Sidebar + Search Box */}
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-2.5 hover:bg-slate-50 text-slate-400 hover:text-slate-700 rounded-xl transition-all cursor-pointer"
+              title={isSidebarOpen ? "Đóng sidebar" : "Mở sidebar"}
+            >
+              {isSidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeft size={18} />}
+            </button>
+
+            <div className="relative w-80">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input
+                type="text"
+                placeholder="Tìm kiếm..."
+                className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2 pl-11 pr-4 text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:border-red-500 focus:bg-white transition-all"
+              />
+            </div>
           </div>
 
           {/* Right: Quick actions, Notifications, Profile avatar */}

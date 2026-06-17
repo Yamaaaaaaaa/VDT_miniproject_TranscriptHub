@@ -3,6 +3,7 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { ConfigService } from '@nestjs/config';
 import { CollabController } from './collab.controller';
 import { CollabService } from './collab.service';
+import { IdentityModule } from '../identity/identity.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { CollabService } from './collab.service';
         inject: [ConfigService],
       },
     ]),
+    IdentityModule,
   ],
   controllers: [CollabController],
   providers: [CollabService],

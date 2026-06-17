@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { transcriptsApi, filesApi } from "@/lib/api";
 import {
   Search, Play, Pause, Download, Volume2, VolumeX, Users, ArrowLeft,
-  FileJson, FileCheck, AlertCircle, Loader2, X, Clock, HelpCircle, FileText
+  FileJson, AlertCircle, Loader2, X, Clock, HelpCircle, StickyNote, ChevronDown
 } from "lucide-react";
 
 interface TranscriptSegment {
@@ -300,8 +300,8 @@ function TranscriptDetailInner({ fileId }: TranscriptDetailInnerProps) {
 
   return (
     <div className="space-y-6 flex flex-col h-[calc(100vh-140px)]">
-      {/* Detail header toolbar */}
-      <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm flex items-center justify-between shrink-0 gap-4 flex-wrap">
+      {/* Sticky Audio Control Header */}
+      <div className="sticky top-0 z-30 bg-white border border-slate-100 rounded-3xl p-4 shadow-md flex items-center justify-between gap-4 shrink-0">
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.push("/transcripts")}
@@ -311,214 +311,217 @@ function TranscriptDetailInner({ fileId }: TranscriptDetailInnerProps) {
             <ArrowLeft size={16} />
           </button>
           <div className="min-w-0">
-            <h3 className="text-base font-extrabold text-slate-800 truncate max-w-md" title={associatedFile?.fileName}>
+            <h3 className="text-base font-extrabold text-slate-800 truncate max-w-xs" title={associatedFile?.fileName}>
               {associatedFile?.fileName || "Chi tiết bản dịch"}
             </h3>
-            <p className="text-[10px] font-bold text-slate-400 mt-0.5">
-              Thời lượng: {formatTime(associatedFile?.durationSeconds || 0)} | Dung lượng: {formatSize(associatedFile?.fileSize)}
-            </p>
           </div>
         </div>
 
-        <div className="flex gap-2">
+        {/* Audio Controls - Center */}
+        <div className="flex items-center gap-3 bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2">
+          <audio
+            ref={audioRef}
+            src={associatedFile ? `/api/files/stream/${associatedFile.id}` : undefined}
+            onTimeUpdate={handleTimeUpdate}
+            onLoadedMetadata={handleLoadedMetadata}
+            onEnded={handleAudioEnded}
+            className="hidden"
+          />
+
+          {/* Play/Pause Button */}
           <button
-            onClick={downloadTxt}
-            className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:border-slate-300 rounded-2xl shadow-sm transition-all cursor-pointer"
+            onClick={handlePlayPause}
+            className="w-10 h-10 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg shadow-red-500/20 transition-all cursor-pointer shrink-0"
           >
-            <Download size={14} />
-            <span>Xuất TXT</span>
+            {isPlaying ? (
+              <Pause size={16} fill="white" />
+            ) : (
+              <Play size={16} fill="white" className="ml-0.5" />
+            )}
           </button>
-          <button
-            onClick={downloadJson}
-            className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:border-slate-300 rounded-2xl shadow-sm transition-all cursor-pointer"
-          >
-            <FileJson size={14} />
-            <span>Xuất JSON</span>
+
+          {/* Progress Bar */}
+          <div className="w-48 lg:w-64 space-y-1">
+            <input
+              type="range"
+              min={0}
+              max={duration || 100}
+              value={currentTime}
+              onChange={(e) => handleSeek(parseFloat(e.target.value))}
+              className="w-full accent-red-500 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] text-slate-400 font-mono font-bold">
+              <span>{formatTime(currentTime)}</span>
+              <span>{formatTime(duration)}</span>
+            </div>
+          </div>
+
+          {/* Volume Controls */}
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={handleToggleMute}
+              className="text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
+            >
+              {isMuted || volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={isMuted ? 0 : volume}
+              onChange={handleVolumeChange}
+              className="w-16 accent-slate-600 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+            />
+          </div>
+
+          {/* Help Icon */}
+          <div className="pl-2 border-l border-slate-200 relative group flex items-center">
+            <button
+              className="text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
+              title="Hướng dẫn"
+            >
+              <HelpCircle size={16} />
+            </button>
+            <div className="absolute left-0 top-full mt-2 w-72 bg-white border border-slate-100 rounded-2xl shadow-xl p-4 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+              <h5 className="font-extrabold text-slate-700 mb-2 flex items-center gap-2">
+                <HelpCircle size={14} /> Hướng dẫn sử dụng
+              </h5>
+              <ul className="text-xs text-slate-500 space-y-1.5">
+                <li className="flex items-start gap-2">
+                  <span className="w-1.5 h-1.5 bg-red-500 rounded-full mt-1.5 shrink-0" />
+                  Nhấp vào đoạn văn bản để tua đến thời điểm câu nói.
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="w-1.5 h-1.5 bg-red-500 rounded-full mt-1.5 shrink-0" />
+                  Đoạn đang phát sẽ được tô sáng tự động.
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="w-1.5 h-1.5 bg-red-500 rounded-full mt-1.5 shrink-0" />
+                  Sử dụng thanh tiến trình để tua nhanh.
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="w-1.5 h-1.5 bg-red-500 rounded-full mt-1.5 shrink-0" />
+                  Xuất file TXT hoặc JSON để lưu trữ.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Actions - Export */}
+        <div className="relative group">
+          <button className="p-2.5 hover:bg-slate-50 text-slate-400 hover:text-slate-600 rounded-xl transition-all cursor-pointer">
+            <Download size={18} />
           </button>
+          <div className="absolute right-0 top-full mt-2 w-36 bg-white border border-slate-100 rounded-xl shadow-lg py-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+            <button
+              onClick={downloadTxt}
+              className="w-full px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+            >
+              <Download size={14} />
+              <span>TXT</span>
+            </button>
+            <button
+              onClick={downloadJson}
+              className="w-full px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+            >
+              <FileJson size={14} />
+              <span>JSON</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Split Panel Layout */}
-      <div className="flex flex-1 gap-6 overflow-hidden min-h-0 flex-col lg:flex-row">
-        {/* Left Panel: Audio Control & metrics */}
-        <div className="w-full lg:w-80 flex flex-col gap-6 shrink-0">
-          {/* Audio Player Card */}
-          <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-4">
-            <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Trình Phát Audio</h4>
-
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 flex flex-col gap-3.5">
-              <audio
-                ref={audioRef}
-                src={associatedFile ? `/api/files/stream/${associatedFile.id}` : undefined}
-                onTimeUpdate={handleTimeUpdate}
-                onLoadedMetadata={handleLoadedMetadata}
-                onEnded={handleAudioEnded}
-                className="hidden"
-              />
-
-              <div className="space-y-1">
-                <input
-                  type="range"
-                  min={0}
-                  max={duration || 100}
-                  value={currentTime}
-                  onChange={(e) => handleSeek(parseFloat(e.target.value))}
-                  className="w-full accent-red-500 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer"
-                />
-                <div className="flex justify-between text-[10px] text-slate-400 font-mono font-bold">
-                  <span>{formatTime(currentTime)}</span>
-                  <span>{formatTime(duration)}</span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between gap-4">
-                <button
-                  onClick={handlePlayPause}
-                  className="w-10 h-10 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg shadow-red-500/20 transition-all cursor-pointer"
-                >
-                  {isPlaying ? (
-                    <Pause size={16} fill="white" />
-                  ) : (
-                    <Play size={16} fill="white" className="ml-0.5" />
-                  )}
-                </button>
-
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={handleToggleMute}
-                    className="text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
-                  >
-                    {isMuted || volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
-                  </button>
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={isMuted ? 0 : volume}
-                    onChange={handleVolumeChange}
-                    className="w-16 accent-slate-600 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-2.5 text-xs text-slate-500 font-bold border-t border-slate-100 pt-4">
-              <div className="flex items-center justify-between">
-                <span>Số phân đoạn:</span>
-                <span className="text-slate-800">{segmentsList.length}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>Tổng số từ (ước lượng):</span>
-                <span className="text-slate-800">
-                  {selectedTranscript?.rawText?.split(/\s+/).length || 0} từ
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Search Card */}
-          <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm flex-1 flex flex-col gap-4 min-h-0">
-            <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Tìm kiếm từ khóa</h4>
-
-            <div className="relative">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-              <input
-                type="text"
-                placeholder="Tìm nội dung câu nói..."
-                value={segmentFilter}
-                onChange={(e) => setSegmentFilter(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2.5 pl-10 pr-8 text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:border-red-500 focus:bg-white transition-all font-bold"
-              />
-              {segmentFilter && (
-                <button
-                  onClick={() => setSegmentFilter("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-
-            {segmentFilter && (
-              <div className="text-[10px] text-red-500 font-bold">
-                Khớp {filteredSegments.length} phân đoạn
-              </div>
-            )}
-
-            <div className="text-[10px] text-slate-400 font-bold leading-normal bg-slate-50 border border-slate-100 p-4 rounded-2xl mt-auto">
-              <h5 className="font-extrabold text-slate-700 mb-1 flex items-center gap-1">
-                <HelpCircle size={12} /> Hướng dẫn:
-              </h5>
-              Nhấp chuột vào bất kỳ đoạn văn bản nào bên phải để tua nhạc nhanh đến thời điểm câu nói bắt đầu phát.
-            </div>
-          </div>
+      {/* Full-width Panel: Scrollable timeline */}
+      <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm flex-1 flex flex-col overflow-hidden min-h-0">
+        <div className="flex items-center justify-between border-b border-slate-50 pb-3 shrink-0">
+          <h4 className="text-sm font-extrabold text-slate-800">Dòng thời gian hội thoại</h4>
+          <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
+            <Clock size={12} /> Phát câu nào tô sáng câu đó
+          </span>
         </div>
 
-        {/* Right Panel: Scrollable timeline */}
-        <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm flex-1 flex flex-col gap-4 overflow-hidden min-h-0">
-          <div className="flex items-center justify-between border-b border-slate-50 pb-3 shrink-0">
-            <h4 className="text-sm font-extrabold text-slate-800">Dòng thời gian hội thoại</h4>
-            <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
-              <Clock size={12} /> Phát câu nào tô sáng câu đó
+        {/* Search filter */}
+        <div className="relative mt-4 mb-2">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+          <input
+            type="text"
+            placeholder="Tìm kiếm trong nội dung hội thoại..."
+            value={segmentFilter}
+            onChange={(e) => setSegmentFilter(e.target.value)}
+            className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-2.5 pl-10 pr-8 text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:border-red-500 focus:bg-white transition-all font-bold"
+          />
+          {segmentFilter && (
+            <button
+              onClick={() => setSegmentFilter("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+            >
+              <X size={14} />
+            </button>
+          )}
+          {segmentFilter && (
+            <span className="absolute right-10 top-1/2 -translate-y-1/2 text-[10px] text-red-500 font-bold">
+              {filteredSegments.length} kết quả
             </span>
-          </div>
+          )}
+        </div>
 
-          <div className="flex-1 overflow-y-auto pr-1 space-y-4">
-            {filteredSegments.length === 0 ? (
-              <div className="h-64 flex flex-col items-center justify-center text-slate-400 gap-2">
-                <Search className="text-slate-300" size={32} />
-                <p className="text-xs font-bold">Không tìm thấy phân đoạn văn bản nào khớp.</p>
-              </div>
-            ) : (
-              filteredSegments.map((seg) => {
-                const isActive = seg.id === activeSegmentId;
-                return (
-                  <div
-                    key={seg.id}
-                    ref={(el) => {
-                      segmentRefs.current[seg.id] = el;
-                    }}
-                    onClick={() => handleSegmentClick(seg.startTime)}
-                    className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col gap-2 relative ${
-                      isActive
-                        ? "border-red-200 bg-red-50/20 shadow-sm pl-5 border-l-4 border-l-red-500"
-                        : "border-slate-100 bg-white hover:bg-slate-50/50 hover:border-slate-200"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-4">
-                      <span
-                        className={`text-xs font-black flex items-center gap-1.5 ${
-                          isActive ? "text-red-500" : "text-slate-700"
-                        }`}
-                      >
-                        <Users size={12} className="text-slate-400" />
-                        <span>{seg.speaker || "Người nói"}</span>
-                      </span>
-
-                      <span
-                        className={`font-mono text-[10px] font-bold px-2 py-0.5 rounded-lg border transition-all ${
-                          isActive
-                            ? "bg-red-500 text-white border-transparent"
-                            : "bg-slate-50 text-slate-400 border-slate-100"
-                        }`}
-                      >
-                        {formatTime(seg.startTime)} - {formatTime(seg.endTime)}
-                      </span>
-                    </div>
-
-                    <p
-                      className={`text-xs leading-relaxed ${
-                        isActive ? "text-slate-800 font-bold" : "text-slate-600"
+        {/* Scrollable segments list */}
+        <div className="flex-1 overflow-y-auto pr-1 space-y-4">
+          {filteredSegments.length === 0 ? (
+            <div className="h-64 flex flex-col items-center justify-center text-slate-400 gap-2">
+              <Search className="text-slate-300" size={32} />
+              <p className="text-xs font-bold">Không tìm thấy phân đoạn văn bản nào khớp.</p>
+            </div>
+          ) : (
+            filteredSegments.map((seg) => {
+              const isActive = seg.id === activeSegmentId;
+              return (
+                <div
+                  key={seg.id}
+                  ref={(el) => {
+                    segmentRefs.current[seg.id] = el;
+                  }}
+                  onClick={() => handleSegmentClick(seg.startTime)}
+                  className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col gap-2 relative ${
+                    isActive
+                      ? "border-red-200 bg-red-50/20 shadow-sm pl-5 border-l-4 border-l-red-500"
+                      : "border-slate-100 bg-white hover:bg-slate-50/50 hover:border-slate-200"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-4">
+                    <span
+                      className={`text-xs font-black flex items-center gap-1.5 ${
+                        isActive ? "text-red-500" : "text-slate-700"
                       }`}
                     >
-                      {highlightText(seg.text, segmentFilter)}
-                    </p>
+                      <Users size={12} className="text-slate-400" />
+                      <span>{seg.speaker || "Người nói"}</span>
+                    </span>
+
+                    <span
+                      className={`font-mono text-[10px] font-bold px-2 py-0.5 rounded-lg border transition-all ${
+                        isActive
+                          ? "bg-red-500 text-white border-transparent"
+                          : "bg-slate-50 text-slate-400 border-slate-100"
+                      }`}
+                    >
+                      {formatTime(seg.startTime)} - {formatTime(seg.endTime)}
+                    </span>
                   </div>
-                );
-              })
-            )}
-          </div>
+
+                  <p
+                    className={`text-xs leading-relaxed ${
+                      isActive ? "text-slate-800 font-bold" : "text-slate-600"
+                    }`}
+                  >
+                    {highlightText(seg.text, segmentFilter)}
+                  </p>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
     </div>
