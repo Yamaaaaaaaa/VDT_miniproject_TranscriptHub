@@ -433,12 +433,16 @@ function TranscriptDetailInner({ fileId, mode }: TranscriptDetailInnerProps) {
           {/* Help Icon */}
           <div className="pl-2 border-l border-slate-200 relative group flex items-center">
             <button
+              onClick={(e) => e.stopPropagation()}
               className="text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
               title="Hướng dẫn"
             >
               <HelpCircle size={16} />
             </button>
-            <div className="absolute left-0 top-full mt-2 w-72 bg-white border border-slate-100 rounded-2xl shadow-xl p-4 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+            <div 
+              onClick={(e) => e.stopPropagation()}
+              className="absolute left-0 top-full mt-2 w-72 bg-white border border-slate-100 rounded-2xl shadow-xl p-4 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50"
+            >
               <h5 className="font-extrabold text-slate-700 mb-2 flex items-center gap-2">
                 <HelpCircle size={14} /> Hướng dẫn sử dụng
               </h5>
@@ -552,12 +556,12 @@ function TranscriptDetailInner({ fileId, mode }: TranscriptDetailInnerProps) {
                   ref={(el) => {
                     segmentRefs.current[seg.id] = el;
                   }}
-                  onClick={() => !isEditMode && handleSegmentClick(seg.startTime)}
-                  className={`p-4 rounded-2xl border transition-all flex flex-col gap-2 relative ${
+                  onClick={() => handleSegmentClick(seg.startTime)}
+                  className={`p-4 rounded-2xl border transition-all flex flex-col gap-2 relative cursor-pointer ${
                     isActive
                       ? "border-red-200 bg-red-50/20 shadow-sm pl-5 border-l-4 border-l-red-500"
                       : "border-slate-100 bg-white hover:bg-slate-50/50 hover:border-slate-200"
-                  } ${isEditMode ? "cursor-default" : "cursor-pointer"}`}
+                  }`}
                 >
                   <div className="flex items-center justify-between gap-4">
                     <span
@@ -584,7 +588,8 @@ function TranscriptDetailInner({ fileId, mode }: TranscriptDetailInnerProps) {
                     <textarea
                       value={editedSegments[seg.id] || seg.text}
                       onChange={(e) => handleSegmentTextChange(seg.id, e.target.value)}
-                      className="w-full text-xs leading-relaxed text-slate-600 bg-slate-50 border border-slate-200 rounded-xl p-3 resize-none focus:outline-none focus:border-red-400 focus:bg-white transition-all"
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-full text-xs leading-relaxed text-slate-600 bg-slate-50 border border-slate-200 rounded-xl p-3 resize-none focus:outline-none focus:border-red-400 focus:bg-white transition-all cursor-text"
                       rows={3}
                     />
                   ) : (
