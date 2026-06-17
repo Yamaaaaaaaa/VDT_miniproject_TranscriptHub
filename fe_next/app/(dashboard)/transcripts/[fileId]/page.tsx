@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo, use } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, useEffect, useRef, useMemo, use, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { transcriptsApi, filesApi } from "@/lib/api";
 import {
   Search, Play, Pause, Download, Volume2, VolumeX, Users, ArrowLeft,
-  FileJson, AlertCircle, Loader2, X, Clock, HelpCircle, StickyNote, ChevronDown
+  FileJson, Loader2, X, Clock, HelpCircle, Edit2, Eye
 } from "lucide-react";
 
 interface TranscriptSegment {
@@ -18,10 +18,12 @@ interface TranscriptSegment {
 
 interface TranscriptDetailInnerProps {
   fileId: string;
+  mode: "view" | "edit";
 }
 
-function TranscriptDetailInner({ fileId }: TranscriptDetailInnerProps) {
+function TranscriptDetailInner({ fileId, mode }: TranscriptDetailInnerProps) {
   const router = useRouter();
+  const isEditMode = mode === "edit";
 
   // Detail view state
   const [selectedTranscript, setSelectedTranscript] = useState<any | null>(null);
@@ -38,6 +40,10 @@ function TranscriptDetailInner({ fileId }: TranscriptDetailInnerProps) {
   const [duration, setDuration] = useState<number>(0);
   const [volume, setVolume] = useState<number>(0.8);
   const [isMuted, setIsMuted] = useState<boolean>(false);
+
+  // Edit mode - local state for edited content
+  const [editedSegments, setEditedSegments] = useState<Record<string, string>>({});
+  const [isSaving, setIsSaving] = useState<boolean>(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const segmentRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -65,6 +71,29 @@ function TranscriptDetailInner({ fileId }: TranscriptDetailInnerProps) {
 
         setSelectedTranscript(transcript);
         setAssociatedFile(fileInfo);
+
+        // Initialize edited segments if in edit mode
+        if (mode === "edit") {
+          const content = transcript.structuredContent;
+          let segments: TranscriptSegment[] = [];
+          
+          if (typeof content === "string") {
+            try {
+              const parsed = JSON.parse(content);
+              segments = parsed.segments || [];
+            } catch (e) {
+              console.error("Failed to parse structuredContent string:", e);
+            }
+          } else if (content && Array.isArray(content.segments)) {
+            segments = content.segments;
+          }
+          
+          const initialEdits: Record<string, string> = {};
+          segments.forEach((seg) => {
+            initialEdits[seg.id] = seg.text;
+          });
+          setEditedSegments(initialEdits);
+        }
       } catch (err: any) {
         console.error(err);
         setError(err?.response?.data?.message || err.message || "Không thể tải chi tiết bản dịch.");
@@ -206,6 +235,32 @@ function TranscriptDetailInner({ fileId }: TranscriptDetailInnerProps) {
     if (audioRef.current) {
       audioRef.current.muted = muted;
     }
+  };
+
+  // Edit mode handlers
+  const handleSave = async () => {
+    if (!isEditMode) return;
+    
+    setIsSaving(true);
+    try {
+      // TODO: Implement API call to save edited segments
+      // The edited content is in `editedSegments` state
+      console.log("Saving edited segments:", editedSegments);
+      
+      alert("Lưu thành công!");
+    } catch (err) {
+      console.error(err);
+      alert("Lưu thất bại.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSegmentTextChange = (segmentId: string, newText: string) => {
+    setEditedSegments((prev) => ({
+      ...prev,
+      [segmentId]: newText,
+    }));
   };
 
   // Formatting helpers
@@ -409,26 +464,40 @@ function TranscriptDetailInner({ fileId }: TranscriptDetailInnerProps) {
           </div>
         </div>
 
-        {/* Right Actions - Export */}
-        <div className="relative group">
-          <button className="p-2.5 hover:bg-slate-50 text-slate-400 hover:text-slate-600 rounded-xl transition-all cursor-pointer">
-            <Download size={18} />
-          </button>
-          <div className="absolute right-0 top-full mt-2 w-36 bg-white border border-slate-100 rounded-xl shadow-lg py-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+        {/* Right Actions */}
+        <div className="flex items-center gap-2">
+          {isEditMode && (
             <button
-              onClick={downloadTxt}
-              className="w-full px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+              onClick={handleSave}
+              disabled={isSaving}
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer bg-green-500 hover:bg-green-600 text-white shadow-sm disabled:opacity-50"
             >
               <Download size={14} />
-              <span>TXT</span>
+              <span>{isSaving ? "Đang lưu..." : "Lưu"}</span>
             </button>
-            <button
-              onClick={downloadJson}
-              className="w-full px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
-            >
-              <FileJson size={14} />
-              <span>JSON</span>
+          )}
+
+          {/* Download Dropdown */}
+          <div className="relative group">
+            <button className="p-2.5 hover:bg-slate-50 text-slate-400 hover:text-slate-600 rounded-xl transition-all cursor-pointer">
+              <Download size={18} />
             </button>
+            <div className="absolute right-0 top-full mt-2 w-36 bg-white border border-slate-100 rounded-xl shadow-lg py-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+              <button
+                onClick={downloadTxt}
+                className="w-full px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+              >
+                <Download size={14} />
+                <span>TXT</span>
+              </button>
+              <button
+                onClick={downloadJson}
+                className="w-full px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+              >
+                <FileJson size={14} />
+                <span>JSON</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -483,12 +552,12 @@ function TranscriptDetailInner({ fileId }: TranscriptDetailInnerProps) {
                   ref={(el) => {
                     segmentRefs.current[seg.id] = el;
                   }}
-                  onClick={() => handleSegmentClick(seg.startTime)}
-                  className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col gap-2 relative ${
+                  onClick={() => !isEditMode && handleSegmentClick(seg.startTime)}
+                  className={`p-4 rounded-2xl border transition-all flex flex-col gap-2 relative ${
                     isActive
                       ? "border-red-200 bg-red-50/20 shadow-sm pl-5 border-l-4 border-l-red-500"
                       : "border-slate-100 bg-white hover:bg-slate-50/50 hover:border-slate-200"
-                  }`}
+                  } ${isEditMode ? "cursor-default" : "cursor-pointer"}`}
                 >
                   <div className="flex items-center justify-between gap-4">
                     <span
@@ -511,13 +580,22 @@ function TranscriptDetailInner({ fileId }: TranscriptDetailInnerProps) {
                     </span>
                   </div>
 
-                  <p
-                    className={`text-xs leading-relaxed ${
-                      isActive ? "text-slate-800 font-bold" : "text-slate-600"
-                    }`}
-                  >
-                    {highlightText(seg.text, segmentFilter)}
-                  </p>
+                  {isEditMode ? (
+                    <textarea
+                      value={editedSegments[seg.id] || seg.text}
+                      onChange={(e) => handleSegmentTextChange(seg.id, e.target.value)}
+                      className="w-full text-xs leading-relaxed text-slate-600 bg-slate-50 border border-slate-200 rounded-xl p-3 resize-none focus:outline-none focus:border-red-400 focus:bg-white transition-all"
+                      rows={3}
+                    />
+                  ) : (
+                    <p
+                      className={`text-xs leading-relaxed ${
+                        isActive ? "text-slate-800 font-bold" : "text-slate-600"
+                      }`}
+                    >
+                      {highlightText(seg.text, segmentFilter)}
+                    </p>
+                  )}
                 </div>
               );
             })
@@ -529,6 +607,21 @@ function TranscriptDetailInner({ fileId }: TranscriptDetailInnerProps) {
 }
 
 export default function TranscriptDetailPage({ params }: { params: Promise<{ fileId: string }> }) {
+  return (
+    <Suspense fallback={
+      <div className="h-[calc(100vh-140px)] flex items-center justify-center">
+        <Loader2 size={32} className="animate-spin text-red-500" />
+      </div>
+    }>
+      <TranscriptDetailPageContent params={params} />
+    </Suspense>
+  );
+}
+
+function TranscriptDetailPageContent({ params }: { params: Promise<{ fileId: string }> }) {
+  const searchParams = useSearchParams();
   const unwrappedParams = use(params);
-  return <TranscriptDetailInner fileId={unwrappedParams.fileId} />;
+  const mode = searchParams.get("action") === "edit" ? "edit" : "view";
+  
+  return <TranscriptDetailInner fileId={unwrappedParams.fileId} mode={mode} />;
 }

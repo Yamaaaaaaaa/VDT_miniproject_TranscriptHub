@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { transcriptsApi, filesApi } from "@/lib/api";
 import Link from "next/link";
 import {
-  FileText, RefreshCw, Trash2, CheckCircle2, AlertCircle, Loader2, Sparkles, FolderOpen
+  FileText, RefreshCw, Trash2, CheckCircle2, AlertCircle, Loader2, Sparkles, FolderOpen, Eye, Pencil
 } from "lucide-react";
 
 export default function TranscriptsListPage() {
@@ -224,12 +224,22 @@ export default function TranscriptsListPage() {
                         <td className="py-3.5 pr-2 text-right">
                           <div className="flex items-center justify-end gap-2">
                             {isCompleted ? (
-                              <Link
-                                href={`/transcripts/${t.audioFileId}`}
-                                className="px-3.5 py-1.5 text-[10px] font-bold bg-slate-100 hover:bg-red-500 text-slate-600 hover:text-white rounded-xl transition-all"
-                              >
-                                Xem văn bản
-                              </Link>
+                              <>
+                                <Link
+                                  href={`/transcripts/${t.audioFileId}?action=view`}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 rounded-xl transition-all"
+                                >
+                                  <Eye size={12} />
+                                  <span>Xem</span>
+                                </Link>
+                                <Link
+                                  href={`/transcripts/${t.audioFileId}?action=edit`}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700 rounded-xl transition-all"
+                                >
+                                  <Pencil size={12} />
+                                  <span>Chỉnh sửa</span>
+                                </Link>
+                              </>
                             ) : (
                               <button
                                 disabled
