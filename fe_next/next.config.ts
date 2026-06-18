@@ -29,6 +29,10 @@ const nextConfig: NextConfig = {
         source: "/api/meetings/:path*",
         destination: `${gatewayUrl}/api/v1/meetings/:path*`,
       },
+      {
+        source: "/api/collab/:path*",
+        destination: `${gatewayUrl}/api/v1/collab/:path*`,
+      },
     ];
   },
 };

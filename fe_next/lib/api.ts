@@ -109,4 +109,10 @@ export const meetingsApi = {
         api.delete(`/meetings/${id}/members/${userId}`).then((res) => res.data.result ?? res.data),
 };
 
+export const collabApi = {
+    /** Save/auto-save the current collab transcript state via API Gateway */
+    saveTranscript: (data: { meetingId: string; rawText: string; structuredContent: any }) =>
+        api.post("/collab/transcript", data).then((res) => res.data.result ?? res.data),
+};
+
 export default api;

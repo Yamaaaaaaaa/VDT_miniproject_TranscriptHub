@@ -3,10 +3,12 @@
 import { useParams } from "next/navigation";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranscriptDetail } from "@/hooks/use-transcript-detail";
+import { useCollab } from "@/hooks/use-collab";
 import { TranscriptHeader } from "@/components/transcript/TranscriptHeader";
 import { TranscriptMiniPlayer } from "@/components/transcript/TranscriptMiniPlayer";
 import { TranscriptSegmentItem } from "@/components/transcript/TranscriptSegmentItem";
 import { TranscriptSegment } from "@/types/transcript";
+import { meetingsApi } from "@/lib/api";
 import {
   FileText,
   AlertCircle,
@@ -14,6 +16,9 @@ import {
   RotateCcw,
   FileAudio,
   CheckCircle2,
+  Users,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 
 export default function TranscriptEditPage() {
@@ -36,7 +41,33 @@ export default function TranscriptEditPage() {
     reload,
   } = useTranscriptDetail(fileId);
 
-  // Local edited segments state
+  // Resolve the actual meeting UUID from audioFileId.
+  // The collab service's saveTranscript needs a real meetingId (not audioFileId).
+  // We find it by listing meetings and matching audioFile.id === fileId.
+  const [meetingId, setMeetingId] = useState<string>(fileId);
+  useEffect(() => {
+    meetingsApi.list(0, 100, true)
+      .then((data: any) => {
+        const list: any[] = Array.isArray(data) ? data : (data?.content ?? data?.items ?? []);
+        const match = list.find(
+          (m: any) => m.audioFileId === fileId || m.audioFile?.id === fileId
+        );
+        if (match?.id) setMeetingId(match.id);
+      })
+      .catch(() => { /* fall back to fileId as room key */ });
+  }, [fileId]);
+
+  const {
+    state: collabState,
+    segments: collabSegments,
+    getYText,
+    saveSnapshot,
+  } = useCollab({
+    meetingId,
+    initialSegments: transcript?.segments,
+  });
+
+  // Local edited segments — kept in sync with collabSegments
   const [editedSegments, setEditedSegments] = useState<Record<string, string>>({});
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
@@ -45,37 +76,51 @@ export default function TranscriptEditPage() {
   const segmentRefs = useRef<(HTMLDivElement | null)[]>([]);
   const isUserSeekingRef = useRef(false);
 
-  // Initialize edited segments when transcript loads
+  // Seed local edits from transcript (only when collab hasn't synced yet)
   useEffect(() => {
-    if (transcript) {
+    if (transcript && Object.keys(editedSegments).length === 0) {
       const initial: Record<string, string> = {};
       transcript.segments?.forEach((s) => {
         initial[s.id] = s.content;
       });
       setEditedSegments(initial);
     }
-  }, [transcript]);
+  }, [transcript, editedSegments]);
 
-  // Track changes
+  // Sync collabSegments into editedSegments — this fires on every remote Y.Doc change
+  useEffect(() => {
+    if (!collabSegments.length) return;
+    setEditedSegments((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      collabSegments.forEach((s) => {
+        if (next[s.id] !== s.content) {
+          next[s.id] = s.content;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [collabSegments]);
+
+  // Track unsaved changes
   useEffect(() => {
     if (!transcript) return;
-    const changed = (transcript.segments ?? []).some(
-      (s) => editedSegments[s.id] !== s.content
-    );
+    const changed = collabSegments.some((s) => editedSegments[s.id] !== s.content);
     setHasChanges(changed);
-  }, [editedSegments, transcript]);
+  }, [editedSegments, collabSegments, transcript]);
 
   // Update active segment based on audio currentTime
   const updateActiveSegment = useCallback(() => {
-    if (!transcript || isUserSeekingRef.current) return;
-    const segments = transcript.segments ?? [];
-    const idx = segments.findIndex(
+    if (isUserSeekingRef.current) return;
+    const segs = collabSegments.length > 0 ? collabSegments : (transcript?.segments ?? []);
+    const idx = segs.findIndex(
       (s, i) =>
         currentTime >= s.startTime &&
-        (i === segments.length - 1 || currentTime < segments[i + 1].startTime)
+        (i === segs.length - 1 || currentTime < segs[i + 1].startTime)
     );
     setActiveSegmentIndex(idx);
-  }, [transcript, currentTime]);
+  }, [collabSegments, transcript, currentTime]);
 
   useEffect(() => {
     updateActiveSegment();
@@ -101,27 +146,31 @@ export default function TranscriptEditPage() {
     [seekTo]
   );
 
-  const handleContentChange = useCallback((segmentId: string, content: string) => {
-    setEditedSegments((prev) => ({ ...prev, [segmentId]: content }));
-  }, []);
+  const handleContentChange = useCallback(
+    (segmentId: string, content: string) => {
+      setEditedSegments((prev) => ({ ...prev, [segmentId]: content }));
+    },
+    []
+  );
 
   const handleReset = useCallback(() => {
-    if (!transcript) return;
+    const source = collabSegments.length > 0 ? collabSegments : (transcript?.segments ?? []);
     const initial: Record<string, string> = {};
-    transcript.segments.forEach((s) => {
+    source.forEach((s) => {
       initial[s.id] = s.content;
     });
     setEditedSegments(initial);
     setHasChanges(false);
-  }, [transcript]);
+  }, [transcript, collabSegments]);
 
   const handleSave = useCallback(async () => {
     if (!transcript) return;
     setIsSaving(true);
     try {
-      // TODO: call API to save edited segments
-      // transcriptsApi.updateSegments(transcript.id, editedSegments)
-      console.log("Saving segments:", editedSegments);
+      // Persist via collab gateway snapshot API
+      if (collabState.connected) {
+        await saveSnapshot();
+      }
       setHasChanges(false);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
@@ -131,7 +180,7 @@ export default function TranscriptEditPage() {
     } finally {
       setIsSaving(false);
     }
-  }, [editedSegments, transcript]);
+  }, [transcript, collabState.connected, saveSnapshot]);
 
   const formatBytes = (bytes: number) => {
     if (!bytes) return "N/A";
@@ -203,6 +252,34 @@ export default function TranscriptEditPage() {
               <span>{formatDuration(audioFile.durationSeconds)}</span>
             </>
           )}
+
+          {/* Collab status */}
+          <span className="w-1 h-1 bg-slate-300 rounded-full" />
+          {collabState.connected ? (
+            <span className="flex items-center gap-1 text-green-500">
+              <Wifi size={10} />
+              <span>Live</span>
+              {collabState.users.length > 1 && (
+                <span className="flex items-center gap-0.5 ml-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                  <Users size={10} />
+                  <span>{collabState.users.length}</span>
+                </span>
+              )}
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 text-slate-400">
+              <WifiOff size={10} />
+              <span>Offline</span>
+            </span>
+          )}
+          {!collabState.canEdit && collabState.connected && (
+            <>
+              <span className="w-1 h-1 bg-slate-300 rounded-full" />
+              <span className="text-amber-500">Chỉ xem</span>
+            </>
+          )}
+
           {hasChanges && (
             <>
               <span className="w-1 h-1 bg-slate-300 rounded-full" />
@@ -253,14 +330,14 @@ export default function TranscriptEditPage() {
       </div>
 
       {/* Segments list */}
-      {(transcript.segments ?? []).length === 0 ? (
+      {collabSegments.length === 0 && (transcript?.segments ?? []).length === 0 ? (
         <div className="p-12 text-center space-y-3 bg-white border border-slate-100 rounded-3xl shadow-sm">
           <FileText size={48} className="mx-auto text-slate-300" />
           <p className="text-sm font-bold text-slate-500">Chưa có đoạn dịch nào</p>
         </div>
       ) : (
         <div className="space-y-3 pb-28">
-          {(transcript.segments ?? []).map((segment, index) => (
+          {(collabSegments.length > 0 ? collabSegments : transcript!.segments ?? []).map((segment, index) => (
             <div
               key={segment.id}
               ref={(el) => {
@@ -273,6 +350,8 @@ export default function TranscriptEditPage() {
                 isActive={activeSegmentIndex === index}
                 mode="edit"
                 editedContent={editedSegments[segment.id]}
+                canEdit={collabState.canEdit}
+                getYText={getYText}
                 onContentChange={(content) => handleContentChange(segment.id, content)}
                 onSegmentClick={handleSegmentClick}
                 formatDuration={formatDuration}

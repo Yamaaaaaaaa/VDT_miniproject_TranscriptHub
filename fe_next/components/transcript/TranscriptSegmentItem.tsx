@@ -2,6 +2,7 @@
 
 import { useRef, useCallback } from "react";
 import { TranscriptSegment } from "@/types/transcript";
+import { QuillEditor } from "./QuillEditor";
 
 interface TranscriptSegmentItemProps {
   segment: TranscriptSegment;
@@ -9,6 +10,8 @@ interface TranscriptSegmentItemProps {
   isActive?: boolean;
   mode: "view" | "edit";
   editedContent?: string;
+  canEdit?: boolean;
+  getYText?: (segmentId: string) => import("yjs").Text | undefined;
   onContentChange?: (content: string) => void;
   onSegmentClick?: (startTime: number) => void;
   formatDuration: (seconds: number) => string;
@@ -20,6 +23,8 @@ export function TranscriptSegmentItem({
   isActive = false,
   mode,
   editedContent,
+  canEdit = false,
+  getYText,
   onContentChange,
   onSegmentClick,
   formatDuration,
@@ -105,6 +110,14 @@ export function TranscriptSegmentItem({
             >
               {segment.content}
             </p>
+          ) : canEdit && getYText ? (
+            <QuillEditor
+              segmentId={segment.id}
+              getYText={getYText}
+              canEdit={true}
+              initialContent={editedContent ?? segment.content}
+              onContentChange={(content) => onContentChange?.(content)}
+            />
           ) : (
             <textarea
               value={editedContent ?? segment.content}
