@@ -611,7 +611,7 @@ export default function FileManagementPage() {
                                 } else if (status === "COMPLETED") {
                                   return (
                                     <Link
-                                      href={`/transcripts/${file.id}`}
+                                      href={`/transcripts/${file.id}/view`}
                                       className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 hover:bg-red-500 hover:text-white rounded-full px-2 py-0.5 transition-all"
                                     >
                                       Xem bản dịch

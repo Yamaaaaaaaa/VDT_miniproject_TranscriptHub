@@ -226,14 +226,14 @@ export default function TranscriptsListPage() {
                             {isCompleted ? (
                               <>
                                 <Link
-                                  href={`/transcripts/${t.audioFileId}?action=view`}
+                                  href={`/transcripts/${t.audioFileId}/view`}
                                   className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 rounded-xl transition-all"
                                 >
                                   <Eye size={12} />
                                   <span>Xem</span>
                                 </Link>
                                 <Link
-                                  href={`/transcripts/${t.audioFileId}?action=edit`}
+                                  href={`/transcripts/${t.audioFileId}/edit`}
                                   className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700 rounded-xl transition-all"
                                 >
                                   <Pencil size={12} />

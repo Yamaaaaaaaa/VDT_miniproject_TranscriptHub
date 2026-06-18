@@ -77,9 +77,13 @@ export const filesApi = {
 
 export const transcriptsApi = {
     getAll: () => api.get("/transcripts").then((res) => res.data.result ?? res.data),
-    getByAudioFile: (audioFileId: string) => api.get(`/transcripts/file/${audioFileId}`).then((res) => res.data.result ?? res.data),
+    getByAudioFile: (audioFileId: string) => api.get(`/transcripts/file/${audioFileId}`).then((res) => res.data),
     generate: (fileId: string) => api.post("/transcripts/generate", { fileId }).then((res) => res.data.result ?? res.data),
     delete: (id: number) => api.delete(`/transcripts/${id}`).then((res) => res.data.result ?? res.data),
+    exportAsText: (audioFileId: string) =>
+        api.get(`/transcripts/file/${audioFileId}/export/text`, { responseType: "blob" }).then((res) => res.data),
+    exportAsJson: (audioFileId: string) =>
+        api.get(`/transcripts/file/${audioFileId}/export/json`, { responseType: "blob" }).then((res) => res.data),
 };
 
 export const meetingsApi = {

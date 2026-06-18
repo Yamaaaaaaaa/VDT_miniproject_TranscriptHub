@@ -125,7 +125,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {/* Left: Toggle Sidebar + Search Box */}
           <div className="flex items-center gap-4">
             <button
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              onClick={() => { setIsSidebarOpen(!isSidebarOpen); window.dispatchEvent(new Event("sidebar-toggle")); }}
               className="p-2.5 hover:bg-slate-50 text-slate-400 hover:text-slate-700 rounded-xl transition-all cursor-pointer"
               title={isSidebarOpen ? "Đóng sidebar" : "Mở sidebar"}
             >
@@ -189,7 +189,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </header>
 
         {/* Content body */}
-        <main className="flex-1 p-10 overflow-y-auto">
+        <main className="flex-1 p-10 overflow-y-auto" data-transcript-content>
           {children}
         </main>
       </div>
