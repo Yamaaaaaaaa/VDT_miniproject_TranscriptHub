@@ -1,4 +1,4 @@
-import { Controller } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Param } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { IdentityService } from './identity.service';
 import { RegisterDto } from './dto/register.dto';
@@ -7,6 +7,29 @@ import { LoginDto } from './dto/login.dto';
 @Controller()
 export class IdentityController {
   constructor(private readonly identityService: IdentityService) {}
+
+  // ─── HTTP endpoints (for collab-gateway and other HTTP clients) ──────────
+
+  @Post('auth/verify')
+  async httpVerifyToken(@Body() body: { token: string }) {
+    return this.identityService.validateToken(body.token);
+  }
+
+  @Get('meetings/:meetingId/role')
+  async httpGetMeetingRole(
+    @Param('meetingId') meetingId: string,
+    @Query('userId') userId: string,
+  ) {
+    // Delegates to identity service; in a real system this would query
+    // the meeting-participants table. Here we return a default role.
+    const role = await this.identityService.getMeetingRole(meetingId, Number(userId));
+    return { role };
+  }
+
+  @Get('health')
+  httpHealth() {
+    return { status: 'ok', service: 'identity-service' };
+  }
 
   @MessagePattern('register')
   async register(@Payload() registerDto: RegisterDto) {

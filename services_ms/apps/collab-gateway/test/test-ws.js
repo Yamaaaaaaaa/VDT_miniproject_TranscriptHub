@@ -1,98 +1,65 @@
 /**
  * Collab Gateway WebSocket Test Script
- * 
+ * Tests the standalone Node.js WebSocket gateway using native `ws` library.
+ *
  * Usage:
- * 1. Start collab-gateway: npm run start -- collab-gateway
- * 2. Run this script: node test/test-ws.js
- * 
- * Requirements:
- * - Identity Service running on localhost:3002
- * - Collab Service running on localhost:3007
- * - Redis running on localhost:6379
- * 
- * Note: You need a valid JWT token from Identity Service
+ * 1. Ensure collab-gateway is running: docker compose up -d collab-gateway
+ * 2. Run this script: node --experimental-vm-modules test/test-ws.js
+ *    (or: node test/test-ws.js if ws is installed globally)
  */
 
-const { io } = require('socket.io-client');
+import WebSocket from 'ws';
+import jwt from 'jsonwebtoken';
 
-// Configuration - UPDATE THESE VALUES
-const WS_URL = 'http://localhost:3008';
-const MEETING_ID = 'test-meeting-123';
-const JWT_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEsImVtYWlsIjoidGVzdEB0ZXN0LmNvbSIsInJvbGVzIjpbIlVTRVIiXSwicGVybWlzc2lvbnMiOltdLCJpYXQiOjE3ODE2NDIzMTMsImV4cCI6MTc4MTcyODcxM30.w6ezMk80ZSRze1F8H798f1tUnT6CP3e3vM6gyx4XWiQ';
+// --- Configuration ---
+const WS_URL = process.env.WS_URL || 'ws://localhost:3008';
+const MEETING_ID = process.env.MEETING_ID || 'test-meeting-123';
+const JWT_SECRET = process.env.JWT_SECRET || 'th_jwt_s3cr3t_k3y_x9mK2pL8qR4nW6vY1bZ5cE0aF7gH3jN';
+
+// Generate a short-lived test token
+const payload = { sub: 1, email: 'test@test.com', roles: ['USER'] };
+const testToken = jwt.sign(payload, JWT_SECRET, { expiresIn: '1h' });
+
+const wsUrl = `${WS_URL}?token=${encodeURIComponent(testToken)}&meetingId=${encodeURIComponent(MEETING_ID)}`;
 
 console.log('='.repeat(60));
 console.log('Collab Gateway WebSocket Test');
 console.log('='.repeat(60));
-console.log(`URL: ${WS_URL}`);
+console.log(`URL:  ${WS_URL}`);
 console.log(`Meeting ID: ${MEETING_ID}`);
+console.log(`Token: ${testToken.substring(0, 40)}...`);
 console.log('');
 
-// Create socket connection with query params
-const socket = io(WS_URL, {
-  query: {
-    meetingId: MEETING_ID,
-    token: JWT_TOKEN,
-  },
-  transports: ['websocket'],
-  reconnection: true,
-  reconnectionAttempts: 3,
-  reconnectionDelay: 1000,
+// Connect
+const ws = new WebSocket(wsUrl);
+
+ws.on('open', () => {
+  console.log('[WS] Connected');
+  console.log('[WS] Sending CRDT sync ping...');
+
+  // y-websocket uses a simple message format.
+  // sync-step-1 is encoded as: [0, 0] (msgSync=0, syncStep1=0)
+  const syncStep1 = new Uint8Array([0, 0]);
+  ws.send(syncStep1);
 });
 
-// Track message counts
-let syncMessageCount = 0;
-let awarenessMessageCount = 0;
-
-socket.on('connect', () => {
-  console.log('✅ Connected to Collab Gateway');
-  console.log(`   Socket ID: ${socket.id}`);
-  console.log('');
-
-  // Request sync step 1 (initial document state)
-  console.log('📤 Sending sync-step-1 request...');
-  socket.emit('sync-step-1');
-
-  // Don't send awareness update yet - just test sync
+ws.on('message', (data) => {
+  const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
+  console.log(`[WS] Received ${buf.length} bytes: ${buf.slice(0, 8).toString('hex')}...`);
 });
 
-socket.on('connect_error', (error) => {
-  console.log('❌ Connection error:', error.message);
-  if (error.message.includes('Unauthorized')) {
-    console.log('');
-    console.log('💡 Hint: JWT token is invalid or expired.');
-    console.log('   Get a valid token from Identity Service.');
-  }
-});
-
-socket.on('sync', (data) => {
-  syncMessageCount++;
-  console.log(`📨 Received sync message #${syncMessageCount} (${data?.byteLength || data?.length || 0} bytes)`);
-});
-
-socket.on('awareness', (data) => {
-  awarenessMessageCount++;
-  console.log(`👥 Received awareness message #${awarenessMessageCount} (${data?.byteLength || data?.length || 0} bytes)`);
-});
-
-socket.on('error', (error) => {
-  console.log('❌ Error:', error);
-});
-
-socket.on('disconnect', (reason) => {
-  console.log('');
-  console.log('🔌 Disconnected:', reason);
-  console.log('');
-  console.log('Summary:');
-  console.log(`   - Sync messages received: ${syncMessageCount}`);
-  console.log(`   - Awareness messages received: ${awarenessMessageCount}`);
-});
-
-// Auto disconnect after 10 seconds
-setTimeout(() => {
-  console.log('');
-  console.log('⏰ Auto-disconnecting after 10 seconds...');
-  socket.disconnect();
+ws.on('close', (code, reason) => {
+  console.log(`[WS] Closed code=${code} reason=${reason || '(none)'}`);
   process.exit(0);
-}, 10000);
+});
 
-console.log('Waiting for connection and sync messages...');
+ws.on('error', (err) => {
+  console.error('[WS] Error:', err.message);
+  process.exit(1);
+});
+
+// Auto disconnect after 8 seconds
+setTimeout(() => {
+  console.log('[Test] Timeout - disconnecting');
+  ws.close(1000, 'test done');
+}, 8000);

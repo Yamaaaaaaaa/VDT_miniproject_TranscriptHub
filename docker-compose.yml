@@ -129,12 +129,14 @@ services:
       USERS_SERVICE_HOST: users-service
       USERS_SERVICE_PORT: 3001
       IDENTITY_SERVICE_PORT: 3002
+      IDENTITY_HTTP_PORT: 3009
       JWT_SECRET: "th_jwt_s3cr3t_k3y_x9mK2pL8qR4nW6vY1bZ5cE0aF7gH3jN"
       JWT_REFRESH_SECRET: "th_refresh_s3cr3t_k3y_p2mX8nL4qK9vR6bW1zY5cE0aF7gH3jN"
       REDIS_HOST: redis
       REDIS_PORT: 6379
     ports:
       - "3002:3002"
+      - "3009:3009"
     depends_on:
       users-service:
         condition: service_started
@@ -298,22 +300,21 @@ services:
     networks:
       - transcripthub_net
 
-  # 4f. Collab Gateway (WebSocket :3008)
+  # 4f. Collab Gateway (WebSocket :3008) - Standalone Node.js
   collab-gateway:
     build:
-      context: ./services_ms
-      dockerfile: apps/collab-gateway/Dockerfile
-      target: production
+      context: ./services_ms/apps/collab-gateway
+      dockerfile: Dockerfile
     container_name: transcripthub-collab-gateway
     restart: always
     environment:
       WS_PORT: 3008
-      COLLAB_SERVICE_HOST: collab-service
-      COLLAB_SERVICE_PORT: 3007
-      IDENTITY_SERVICE_HOST: identity-service
-      IDENTITY_SERVICE_PORT: 3002
+      IDENTITY_SERVICE_URL: http://identity-service:3009
+      COLLAB_SERVICE_URL: http://collab-service:3007
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      ROLE_CACHE_TTL: 300
+      LOG_LEVEL: info
       JWT_SECRET: "th_jwt_s3cr3t_k3y_x9mK2pL8qR4nW6vY1bZ5cE0aF7gH3jN"
     ports:
       - "3008:3008"

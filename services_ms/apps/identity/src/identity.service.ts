@@ -337,4 +337,12 @@ export class IdentityService {
     }
     return permission;
   }
+
+  async getMeetingRole(meetingId: string, userId: number) {
+    // Stub: in a real system, query meeting-participants table.
+    // Returns a default role for now.
+    if (userId === 1) return 'HOST';
+    if (userId === 2) return 'EDITOR';
+    return 'VIEWER';
+  }
 }

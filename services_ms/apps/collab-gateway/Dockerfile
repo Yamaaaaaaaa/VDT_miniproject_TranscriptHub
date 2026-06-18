@@ -1,35 +1,17 @@
-# Stage 1: Build
-FROM node:22-alpine AS builder
+FROM node:22-alpine
+
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
-COPY tsconfig*.json ./
-COPY nest-cli.json ./
-
-# Install dependencies
-RUN npm ci
-
-# Copy source code
-COPY apps/collab-gateway ./apps/collab-gateway
-COPY libs ./libs/
-
-# Build
-RUN npx nest build collab-gateway
-
-# Stage 2: Production
-FROM node:22-alpine AS production
-WORKDIR /app
-
-# Copy package files
 COPY package*.json ./
 
-# Install production dependencies only
-RUN npm ci --only=production
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retries 5 && \
+    npm install --omit=dev
 
-# Copy built app
-COPY --from=builder /app/dist/apps/collab-gateway ./dist/apps/collab-gateway
+COPY src ./src
 
 EXPOSE 3008
 
-CMD ["node", "dist/apps/collab-gateway/main"]
+CMD ["node", "src/index.js"]
