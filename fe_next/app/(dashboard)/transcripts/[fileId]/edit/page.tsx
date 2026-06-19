@@ -1,7 +1,8 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useSession } from "next-auth/react";
 import { useTranscriptDetail } from "@/hooks/use-transcript-detail";
 import { useCollab } from "@/hooks/use-collab";
 import { TranscriptHeader } from "@/components/transcript/TranscriptHeader";
@@ -19,10 +20,12 @@ import {
   Users,
   Wifi,
   WifiOff,
+  ShieldAlert,
 } from "lucide-react";
 
 export default function TranscriptEditPage() {
   const params = useParams();
+  const router = useRouter();
   const fileId = params.fileId as string;
 
   const {
@@ -41,21 +44,51 @@ export default function TranscriptEditPage() {
     reload,
   } = useTranscriptDetail(fileId);
 
-  // Resolve the actual meeting UUID from audioFileId.
-  // The collab service's saveTranscript needs a real meetingId (not audioFileId).
-  // We find it by listing meetings and matching audioFile.id === fileId.
-  const [meetingId, setMeetingId] = useState<string>(fileId);
+  const { data: session } = useSession();
+
+  // Resolve meetingId thực (UUID của Meeting) từ audioFileId trong URL.
+  // Đồng thời lấy meeting role (HOST/EDITOR/VIEWER) của user hiện tại trong meeting đó.
+  // Lưu ý: session.user.role là system role (ADMIN/USER) — KHÔNG phải meeting role.
+  const [meetingId, setMeetingId] = useState<string>("");
+  const [meetingRole, setMeetingRole] = useState<string>("VIEWER");
+  const [showNoPermissionModal, setShowNoPermissionModal] = useState<boolean>(false);
+
   useEffect(() => {
-    meetingsApi.list(0, 100, true)
-      .then((data: any) => {
-        const list: any[] = Array.isArray(data) ? data : (data?.content ?? data?.items ?? []);
-        const match = list.find(
-          (m: any) => m.audioFileId === fileId || m.audioFile?.id === fileId
-        );
-        if (match?.id) setMeetingId(match.id);
+    meetingsApi.getByAudioFile(fileId)
+      .then(async (meeting: any) => {
+        if (!meeting?.id) return;
+
+        setMeetingId(meeting.id);
+
+        // Lấy meeting role của user hiện tại (HOST/EDITOR/VIEWER)
+        try {
+          const members: any[] = await meetingsApi.getMembers(meeting.id);
+          const currentUserId = parseInt((session?.user as any)?.id ?? "0", 10);
+          const myMember = members.find((m: any) => m.userId === currentUserId);
+          if (myMember?.role) setMeetingRole(myMember.role);
+        } catch {
+          // fallback VIEWER nếu không lấy được
+        }
       })
-      .catch(() => { /* fall back to fileId as room key */ });
-  }, [fileId]);
+      .catch((err: any) => {
+        const status = err?.response?.status;
+        const msg = err?.response?.data?.message ?? "";
+        const code = err?.response?.data?.code;
+        if (status === 403 || msg.includes("permission") || code === 1007) {
+          setShowNoPermissionModal(true);
+        }
+      });
+  }, [fileId, session?.user?.id]);
+
+  // Tự động chuyển hướng sau 5 giây nếu không có quyền
+  useEffect(() => {
+    if (showNoPermissionModal) {
+      const timer = setTimeout(() => {
+        router.push("/transcripts");
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [showNoPermissionModal, router]);
 
   const {
     state: collabState,
@@ -64,6 +97,7 @@ export default function TranscriptEditPage() {
     saveSnapshot,
   } = useCollab({
     meetingId,
+    meetingRole,
     initialSegments: transcript?.segments,
   });
 
@@ -373,6 +407,29 @@ export default function TranscriptEditPage() {
         onVolumeChange={handleVolumeChange}
         formatDuration={formatDuration}
       />
+
+      {/* No Permission Modal */}
+      {showNoPermissionModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-100 rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center space-y-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto">
+              <ShieldAlert size={32} />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-lg font-black text-slate-800 tracking-tight">Không có quyền truy cập</h3>
+              <p className="text-xs text-slate-400 font-bold leading-relaxed">
+                Bạn không phải là thành viên của cuộc họp này hoặc không có quyền chỉnh sửa bản dịch. Hệ thống sẽ chuyển bạn về danh sách.
+              </p>
+            </div>
+            <button
+              onClick={() => router.push("/transcripts")}
+              className="w-full py-3 text-xs font-bold bg-red-500 hover:bg-red-600 text-white rounded-2xl transition-all shadow-md shadow-red-500/25 cursor-pointer"
+            >
+              Quay lại danh sách bản dịch
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -109,4 +109,21 @@ export class MeetingsService {
       .send('remove_meeting_member', { id, targetUserId, requesterId })
       .pipe(catchError((err) => throwError(() => err)));
   }
+
+  findByAudioFileId(
+    audioFileId: string,
+    requesterId: number,
+    includeAudioFile: boolean,
+    includeTranscript: boolean,
+  ): Observable<any> {
+    return this.meetingClient
+      .send('get_meeting_by_audio_file', {
+        audioFileId,
+        requesterId,
+        includeAudioFile,
+        includeTranscript,
+      })
+      .pipe(catchError((err) => throwError(() => err)));
+  }
 }
+

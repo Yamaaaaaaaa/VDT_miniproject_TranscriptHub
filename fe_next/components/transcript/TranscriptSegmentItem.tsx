@@ -110,22 +110,20 @@ export function TranscriptSegmentItem({
             >
               {segment.content}
             </p>
-          ) : canEdit && getYText ? (
+          ) : getYText ? (
             <QuillEditor
               segmentId={segment.id}
               getYText={getYText}
-              canEdit={true}
+              canEdit={canEdit}
               initialContent={editedContent ?? segment.content}
               onContentChange={(content) => onContentChange?.(content)}
             />
           ) : (
             <textarea
               value={editedContent ?? segment.content}
-              onChange={(e) => {
-                if (onContentChange) onContentChange(e.target.value);
-              }}
+              readOnly
               onClick={(e) => e.stopPropagation()}
-              className="w-full text-xs text-slate-700 leading-relaxed whitespace-pre-wrap break-words bg-transparent border border-transparent hover:border-slate-200 focus:border-red-400 focus:bg-red-50/20 rounded-xl p-2 resize-none outline-none transition-all cursor-text"
+              className="w-full text-xs text-slate-500 leading-relaxed whitespace-pre-wrap break-words bg-transparent border border-transparent p-2 resize-none outline-none transition-all cursor-default"
               rows={Math.max(2, Math.ceil((editedContent ?? segment.content).length / 80))}
             />
           )}

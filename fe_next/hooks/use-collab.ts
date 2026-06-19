@@ -34,7 +34,13 @@ export interface CollabSegment extends Omit<TranscriptSegment, "content"> {
 }
 
 export interface UseCollabOptions {
-  meetingId: string;
+  meetingId?: string | null;
+  /**
+   * Meeting role của user hiện tại trong meeting này: HOST | EDITOR | VIEWER.
+   * Được truyền từ edit page sau khi gọi API getMembers().
+   * Lưu ý: session.user.role là system role (ADMIN/USER) — KHÔNG dùng cái đó.
+   */
+  meetingRole?: string;
   initialSegments?: TranscriptSegment[];
   onContentsChange?: (segments: CollabSegment[]) => void;
 }
@@ -53,8 +59,8 @@ function pickColor(seed: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Singleton — shared across all useCollab() instances for the same meetingId.
-// Prevents StrictMode double-mount from creating duplicate WebSocket connections.
+// Singleton — dùng chung cho tất cả useCollab() cùng meetingId.
+// Ngăn React StrictMode tạo 2 kết nối WebSocket do double-mount.
 // ---------------------------------------------------------------------------
 
 interface CollabInstance {
@@ -65,27 +71,32 @@ interface CollabInstance {
   buildSegments: () => CollabSegment[];
   addSubscriber: (fn: () => void) => () => void;
   provider: WebsocketProvider | null;
-  /** Role resolved after connect (from JWT) */
+  /** Vai trò được xác định sau khi kết nối (lấy từ JWT) */
   role: string;
   _mountedCount: number;
   _connectDone: boolean;
-  /** Timer used to delay disconnect so StrictMode double-mount doesn't reconnect */
+  /** Timer trì hoãn disconnect để StrictMode double-mount không reconnect lại */
   _disconnectTimer: ReturnType<typeof setTimeout> | null;
   /**
-   * Segments waiting to be seeded AFTER Y.js sync completes.
-   * Seeding before sync can cause duplicates when the server already has data
-   * (both tabs seed independently, then Y.js merges → duplicate keys).
+   * Các segment chờ được seed SAU KHI Y.js sync hoàn tất.
+   * Nếu seed trước khi sync, server đã có dữ liệu sẽ gây trùng lặp
+   * (hai tab cùng seed độc lập, Y.js merge lại → key bị duplicate).
    */
   _pendingSeeds: TranscriptSegment[] | null;
+  /**
+   * Meeting role được truyền từ bên ngoài (edit page) sau khi gọi API.
+   * Nếu được set, ưu tiên hơn role lấy từ session (vốn là system role).
+   */
+  _meetingRole: string | null;
+  _meetingId?: string | null;
 }
 
 const activeProviders = new Map<string, CollabInstance>();
 
 function getOrCreateCollab(meetingId: string): CollabInstance {
   if (!activeProviders.has(meetingId)) {
+    // Dùng doc.getArray() để array thuộc Y.Doc graph và được sync
     const doc = new Y.Doc();
-    // FIX #1: use doc.getArray() so this array is part of the shared Y.Doc graph
-    // Previously `new Y.Array()` created a floating array that was never synced
     const ySegmentsArray = doc.getArray<Y.Map<any>>("segments");
     const subscribers = new Set<() => void>();
     let provider: WebsocketProvider | null = null;
@@ -115,21 +126,21 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
       const session = await getSession();
       const token = session?.accessToken;
       if (!token) {
-        console.warn("[Collab] No access token — read-only mode");
+        console.warn("[Collab] Không có access token — chế độ chỉ đọc");
         return;
       }
 
-      // Determine role from NextAuth session (set during login in auth.ts)
-      const sessionRole = (session.user as any)?.role ?? "VIEWER";
-      instance.role = sessionRole;
+      // Dùng _meetingRole nếu đã được set từ bên ngoài (HOST/EDITOR/VIEWER — role trong meeting).
+      // Fallback: VIEWER (không dùng session.user.role vì đó là system role: ADMIN/USER).
+      instance.role = instance._meetingRole ?? "VIEWER";
 
+      // 1. Khai báo WS Provicer: WebsocketProvider là cầu nối giữa Y.Doc local của bạn và WebSocket server — nó tự động lo việc kết nối, đồng bộ và giữ doc luôn nhất quán với tất cả clients.
       provider = new WebsocketProvider(WS_URL, meetingId, doc, {
         params: { token },
         connect: true,
       });
 
-      // FIX #2: Set awareness state so other clients can see this user online.
-      // Previously FE never called setLocalState → awareness was always empty.
+      // 2. Cập nhật awareness state để các client khác biết user này đang online. (nếu không gọi setLocalState → awareness luôn rỗng, không thấy ai)
       const userInfo: CollabUser = {
         id: session.user?.id ?? "",
         name: session.user?.name ?? session.user?.email ?? "Unknown",
@@ -140,8 +151,8 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
 
       provider.awareness.on("change", () => notifySubscribers());
 
-      // Seed initial segments AFTER sync so we know whether the server already
-      // has data. If both tabs seed before sync, Y.js merges cause duplicates.
+      // 3. Seed dữ liệu ban đầu SAU KHI sync để biết server đã có data chưa.
+      // Nếu cả 2 tab seed trước khi sync, Y.js merge sẽ gây duplicate key.
       provider.on("sync", (isSynced: boolean) => {
         if (isSynced && instance._pendingSeeds && ySegmentsArray.length === 0) {
           const seeds = instance._pendingSeeds;
@@ -167,14 +178,14 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
       instance.provider = provider;
       instance._connectDone = true;
 
-      // Notify once immediately so UI reflects connected state
+      // Thông báo ngay lập tức để UI phản ánh trạng thái đã kết nối
       notifySubscribers();
     };
 
     const disconnect = () => {
       if (!provider) return;
-      // Clear our presence from awareness before disconnecting
-      try { provider.awareness.setLocalState(null); } catch (_) {}
+      // Xóa presence của user khỏi awareness trước khi ngắt kết nối
+      try { provider.awareness.setLocalState(null); } catch (_) { }
       provider.disconnect();
       provider.destroy();
       provider = null;
@@ -198,6 +209,8 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
       _connectDone: false,
       _disconnectTimer: null,
       _pendingSeeds: null,
+      _meetingRole: null,
+      _meetingId: meetingId,
     };
 
     activeProviders.set(meetingId, instance);
@@ -211,6 +224,7 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
 // ---------------------------------------------------------------------------
 export function useCollab({
   meetingId,
+  meetingRole,
   initialSegments,
   onContentsChange,
 }: UseCollabOptions) {
@@ -230,21 +244,36 @@ export function useCollab({
   const onContentsChangeRef = useRef(onContentsChange);
   onContentsChangeRef.current = onContentsChange;
 
-  // Initialize singleton
-  if (!collabRef.current) {
+  // Singleton: Tránh khởi tạo lại kết nối WebSocket nhiều lần
+  if (meetingId && (!collabRef.current || collabRef.current._meetingId !== meetingId)) {
+    if (collabRef.current) {
+      try { collabRef.current.disconnect(); } catch (_) {}
+    }
     collabRef.current = getOrCreateCollab(meetingId);
+    collabRef.current._meetingId = meetingId;
   }
 
   const collab = collabRef.current;
 
-  // Store initial segments to be seeded AFTER Y.js sync completes.
-  // The actual seeding happens in the provider's "sync" event handler (inside connect())
-  // so we never seed before knowing whether the server already has data.
+  // Đồng bộ meetingRole từ props vào singleton (mỗi khi role thay đổi).
+  // Phải làm trước khi connect() chạy để connect() dùng đúng role.
+  useEffect(() => {
+    if (!collab || !meetingRole) return;
+    collab._meetingRole = meetingRole;
+    // Nếu đã connect rồi (ví dụ role resolve chậm hơn WS connect) → cập nhật ngay
+    if (collab.role !== meetingRole) {
+      collab.role = meetingRole;
+    }
+  }, [collab, meetingRole]);
+
+  // Lưu các segment ban đầu để seed SAU KHI Y.js sync hoàn tất.
+  // Việc seed thực sự xảy ra trong event handler "sync" của provider (bên trong connect())
+  // để đảm bảo không seed khi chưa biết server đã có data hay chưa.
   useEffect(() => {
     if (!collab || !initialSegments?.length) return;
-    // If array already has data (synced from server), skip entirely
+    // Nếu array đã có data (đồng bộ từ server) → bỏ qua hoàn toàn
     if (collab.ySegmentsArray.length > 0) return;
-    // If already synced (e.g. StrictMode second mount), seed immediately if still empty
+    // Nếu đã sync rồi (ví dụ StrictMode mount lần 2) → seed ngay nếu vẫn còn rỗng
     if (collab.provider?.synced) {
       if (collab.ySegmentsArray.length === 0) {
         collab.doc.transact(() => {
@@ -262,17 +291,17 @@ export function useCollab({
       }
       return;
     }
-    // Not yet synced — store as pending; sync event handler will apply them
+    // Chưa sync — lưu vào pending, event handler sync sẽ apply sau
     collab._pendingSeeds = initialSegments;
   }, [collab, initialSegments]);
 
-  // Subscribe to collab state (awareness changes, sync, segment updates)
+  // Đăng ký theo dõi collab state (thay đổi awareness, sync, cập nhật segment)
   useEffect(() => {
     if (!collab) return;
 
     const updateState = () => {
       const p = collab.provider;
-      // FIX #3: properly derive canEdit from resolved role
+      // FIX #3: xác định canEdit đúng từ role đã resolve
       const role = collab.role;
       const canEdit = role !== "VIEWER";
 
@@ -303,13 +332,13 @@ export function useCollab({
     return unsub;
   }, [collab]);
 
-  // Mount/unmount: connect on first mount, disconnect on last unmount.
-  // FIX #4: use a 150ms timer to absorb React StrictMode double-mount/unmount,
-  // preventing a second WebSocket connection from being created.
+  // Mount/unmount: kết nối khi mount lần đầu, ngắt kết nối khi unmount lần cuối.
+  // FIX #4: dùng timer 150ms để hấp thụ double-mount/unmount của React StrictMode,
+  // ngăn việc tạo thêm kết nối WebSocket thứ hai.
   useEffect(() => {
     if (!collab) return;
 
-    // Cancel any pending disconnect from the StrictMode cleanup
+    // Hủy pending disconnect từ lần cleanup StrictMode trước
     if (collab._disconnectTimer) {
       clearTimeout(collab._disconnectTimer);
       collab._disconnectTimer = null;
@@ -321,10 +350,10 @@ export function useCollab({
     return () => {
       collab._mountedCount--;
       if (collab._mountedCount <= 0) {
-        // Delay so StrictMode remount can cancel this before it fires
+        // Trì hoãn để StrictMode remount có thể hủy trước khi timer chạy
         collab._disconnectTimer = setTimeout(() => {
           if (collab._mountedCount <= 0) {
-            activeProviders.delete(meetingId);
+            if (meetingId) activeProviders.delete(meetingId);
             collab.disconnect();
           }
           collab._disconnectTimer = null;
@@ -379,10 +408,10 @@ export function useCollab({
     };
 
     try {
-      // FIX: Route through API Gateway (/api/v1/collab/transcript) which forwards
-      // to the collab microservice via TCP. Raw fetch to localhost:3007 was wrong —
-      // that port exposes a TCP microservice, not HTTP. The axios instance auto-attaches
-      // the Bearer token via the request interceptor in lib/api.ts.
+      // FIX: Gửi qua API Gateway (/api/v1/collab/transcript) rồi forward
+      // đến collab microservice qua TCP. Gọi thẳng localhost:3007 là sai —
+      // port đó expose TCP microservice, không phải HTTP. axios instance tự đính
+      // Bearer token qua request interceptor trong lib/api.ts.
       await collabApi.saveTranscript({ meetingId, rawText, structuredContent });
       return true;
     } catch {

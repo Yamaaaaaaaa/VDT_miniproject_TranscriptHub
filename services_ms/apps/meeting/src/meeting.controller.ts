@@ -139,4 +139,23 @@ export class MeetingController {
   async getAudioFileId(@Payload() payload: { meetingId: string }) {
     return this.meetingService.getAudioFileId(payload.meetingId);
   }
+
+  @MessagePattern('get_meeting_by_audio_file')
+  async getMeetingByAudioFileId(
+    @Payload()
+    payload: {
+      audioFileId: string;
+      requesterId: number;
+      includeAudioFile: boolean;
+      includeTranscript: boolean;
+    },
+  ) {
+    return this.meetingService.getMeetingByAudioFileId(
+      payload.audioFileId,
+      payload.requesterId,
+      payload.includeAudioFile,
+      payload.includeTranscript,
+    );
+  }
 }
+

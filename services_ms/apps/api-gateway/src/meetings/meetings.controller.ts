@@ -82,6 +82,44 @@ export class MeetingsController {
     );
   }
 
+  @Get('by-file/:audioFileId')
+  @ApiOperation({
+    summary: 'Get a meeting by associated Audio File ID (Requires Auth & Membership)',
+  })
+  @ApiQuery({
+    name: 'includeAudioFile',
+    required: false,
+    type: Boolean,
+    example: false,
+  })
+  @ApiQuery({
+    name: 'includeTranscript',
+    required: false,
+    type: Boolean,
+    example: false,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Meeting details retrieved successfully.',
+  })
+  @ApiResponse({ status: 403, description: 'Forbidden (Not a member).' })
+  @ApiResponse({ status: 404, description: 'Meeting or audio file not found.' })
+  findByAudioFileId(
+    @Param('audioFileId') audioFileId: string,
+    @Query('includeAudioFile') includeAudioFile = 'false',
+    @Query('includeTranscript') includeTranscript = 'false',
+    @Req() req: any,
+  ) {
+    const requesterId = req.user.id;
+    return this.meetingsService.findByAudioFileId(
+      audioFileId,
+      requesterId,
+      includeAudioFile === 'true',
+      includeTranscript === 'true',
+    );
+  }
+
+
   @Get()
   @ApiOperation({
     summary: 'List all meetings for the current user (Requires Auth)',

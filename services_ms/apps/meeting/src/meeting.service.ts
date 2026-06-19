@@ -406,4 +406,43 @@ export class MeetingService {
 
     return { audioFileId: meeting.audioFileId };
   }
+
+  async getMeetingByAudioFileId(
+    audioFileId: string,
+    requesterId: number,
+    includeAudioFile: boolean,
+    includeTranscript: boolean,
+  ) {
+    console.log(
+      `Retrieving meeting by audioFileId: ${audioFileId} by requester: ${requesterId}`,
+    );
+
+    // 1. Validate audio file existence using FileGateway
+    try {
+      const fileExists = await this.fileGateway.checkFileExists(audioFileId);
+      if (!fileExists) {
+        throw new AppException(ErrorCodes.AUDIO_FILE_NOT_FOUND);
+      }
+    } catch (err) {
+      if (err instanceof AppException) throw err;
+      console.error('Failed to connect to file-service for validation', err);
+      throw new AppException(ErrorCodes.AUDIO_FILE_NOT_FOUND);
+    }
+
+    // 2. Find meeting associated with this audio file
+    const meeting = await this.meetingRepo.findByAudioFileId(audioFileId);
+    if (!meeting) {
+      throw new AppException(ErrorCodes.MEETING_NOT_FOUND);
+    }
+
+    // 3. Verify requester is a member of the meeting
+    const membership = await this.meetingRepo.findMember(meeting.id, requesterId);
+    if (!membership) {
+      throw new AppException(ErrorCodes.UNAUTHORIZED);
+    }
+
+    // 4. Enrich meeting information
+    return this.enrichMeeting(meeting, includeAudioFile, includeTranscript);
+  }
 }
+

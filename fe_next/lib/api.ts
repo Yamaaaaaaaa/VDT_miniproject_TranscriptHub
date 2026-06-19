@@ -107,7 +107,11 @@ export const meetingsApi = {
         api.put(`/meetings/${id}/members/${userId}`, { role }).then((res) => res.data.result ?? res.data),
     removeMember: (id: string, userId: number) => 
         api.delete(`/meetings/${id}/members/${userId}`).then((res) => res.data.result ?? res.data),
+    getByAudioFile: (audioFileId: string, includeAudioFile = false, includeTranscript = false) => 
+        api.get(`/meetings/by-file/${audioFileId}?includeAudioFile=${includeAudioFile}&includeTranscript=${includeTranscript}`)
+           .then((res) => res.data.result ?? res.data),
 };
+
 
 export const collabApi = {
     /** Save/auto-save the current collab transcript state via API Gateway */

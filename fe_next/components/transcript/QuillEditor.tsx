@@ -48,7 +48,7 @@ export function QuillEditor({
   // in the deps array, causing a new Quill instance to be appended to the DOM on
   // every remote Y.js change → multiple toolbars stacking up per segment.
   useEffect(() => {
-    if (!containerRef.current || !canEdit) return;
+    if (!containerRef.current) return;
 
     let destroyed = false;
 
@@ -64,13 +64,14 @@ export function QuillEditor({
       const quill = new QuillLib(containerRef.current, {
         theme: "snow",
         placeholder: "Nhập nội dung...",
+        readOnly: !canEdit, // Cấu hình readOnly động dựa trên canEdit
         modules: {
-          toolbar: [
+          toolbar: canEdit ? [ // Chỉ hiện toolbar nếu có quyền edit
             ["bold", "italic", "underline", "strike"],
             [{ script: "sub" }, { script: "super" }],
             [{ list: "ordered" }, { list: "bullet" }],
             ["clean"],
-          ],
+          ] : false, // Ẩn toolbar cho viewer
         },
       });
 
@@ -129,21 +130,16 @@ export function QuillEditor({
     };
   }, [segmentId, canEdit]); // ← ONLY these two: never recreate for content updates
 
-  // For VIEWER or when not editing: render read-only plain text
-  if (!canEdit) {
-    return (
-      <div className="quill-viewer text-xs text-slate-700 leading-relaxed whitespace-pre-wrap break-words px-2 py-1">
-        {initialContent || ""}
-      </div>
-    );
-  }
-
   return (
     <div className="quill-editor-wrapper">
       {/* Quill injects its own styles; we just provide the mount point */}
       <div
         ref={containerRef}
-        className="quill-container [&_.ql-editor]:!p-1 [&_.ql-editor]:!text-xs [&_.ql-editor]:!text-slate-700 [&_.ql-editor]:!leading-relaxed [&_.ql-toolbar]:!border-slate-200 [&_.ql-container]:!border-slate-200 [&_.ql-toolbar.ql-snow_.ql-stroke]:!stroke-slate-400 [&_.ql-toolbar.ql-snow_.ql-fill]:!fill-slate-400"
+        className={`quill-container [&_.ql-editor]:!p-1 [&_.ql-editor]:!text-xs [&_.ql-editor]:!leading-relaxed [&_.ql-toolbar]:!border-slate-200 [&_.ql-container]:!border-slate-200 [&_.ql-toolbar.ql-snow_.ql-stroke]:!stroke-slate-400 [&_.ql-toolbar.ql-snow_.ql-fill]:!fill-slate-400 ${
+          canEdit
+            ? "[&_.ql-editor]:!text-slate-700"
+            : "[&_.ql-editor]:!text-slate-500 [&_.ql-container]:!border-transparent bg-transparent cursor-default select-text"
+        }`}
       />
     </div>
   );
