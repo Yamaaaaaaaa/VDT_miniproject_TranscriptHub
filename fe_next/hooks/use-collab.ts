@@ -71,6 +71,12 @@ interface CollabInstance {
   _connectDone: boolean;
   /** Timer used to delay disconnect so StrictMode double-mount doesn't reconnect */
   _disconnectTimer: ReturnType<typeof setTimeout> | null;
+  /**
+   * Segments waiting to be seeded AFTER Y.js sync completes.
+   * Seeding before sync can cause duplicates when the server already has data
+   * (both tabs seed independently, then Y.js merges → duplicate keys).
+   */
+  _pendingSeeds: TranscriptSegment[] | null;
 }
 
 const activeProviders = new Map<string, CollabInstance>();
@@ -133,7 +139,29 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
       provider.awareness.setLocalState({ user: userInfo });
 
       provider.awareness.on("change", () => notifySubscribers());
-      provider.on("sync", () => notifySubscribers());
+
+      // Seed initial segments AFTER sync so we know whether the server already
+      // has data. If both tabs seed before sync, Y.js merges cause duplicates.
+      provider.on("sync", (isSynced: boolean) => {
+        if (isSynced && instance._pendingSeeds && ySegmentsArray.length === 0) {
+          const seeds = instance._pendingSeeds;
+          instance._pendingSeeds = null;
+          doc.transact(() => {
+            seeds.forEach((s) => {
+              const meta = new Y.Map<any>();
+              meta.set("id", s.id);
+              meta.set("startTime", s.startTime);
+              meta.set("endTime", s.endTime);
+              meta.set("speaker", s.speaker);
+              ySegmentsArray.push([meta]);
+              const yText = doc.getText(`content-${s.id}`);
+              if (yText.length === 0) yText.insert(0, s.content ?? "");
+            });
+          });
+        }
+        notifySubscribers();
+      });
+
       ySegmentsArray.observeDeep(() => notifySubscribers());
 
       instance.provider = provider;
@@ -169,6 +197,7 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
       _mountedCount: 0,
       _connectDone: false,
       _disconnectTimer: null,
+      _pendingSeeds: null,
     };
 
     activeProviders.set(meetingId, instance);
@@ -208,25 +237,33 @@ export function useCollab({
 
   const collab = collabRef.current;
 
-  // Seed initial segments from server data (first caller with data wins)
+  // Store initial segments to be seeded AFTER Y.js sync completes.
+  // The actual seeding happens in the provider's "sync" event handler (inside connect())
+  // so we never seed before knowing whether the server already has data.
   useEffect(() => {
     if (!collab || !initialSegments?.length) return;
+    // If array already has data (synced from server), skip entirely
     if (collab.ySegmentsArray.length > 0) return;
-
-    collab.doc.transact(() => {
-      initialSegments.forEach((s) => {
-        const meta = new Y.Map<any>();
-        meta.set("id", s.id);
-        meta.set("startTime", s.startTime);
-        meta.set("endTime", s.endTime);
-        meta.set("speaker", s.speaker);
-        collab.ySegmentsArray.push([meta]);
-
-        const yText = collab.doc.getText(`content-${s.id}`);
-        yText.applyDelta([{ insert: s.content }]);
-      });
-    });
-    collab.buildSegments();
+    // If already synced (e.g. StrictMode second mount), seed immediately if still empty
+    if (collab.provider?.synced) {
+      if (collab.ySegmentsArray.length === 0) {
+        collab.doc.transact(() => {
+          initialSegments.forEach((s) => {
+            const meta = new Y.Map<any>();
+            meta.set("id", s.id);
+            meta.set("startTime", s.startTime);
+            meta.set("endTime", s.endTime);
+            meta.set("speaker", s.speaker);
+            collab.ySegmentsArray.push([meta]);
+            const yText = collab.doc.getText(`content-${s.id}`);
+            if (yText.length === 0) yText.insert(0, s.content ?? "");
+          });
+        });
+      }
+      return;
+    }
+    // Not yet synced — store as pending; sync event handler will apply them
+    collab._pendingSeeds = initialSegments;
   }, [collab, initialSegments]);
 
   // Subscribe to collab state (awareness changes, sync, segment updates)
