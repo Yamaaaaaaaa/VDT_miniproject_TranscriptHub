@@ -419,6 +419,32 @@ export function useCollab({
     }
   }, [collab, meetingId]);
 
+  // Cơ chế tự động lưu khi người dùng hiện tại thực hiện 10 thay đổi bất kỳ
+  useEffect(() => {
+    if (!collab || !meetingId) return;
+
+    let changeCount = 0;
+
+    const handleUpdate = (update: Uint8Array, origin: any) => {
+      // Bỏ qua các update nhận về từ WebSocket (thay đổi của người dùng khác)
+      if (collab.provider && origin === collab.provider) {
+        return;
+      }
+
+      changeCount++;
+      if (changeCount >= 10) {
+        changeCount = 0;
+        console.log("[Collab] Đạt mốc 10 thay đổi nội bộ, tự động lưu phiên bản...");
+        saveSnapshot();
+      }
+    };
+
+    collab.doc.on("update", handleUpdate);
+    return () => {
+      collab.doc.off("update", handleUpdate);
+    };
+  }, [collab, meetingId, saveSnapshot]);
+
   return {
     state,
     segments,

@@ -18,47 +18,10 @@ Hệ thống cộng tác hiệu chỉnh bản dịch hoạt động dựa trên 
 | **Độ phức tạp lập trình** | Cực kỳ phức tạp (phải tự viết bộ giải mã nhị phân, xử lý bất đồng bộ phức tạp). | Đơn giản, tin cậy, tận dụng cơ chế transactional rollback của Yjs. |
 | **Độ ổn định hệ thống** | Rủi ro cao: Chỉ cần 1 gói tin ở giữa chuỗi log bị hỏng sẽ phá hủy toàn bộ lịch sử phía sau. | Độ cô lập cao: Mỗi phiên bản lưu trữ độc lập, hỏng một bản không ảnh hưởng các bản khác. |
 
----
-
-## 2. Sơ đồ Hoạt động & Cơ chế Bảo vệ Grace Period (F5/Reload Protection)
-
-Khi một thành viên chỉnh sửa (`role` là `HOST` hoặc `EDITOR`) rời khỏi phòng, thay vì tạo snapshot lịch sử ngay lập tức, Server sẽ thực hiện bộ đếm trì hoãn **10 giây (Grace Period)**. Cơ chế này giúp ngăn ngừa việc tạo hàng loạt phiên bản trùng lặp (duplication) khi người dùng:
-1. Bấm **F5 (Reload trang)**.
-2. Thiết bị mất Wifi tạm thời và reconnect lại ngay lập tức (Wifi roaming).
-3. Đóng bớt tab trình duyệt (nhưng vẫn còn tab khác đang mở).
-
-### Sơ đồ Trạng thái Đổi kết nối & Chụp Snapshot:
-
-```
-                  ┌─────────────────────────────────────┐
-                  │ User: HOST hoặc EDITOR ngắt kết nối │
-                  └──────────────────┬──────────────────┘
-                                     │ ws.on('close')
-                                     ▼
-                  ┌─────────────────────────────────────┐
-                  │   Kiểm tra: User còn kết nối khác   │
-                  │        trong phòng không?           │
-                  └──────────────────┬──────────────────┘
-                                     │
-                  ┌──────────────────┴──────────────────┐
-         CÓ (Còn tab khác)                     KHÔNG (Đã thoát hẳn)
-                  ▼                                     ▼
-   ┌──────────────────────────────┐      ┌──────────────────────────────┐
-   │ Không làm gì cả (Chỉ đóng WS)│      │  Thiết lập Timeout chờ 10s   │
-   └──────────────────────────────┘      └──────────────┬───────────────┘
-                                                        │
-                                      ┌─────────────────┴─────────────────┐
-                             Kết nối lại trước 10s             Hết 10s chờ đợi
-                                      ▼                                   ▼
-                       ┌──────────────────────────────┐    ┌──────────────────────────────┐
-                       │  Hủy bỏ Timeout (Bỏ qua)    │    │ Chụp Snapshot & ghi mới vào  │
-                       │   (Do F5 hoặc Reconnect)     │    │   bảng TranscriptVersion     │
-                       └──────────────────────────────┘    └──────────────────────────────┘
-```
 
 ---
 
-## 3. Thiết kế Cơ sở Dữ liệu (Prisma Schema)
+## 2. Thiết kế Cơ sở Dữ liệu (Prisma Schema)
 
 Lịch sử phiên bản được lưu trữ trong bảng `TranscriptVersion` thuộc schema `"transcripts"`. Mỗi phiên bản ghi nhận trạng thái toàn vẹn của bản dịch tại mốc thời gian đó, liên kết với tệp bản dịch chính và người tạo ra phiên bản đó.
 
@@ -82,7 +45,7 @@ model TranscriptVersion {
 
 ---
 
-## 4. Đặc tả luồng dữ liệu khi Phục hồi Phiên bản (Version Rollback Flow)
+## 3. Đặc tả luồng dữ liệu khi Phục hồi Phiên bản (Version Rollback Flow)
 
 Khi quản trị viên chọn một phiên bản cũ trong danh sách lịch sử và thực hiện khôi phục (Restore), luồng dữ liệu sẽ được xử lý như sau để đảm bảo tất cả màn hình người dùng đang trực tuyến cập nhật ngay lập tức mà không cần reload trang:
 
@@ -114,7 +77,7 @@ sequenceDiagram
 
 ---
 
-## 5. Danh Sách API Điểm Cuối (REST Endpoints)
+## 4. Danh Sách API Điểm Cuối (REST Endpoints)
 
 Dịch vụ Collab cung cấp các REST API sau để ứng dụng Frontend tương tác với Lịch sử phiên bản:
 
