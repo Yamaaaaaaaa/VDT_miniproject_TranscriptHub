@@ -6,6 +6,7 @@ import {
   Body,
   Req,
   UseGuards,
+  ParseIntPipe,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -39,6 +40,7 @@ export class CollabController {
       dto.meetingId,
       dto.rawText,
       dto.structuredContent,
+      userId,
     );
   }
 
@@ -61,6 +63,14 @@ export class CollabController {
   @ApiResponse({ status: 404, description: 'Meeting not found.' })
   getVersions(@Param('meetingId') meetingId: string, @Req() req: any) {
     return this.collabService.getVersions(meetingId);
+  }
+
+  @Get('versions/:versionId')
+  @ApiOperation({ summary: 'Get details of a transcript version' })
+  @ApiResponse({ status: 200, description: 'Version details.' })
+  @ApiResponse({ status: 404, description: 'Version not found.' })
+  getVersionDetail(@Param('versionId', ParseIntPipe) versionId: number) {
+    return this.collabService.getVersionDetail(versionId);
   }
 
   @Post('restore')

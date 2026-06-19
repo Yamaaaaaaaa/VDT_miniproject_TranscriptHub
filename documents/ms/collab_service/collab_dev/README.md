@@ -554,10 +554,23 @@ TCP Port 3007 (COLLAB_SERVICE_TCP_PORT)
 ```typescript
 @Controller()
 export class CollabController {
-  // API Gateway gửi: this.collabClient.send('save-transcript', { meetingId, rawText, structuredContent })
+  // API Gateway gửi: this.collabClient.send('save-transcript', { meetingId, rawText, structuredContent, userId })
   @MessagePattern('save-transcript')
-  async saveTranscript(@Payload() payload: { meetingId: string; rawText: string; structuredContent: any }) {
-    return this.collabService.saveTranscript(payload.meetingId, payload.rawText, payload.structuredContent);
+  async saveTranscript(
+    @Payload()
+    payload: {
+      meetingId: string;
+      rawText: string;
+      structuredContent: any;
+      userId: number;
+    },
+  ) {
+    return this.collabService.saveTranscript(
+      payload.meetingId,
+      payload.rawText,
+      payload.structuredContent,
+      payload.userId,
+    );
   }
 
   @MessagePattern('get-transcript')
@@ -566,28 +579,82 @@ export class CollabController {
   }
 
   @MessagePattern('create-snapshot')
-  async createSnapshot(@Payload() payload: { meetingId: string; userId: number; versionName: string }) {
-    return this.collabService.createSnapshot(payload.meetingId, payload.userId, payload.versionName);
+  async createSnapshot(
+    @Payload()
+    payload: {
+      meetingId: string;
+      userId: number;
+      versionName: string;
+    },
+  ) {
+    const result = await this.collabService.createSnapshot(
+      payload.meetingId,
+      payload.userId,
+      payload.versionName,
+    );
+    return {
+      versionId: result.id,
+      message: 'Snapshot created successfully',
+    };
   }
 
   @MessagePattern('get-versions')
-  async getVersions(@Payload() payload: { meetingId: string }) { ... }
+  async getVersions(@Payload() payload: { meetingId: string }) {
+    return this.collabService.getVersions(payload.meetingId);
+  }
+
+  @MessagePattern('get-version-detail')
+  async getVersionDetail(@Payload() payload: { versionId: number }) {
+    return this.collabService.getVersionDetail(payload.versionId);
+  }
 
   @MessagePattern('restore-version')
-  async restoreVersion(@Payload() payload: { meetingId: string; versionId: number }) { ... }
+  async restoreVersion(
+    @Payload() payload: { meetingId: string; versionId: number },
+  ) {
+    return this.collabService.restoreVersion(
+      payload.meetingId,
+      payload.versionId,
+    );
+  }
 }
 ```
 
 ### 5.3 `collab.service.ts` — Business logic
 
 ```typescript
-async saveTranscript(meetingId: string, rawText: string, structuredContent: any) {
-  // 1. meetingId (UUID) → audioFileId (UUID) qua Meeting Service (TCP)
+async saveTranscript(
+  meetingId: string,
+  rawText: string,
+  structuredContent: any,
+  userId: number,
+) {
+  // 1. Lấy audioFileId từ meetingId qua Meeting Service (TCP)
   const audioFileId = await this.meetingGateway.getAudioFileId(meetingId);
-  //    Lý do: DB lưu transcript theo audioFileId, không phải meetingId
 
-  // 2. Cập nhật transcript trong PostgreSQL
-  await this.collabRepository.updateTranscript(audioFileId, { rawText, structuredContent });
+  // 2. Cập nhật bảng Transcript chính
+  const updatedTranscript = await this.collabRepository.updateTranscript(audioFileId, {
+    rawText,
+    structuredContent,
+  });
+
+  // 3. Tự động tạo một snapshot lưu lịch sử vào bảng TranscriptVersion
+  const timestampStr = new Date().toLocaleTimeString('vi-VN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }) + ' ' + new Date().toLocaleDateString('vi-VN');
+  const versionName = `Bản lưu - ${timestampStr}`;
+
+  await this.collabRepository.createTranscriptVersion({
+    transcriptId: updatedTranscript.id,
+    versionName,
+    rawText: updatedTranscript.rawText,
+    structuredContent: updatedTranscript.structuredContent,
+    createdById: userId,
+  });
+
+  return updatedTranscript;
 }
 
 async createSnapshot(meetingId: string, userId: number, versionName: string) {
@@ -595,7 +662,7 @@ async createSnapshot(meetingId: string, userId: number, versionName: string) {
   const transcript = await this.collabRepository.findTranscriptByAudioFileId(audioFileId);
   if (!transcript) throw new Error('Transcript not found');
 
-  // Tạo bản snapshot (version) để rollback sau này
+  // Tạo bản snapshot (version) thủ công
   return this.collabRepository.createTranscriptVersion({
     transcriptId: transcript.id,
     versionName,
@@ -892,6 +959,98 @@ const saveSnapshot = useCallback(async () => {
 3.  **Sync & Seed**: Khi bắt tay hoàn tất, sự kiện `sync` được kích hoạt. Nếu Y.Doc trên server trống, thực hiện nạp dữ liệu (`doc.transact`) từ Database. Re-render UI để hiển thị văn bản hoàn chỉnh.
 4.  **Chạy Real-time**: Khi có bất kỳ thay đổi nào từ phía local hoặc nhận từ socket server, YJS gọi subscriber `updateState` $\rightarrow$ React gọi `setState()` $\rightarrow$ re-render UI cập nhật ký tự gõ.
 5.  **Unmount**: Khi người dùng đóng trang, số lượng mount giảm. Bộ đếm trì hoãn 150ms chạy, nếu không mount lại, hệ thống sẽ giải phóng tài nguyên (`provider.destroy()`) và ngắt kết nối WebSocket hoàn toàn.
+
+---
+
+#### 7.1.8 Cơ chế tự động lưu khi đạt 10 thay đổi (Auto-Save on 10 Edits)
+
+Hệ thống cung cấp cơ chế tự động lưu bản dịch mỗi khi người dùng đang thao tác tại client hiện tại thực hiện đủ **10 thay đổi** (gõ/xóa ký tự, hoàn tác, sửa segment,...).
+
+*   **Bộ lọc thay đổi cục bộ**: Lắng nghe sự kiện `doc.on("update", (update, origin) => ...)` trên `Y.Doc`. Gói tin nhận về từ kết nối WebSocket (sự thay đổi của những người dùng khác) sẽ có `origin === collab.provider`. Do đó ta chỉ đếm các thay đổi có `origin !== collab.provider`.
+*   **Kích hoạt lưu**: Mỗi khi biến đếm đạt mốc 10, hệ thống tự động reset biến đếm về 0 và gọi hàm `saveSnapshot()` để đồng bộ hóa bản ghi hiện tại xuống PostgreSQL và ghi nhận một phiên bản lưu trữ mới.
+
+```typescript
+useEffect(() => {
+  if (!collab || !meetingId) return;
+
+  let changeCount = 0;
+  const handleUpdate = (update: Uint8Array, origin: any) => {
+    // Bỏ qua các update nhận về từ WebSocket (thay đổi của người dùng khác)
+    if (collab.provider && origin === collab.provider) return;
+
+    changeCount++;
+    if (changeCount >= 10) {
+      changeCount = 0;
+      console.log("[Collab] Đạt mốc 10 thay đổi nội bộ, tự động lưu phiên bản...");
+      saveSnapshot();
+    }
+  };
+
+  collab.doc.on("update", handleUpdate);
+  return () => {
+    collab.doc.off("update", handleUpdate);
+  };
+}, [collab, meetingId, saveSnapshot]);
+```
+
+---
+
+#### 7.1.9 Lịch sử phiên bản & Phục hồi qua Yjs Transactions (Rollback Flow)
+
+Khi người dùng thực hiện khôi phục (rollback) dữ liệu về một phiên bản lịch sử:
+1.  **Giao tiếp HTTP**: Client gửi yêu cầu khôi phục thông qua API `collabApi.restoreVersion({ meetingId, versionId })`.
+2.  **Khôi phục Database**: Backend cập nhật dữ liệu của phiên bản cũ đè lên bản ghi transcript chính trong cơ sở dữ liệu PostgreSQL.
+3.  **Khôi phục thời gian thực (Y.Doc Sync)**: Để tránh tình trạng dữ liệu DB đã lùi nhưng màn hình của các người dùng khác đang kết nối WebSocket không cập nhật (do Y.Doc memory trên server/client chưa thay đổi), client thực hiện khôi phục phải cập nhật cục bộ Y.Doc trong một transaction:
+    *   Xóa toàn bộ segments cũ trên mảng Yjs: `ySegmentsArray.delete(...)`.
+    *   Tái tạo lại các mảng segment và văn bản Y.Text tương ứng từ dữ liệu của phiên bản được khôi phục.
+    *   Thay đổi này sẽ tự động đóng gói dưới dạng `messageSync` gửi lên Collab Gateway để broadcast và cập nhật tức thời màn hình của tất cả các cộng tác viên khác trong phòng.
+
+```typescript
+const restoreVersion = useCallback(async (versionId: number) => {
+  if (!collab || !meetingId) return false;
+  try {
+    const restored = await collabApi.restoreVersion({ meetingId, versionId });
+    if (restored && restored.structuredContent?.segments) {
+      // Cập nhật Yjs document ở local để đồng bộ tới tất cả client trong phòng
+      collab.doc.transact(() => {
+        // Xóa sạch segments hiện tại
+        collab.ySegmentsArray.delete(0, collab.ySegmentsArray.length);
+
+        // Nạp lại các segment từ dữ liệu khôi phục
+        restored.structuredContent.segments.forEach((s: any) => {
+          const meta = new Y.Map<any>();
+          meta.set("id", s.id);
+          meta.set("startTime", s.startTime);
+          meta.set("endTime", s.endTime);
+          meta.set("speaker", s.speaker);
+          collab.ySegmentsArray.push([meta]);
+
+          const yText = collab.doc.getText(`content-${s.id}`);
+          yText.delete(0, yText.length);
+          yText.insert(0, s.text ?? "");
+        });
+      });
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.error("[Collab] Phục hồi phiên bản thất bại:", err);
+    return false;
+  }
+}, [collab, meetingId]);
+```
+
+---
+
+#### 7.1.10 Tách biệt component giao diện Lịch sử (`TranscriptHistoryModal`)
+
+Nhằm tối ưu hóa hiệu năng render, tránh phình to mã nguồn trang chỉnh sửa chính [page.tsx](file:///d:/VDT_Tucode/VDT_miniproject_TranscriptHub/fe_next/app/%28dashboard%29/transcripts/%5BfileId%5D/edit/page.tsx) (vốn đã dài hơn 600 dòng code), toàn bộ giao diện và logic quản lý modal lịch sử đã được tách thành một component riêng biệt: [TranscriptHistoryModal.tsx](file:///d:/VDT_Tucode/VDT_miniproject_TranscriptHub/fe_next/components/transcript/TranscriptHistoryModal.tsx).
+
+*   **Trách nhiệm của trang cha (`page.tsx`)**: Chỉ lưu trữ duy nhất 1 cờ trạng thái bật/tắt modal `showHistoryModal` và cung cấp các hàm API call từ `useCollab` xuống cho modal.
+*   **Trách nhiệm của Modal Component**:
+    *   Tự quản lý các trạng thái nội bộ: danh sách phiên bản (`versions`), chi tiết phiên bản đang chọn (`selectedVersion`), các trạng thái loading danh sách/chi tiết, và trạng thái hiển thị popup xác nhận khôi phục (`showConfirmRestore`).
+    *   Render giao diện chia làm hai phần (Bên trái: danh sách 10 phiên bản gần nhất kèm thông tin người sửa và thời gian sửa; Bên phải: Panel xem trước nội dung chi tiết từng segment).
+    *   Enforce kiểm tra xác nhận từ phía người dùng (Confirm Popup) trước khi thực thi lùi dữ liệu tránh thao tác nhầm.
 
 ---
 
@@ -1225,6 +1384,31 @@ meetingsApi.list(0, 100, true)
     if (match?.id) setMeetingId(match.id); // Dùng actual UUID
   });
 ```
+
+---
+
+### Bug #9: Lịch sử phiên bản trống sau khi bấm Lưu (Empty Versions List)
+
+**Triệu chứng:** Người dùng thực hiện Lưu thủ công hoặc cơ chế auto-save chạy thành công nhưng khi mở modal Lịch sử phiên bản, danh sách trả về rỗng `[]`.
+
+**Root cause:**
+Hàm `saveTranscript` ở backend chỉ thực hiện câu lệnh Prisma `update` trên thực thể `Transcript` để lưu nội dung mới nhất của tài liệu mà chưa hề gọi `createTranscriptVersion` để lưu vết lịch sử (snapshot). Do đó, bảng `TranscriptVersion` luôn trống.
+
+**Fix:**
+1. Cập nhật chữ ký hàm `saveTranscript` từ API Gateway sang Microservice nhận thêm tham số `userId` (ID của người thực hiện lưu).
+2. Sau khi cập nhật thành công bảng `Transcript` chính, tiến hành chèn thêm một bản ghi mới vào bảng `TranscriptVersion` với tên phiên bản được sinh động (ví dụ: `Bản lưu - 21:55:00 19/06/2026`), lưu lại các thông tin `rawText`, `structuredContent` và `createdById`.
+
+---
+
+### Bug #10: Lỗi Type Check thuộc tính 'getVersionDetail' không tồn tại trên FE client
+
+**Triệu chứng:** Trình biên dịch TypeScript báo lỗi `Property 'getVersionDetail' does not exist on type...` ở frontend hook.
+
+**Root cause:**
+API client wrapper (`collabApi` ở `fe_next/lib/api.ts`) chưa khai báo phương thức `getVersionDetail` và frontend hook chưa export đúng tên hàm dẫn đến việc gọi hàm này bị lỗi type-checking.
+
+**Fix:**
+Khai báo đầy đủ hàm `getVersionDetail` trong `collabApi` để gọi endpoint GET `/api/collab/versions/:versionId` và export đồng bộ trong `useCollab` hook.
 
 ---
 

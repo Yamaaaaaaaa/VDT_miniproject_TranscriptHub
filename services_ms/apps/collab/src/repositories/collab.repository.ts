@@ -38,9 +38,10 @@ export class CollabRepository {
   }
 
   async findTranscriptVersionsByTranscriptId(transcriptId: number) {
-    return this.prisma.transcriptVersion.findMany({
+    const versions = await this.prisma.transcriptVersion.findMany({
       where: { transcriptId },
       orderBy: { createdAt: 'desc' },
+      take: 10,
       select: {
         id: true,
         versionName: true,
@@ -48,5 +49,28 @@ export class CollabRepository {
         createdAt: true,
       },
     });
+
+    const creatorIds = Array.from(
+      new Set(versions.map((v) => v.createdById).filter((id): id is number => id !== null)),
+    );
+
+    const profiles = await this.prisma.userProfile.findMany({
+      where: { id: { in: creatorIds } },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+      },
+    });
+
+    const profileMap = new Map(profiles.map((p) => [p.id, p]));
+
+    return versions.map((v) => ({
+      id: v.id,
+      versionName: v.versionName,
+      createdAt: v.createdAt,
+      createdById: v.createdById,
+      creator: v.createdById ? profileMap.get(v.createdById) || null : null,
+    }));
   }
 }

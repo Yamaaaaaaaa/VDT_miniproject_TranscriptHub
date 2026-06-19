@@ -8,6 +8,7 @@ import { useCollab } from "@/hooks/use-collab";
 import { TranscriptHeader } from "@/components/transcript/TranscriptHeader";
 import { TranscriptMiniPlayer } from "@/components/transcript/TranscriptMiniPlayer";
 import { TranscriptSegmentItem } from "@/components/transcript/TranscriptSegmentItem";
+import { TranscriptHistoryModal } from "@/components/transcript/TranscriptHistoryModal";
 import { TranscriptSegment } from "@/types/transcript";
 import { meetingsApi } from "@/lib/api";
 import {
@@ -21,6 +22,7 @@ import {
   Wifi,
   WifiOff,
   ShieldAlert,
+  Clock,
 } from "lucide-react";
 
 export default function TranscriptEditPage() {
@@ -95,6 +97,9 @@ export default function TranscriptEditPage() {
     segments: collabSegments,
     getYText,
     saveSnapshot,
+    getVersions,
+    getVersionDetail,
+    restoreVersion,
   } = useCollab({
     meetingId,
     meetingRole,
@@ -109,6 +114,9 @@ export default function TranscriptEditPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const segmentRefs = useRef<(HTMLDivElement | null)[]>([]);
   const isUserSeekingRef = useRef(false);
+
+  // State quản lý lịch sử phiên bản
+  const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
 
   // Seed local edits from transcript (only when collab hasn't synced yet)
   useEffect(() => {
@@ -338,6 +346,14 @@ export default function TranscriptEditPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowHistoryModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold text-slate-600 bg-white border border-slate-200 hover:border-slate-300 rounded-xl transition-all cursor-pointer shadow-sm"
+            title="Lịch sử phiên bản"
+          >
+            <Clock size={11} className="text-slate-500" />
+            <span>Lịch sử</span>
+          </button>
           {hasChanges && (
             <button
               onClick={handleReset}
@@ -432,6 +448,18 @@ export default function TranscriptEditPage() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Lịch sử phiên bản Modal */}
+      {showHistoryModal && (
+        <TranscriptHistoryModal
+          isOpen={showHistoryModal}
+          onClose={() => setShowHistoryModal(false)}
+          getVersions={getVersions}
+          getVersionDetail={getVersionDetail}
+          restoreVersion={restoreVersion}
+          formatDuration={formatDuration}
+        />
       )}
     </div>
   );

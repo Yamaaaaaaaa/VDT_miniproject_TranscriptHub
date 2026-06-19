@@ -18,12 +18,14 @@ export class CollabService {
     meetingId: string,
     rawText: string,
     structuredContent: any,
+    userId: number,
   ) {
     return lastValueFrom(
       this.collabClient.send('save-transcript', {
         meetingId,
         rawText,
         structuredContent,
+        userId,
       }),
     );
   }
@@ -41,6 +43,12 @@ export class CollabService {
   async getVersions(meetingId: string) {
     return lastValueFrom(
       this.collabClient.send('get-versions', { meetingId }),
+    );
+  }
+
+  async getVersionDetail(versionId: number) {
+    return lastValueFrom(
+      this.collabClient.send('get-version-detail', { versionId }),
     );
   }
 

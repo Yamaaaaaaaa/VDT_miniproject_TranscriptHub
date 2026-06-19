@@ -445,11 +445,66 @@ export function useCollab({
     };
   }, [collab, meetingId, saveSnapshot]);
 
+  const getVersions = useCallback(async () => {
+    if (!meetingId) return [];
+    try {
+      return await collabApi.getVersions(meetingId);
+    } catch (err) {
+      console.error("[Collab] Lấy danh sách phiên bản thất bại:", err);
+      return [];
+    }
+  }, [meetingId]);
+
+  const getVersionDetail = useCallback(async (versionId: number) => {
+    try {
+      return await collabApi.getVersionDetail(versionId);
+    } catch (err) {
+      console.error(`[Collab] Lấy chi tiết phiên bản ${versionId} thất bại:`, err);
+      return null;
+    }
+  }, []);
+
+  const restoreVersion = useCallback(async (versionId: number) => {
+    if (!collab || !meetingId) return false;
+    try {
+      const restored = await collabApi.restoreVersion({ meetingId, versionId });
+      if (restored && restored.structuredContent?.segments) {
+        // Cập nhật Yjs document ở local để đồng bộ tới tất cả client trong phòng
+        collab.doc.transact(() => {
+          // Xóa sạch segments hiện tại
+          collab.ySegmentsArray.delete(0, collab.ySegmentsArray.length);
+
+          // Nạp lại các segment từ dữ liệu khôi phục
+          restored.structuredContent.segments.forEach((s: any) => {
+            const meta = new Y.Map<any>();
+            meta.set("id", s.id);
+            meta.set("startTime", s.startTime);
+            meta.set("endTime", s.endTime);
+            meta.set("speaker", s.speaker);
+            collab.ySegmentsArray.push([meta]);
+
+            const yText = collab.doc.getText(`content-${s.id}`);
+            yText.delete(0, yText.length);
+            yText.insert(0, s.text ?? "");
+          });
+        });
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error("[Collab] Phục hồi phiên bản thất bại:", err);
+      return false;
+    }
+  }, [collab, meetingId]);
+
   return {
     state,
     segments,
     getYText,
     addSegment,
     saveSnapshot,
+    getVersions,
+    getVersionDetail,
+    restoreVersion,
   };
 }

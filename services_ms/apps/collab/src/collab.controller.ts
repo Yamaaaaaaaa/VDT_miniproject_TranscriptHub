@@ -14,12 +14,18 @@ export class CollabController {
   @MessagePattern('save-transcript')
   async saveTranscript(
     @Payload()
-    payload: { meetingId: string; rawText: string; structuredContent: any },
+    payload: {
+      meetingId: string;
+      rawText: string;
+      structuredContent: any;
+      userId: number;
+    },
   ) {
     return this.collabService.saveTranscript(
       payload.meetingId,
       payload.rawText,
       payload.structuredContent,
+      payload.userId,
     );
   }
 
@@ -46,6 +52,11 @@ export class CollabController {
   @MessagePattern('get-versions')
   async getVersions(@Payload() payload: { meetingId: string }) {
     return this.collabService.getVersions(payload.meetingId);
+  }
+
+  @MessagePattern('get-version-detail')
+  async getVersionDetail(@Payload() payload: { versionId: number }) {
+    return this.collabService.getVersionDetail(payload.versionId);
   }
 
   @MessagePattern('restore-version')

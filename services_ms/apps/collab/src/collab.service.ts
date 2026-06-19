@@ -32,13 +32,31 @@ export class CollabService {
     meetingId: string,
     rawText: string,
     structuredContent: any,
+    userId: number,
   ) {
     const audioFileId = await this.meetingGateway.getAudioFileId(meetingId);
 
-    return this.collabRepository.updateTranscript(audioFileId, {
+    const updatedTranscript = await this.collabRepository.updateTranscript(audioFileId, {
       rawText,
       structuredContent,
     });
+
+    const timestampStr = new Date().toLocaleTimeString('vi-VN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }) + ' ' + new Date().toLocaleDateString('vi-VN');
+    const versionName = `Bản lưu - ${timestampStr}`;
+
+    await this.collabRepository.createTranscriptVersion({
+      transcriptId: updatedTranscript.id,
+      versionName,
+      rawText: updatedTranscript.rawText,
+      structuredContent: updatedTranscript.structuredContent,
+      createdById: userId,
+    });
+
+    return updatedTranscript;
   }
 
   async createSnapshot(
@@ -77,6 +95,17 @@ export class CollabService {
     return await this.collabRepository.findTranscriptVersionsByTranscriptId(
       transcript.id,
     );
+  }
+
+  async getVersionDetail(versionId: number) {
+    const version =
+      await this.collabRepository.findTranscriptVersionById(versionId);
+
+    if (!version) {
+      throw new Error('Version not found');
+    }
+
+    return version;
   }
 
   async restoreVersion(meetingId: string, versionId: number) {

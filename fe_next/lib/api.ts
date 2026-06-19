@@ -117,6 +117,18 @@ export const collabApi = {
     /** Save/auto-save the current collab transcript state via API Gateway */
     saveTranscript: (data: { meetingId: string; rawText: string; structuredContent: any }) =>
         api.post("/collab/transcript", data).then((res) => res.data.result ?? res.data),
+
+    /** Get the 10 most recent versions of the transcript */
+    getVersions: (meetingId: string) =>
+        api.get(`/collab/${meetingId}/versions`).then((res) => res.data.result ?? res.data),
+
+    /** Get details of a specific version */
+    getVersionDetail: (versionId: number) =>
+        api.get(`/collab/versions/${versionId}`).then((res) => res.data.result ?? res.data),
+
+    /** Restore the transcript to a specific version */
+    restoreVersion: (data: { meetingId: string; versionId: number }) =>
+        api.post("/collab/restore", data).then((res) => res.data.result ?? res.data),
 };
 
 export default api;
