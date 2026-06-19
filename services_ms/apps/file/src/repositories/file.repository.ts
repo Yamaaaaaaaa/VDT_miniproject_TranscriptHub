@@ -55,6 +55,18 @@ export class FileRepository {
     });
   }
 
+  async findMany(skip: number, take: number) {
+    return this.prisma.audioFile.findMany({
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take,
+    });
+  }
+
+  async count() {
+    return this.prisma.audioFile.count();
+  }
+
   async deleteTranscriptsByFileId(audioFileId: string) {
     return this.prisma.transcript.deleteMany({
       where: { audioFileId },

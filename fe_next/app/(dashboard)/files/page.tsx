@@ -596,22 +596,26 @@ export default function FileManagementPage() {
                             </td>
                             <td className="py-3.5 text-slate-400">{formatDate(file.createdAt)}</td>
                             <td className="py-3.5 pr-2 text-right">
-                              <div className="flex items-center justify-end gap-1.5 transition-all">
-                                <button
-                                  onClick={() => openRenameModal(file)}
-                                  className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-700 rounded-lg transition-all cursor-pointer"
-                                  title="Đổi tên"
-                                >
-                                  <Edit2 size={14} />
-                                </button>
-                                <button
-                                  onClick={() => handleDelete(file.id)}
-                                  className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-all cursor-pointer"
-                                  title="Xóa tệp"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </div>
+                              {(user?.role === "ADMIN" || Number(file.uploaderId) === Number(user?.id)) ? (
+                                <div className="flex items-center justify-end gap-1.5 transition-all">
+                                  <button
+                                    onClick={() => openRenameModal(file)}
+                                    className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-700 rounded-lg transition-all cursor-pointer"
+                                    title="Đổi tên"
+                                  >
+                                    <Edit2 size={14} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDelete(file.id)}
+                                    className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-all cursor-pointer"
+                                    title="Xóa tệp"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 italic font-medium pr-2">Đọc dữ liệu</span>
+                              )}
                             </td>
                           </tr>
                         );
