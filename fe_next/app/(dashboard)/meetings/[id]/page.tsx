@@ -4,6 +4,7 @@ import React, { useState, useEffect, use, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { meetingsApi, usersApi, filesApi } from '@/lib/api';
+import { useAuth } from '@/hooks/use-auth';
 import { 
   Video, 
   ArrowLeft, 
@@ -15,7 +16,9 @@ import {
   Crown, 
   ExternalLink, 
   X, 
-  Save 
+  Save,
+  Eye,
+  Edit2 
 } from 'lucide-react';
 
 interface MeetingResponse {
@@ -59,6 +62,7 @@ interface MeetingDetailInnerProps {
 
 function MeetingDetailInner({ id }: MeetingDetailInnerProps) {
   const router = useRouter();
+  const { user } = useAuth();
 
   // Loading & states
   const [meeting, setMeeting] = useState<MeetingResponse | null>(null);
@@ -285,6 +289,13 @@ function MeetingDetailInner({ id }: MeetingDetailInnerProps) {
     return parseFloat((numBytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  const currentUserId = parseInt(user?.id ?? "0", 10);
+  const currentMember = members.find(m => m.userId === currentUserId);
+  const userMeetingRole = currentMember?.role || (meeting?.creatorId === currentUserId ? 'HOST' : undefined);
+
+  const isMember = !!userMeetingRole;
+  const canEdit = userMeetingRole === 'HOST' || userMeetingRole === 'EDITOR';
+
   return (
     <div className="space-y-6 pb-20 animate-fade-in">
       
@@ -446,14 +457,48 @@ function MeetingDetailInner({ id }: MeetingDetailInnerProps) {
                   </span>
                 </div>
 
-                {meeting?.audioFileId && meeting?.status === 'COMPLETED' && (
-                  <Link 
-                    href={`/transcripts/${meeting.audioFileId}`}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-red-50 hover:bg-red-500 hover:text-white border border-red-100 text-red-500 text-[10px] font-bold rounded-xl transition-all whitespace-nowrap"
-                  >
-                    <ExternalLink size={12} />
-                    <span>Xem Script</span>
-                  </Link>
+                {meeting?.audioFileId && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    {/* Nút Xem */}
+                    {isMember ? (
+                      <Link 
+                        href={`/transcripts/${meeting.audioFileId}/view`}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer"
+                      >
+                        <Eye size={12} />
+                        <span>Xem</span>
+                      </Link>
+                    ) : (
+                      <button 
+                        disabled
+                        className="flex items-center gap-1 px-3 py-1.5 bg-slate-50 text-slate-400 border border-slate-100 text-[10px] font-bold rounded-xl cursor-not-allowed opacity-55 whitespace-nowrap"
+                        title="Bạn không phải là thành viên cuộc họp"
+                      >
+                        <Eye size={12} />
+                        <span>Xem</span>
+                      </button>
+                    )}
+
+                    {/* Nút Chỉnh sửa */}
+                    {canEdit ? (
+                      <Link 
+                        href={`/transcripts/${meeting.audioFileId}/edit`}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-[10px] font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer shadow-sm shadow-red-500/10"
+                      >
+                        <Edit2 size={12} />
+                        <span>Chỉnh sửa</span>
+                      </Link>
+                    ) : (
+                      <button 
+                        disabled
+                        className="flex items-center gap-1 px-3 py-1.5 bg-slate-200 text-slate-400 text-[10px] font-bold rounded-xl cursor-not-allowed opacity-55 whitespace-nowrap"
+                        title="Bạn không có quyền chỉnh sửa (Yêu cầu vai trò Host/Editor)"
+                      >
+                        <Edit2 size={12} />
+                        <span>Chỉnh sửa</span>
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
 

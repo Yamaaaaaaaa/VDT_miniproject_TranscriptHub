@@ -366,50 +366,6 @@ export default function FileManagementPage() {
 
   return (
     <div className="space-y-8 pb-32">
-      {/* 3 Widgets Thống kê */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Widget 1 */}
-        <div className="bg-white border border-slate-100 rounded-3xl p-6 flex items-center gap-4 shadow-sm shadow-slate-100/50 hover:shadow-md transition-all">
-          <div className="p-3.5 bg-red-50 text-red-500 rounded-2xl shrink-0">
-            <HardDrive size={24} />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tổng số tệp</p>
-            <h3 className="text-2xl font-black text-slate-800 mt-1">{totalFilesCount} tệp</h3>
-            <span className="inline-flex items-center text-[10px] font-bold text-green-500 bg-green-50 px-1.5 py-0.5 rounded-md mt-1">
-              Active Storage
-            </span>
-          </div>
-        </div>
-
-        {/* Widget 2 */}
-        <div className="bg-white border border-slate-100 rounded-3xl p-6 flex items-center gap-4 shadow-sm shadow-slate-100/50 hover:shadow-md transition-all">
-          <div className="p-3.5 bg-indigo-50 text-indigo-500 rounded-2xl shrink-0">
-            <Music size={24} />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Dung lượng sử dụng</p>
-            <h3 className="text-2xl font-black text-slate-800 mt-1">{formatBytes(totalStorageSize)}</h3>
-            <span className="inline-flex items-center text-[10px] font-bold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded-md mt-1">
-              MinIO Bucket
-            </span>
-          </div>
-        </div>
-
-        {/* Widget 3 */}
-        <div className="bg-white border border-slate-100 rounded-3xl p-6 flex items-center gap-4 shadow-sm shadow-slate-100/50 hover:shadow-md transition-all">
-          <div className="p-3.5 bg-blue-50 text-blue-500 rounded-2xl shrink-0">
-            <Clock size={24} />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tổng thời lượng</p>
-            <h3 className="text-2xl font-black text-slate-800 mt-1">{formatDuration(totalDurationTime)}</h3>
-            <span className="inline-flex items-center text-[10px] font-bold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded-md mt-1">
-              Đã trích xuất
-            </span>
-          </div>
-        </div>
-      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Vùng Drag Drop Upload (Cột trái) */}
