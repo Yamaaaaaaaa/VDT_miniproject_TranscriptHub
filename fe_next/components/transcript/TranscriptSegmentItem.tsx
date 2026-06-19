@@ -43,7 +43,11 @@ export function TranscriptSegmentItem({
   const handleContainerClick = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (mode === "edit" && target.tagName !== "TEXTAREA") {
+      if (
+        mode === "edit" &&
+        !target.closest(".quill-editor-wrapper") &&
+        target.tagName !== "TEXTAREA"
+      ) {
         if (onSegmentClick) {
           onSegmentClick(segment.startTime);
         }

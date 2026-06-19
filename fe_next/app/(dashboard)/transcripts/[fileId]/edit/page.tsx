@@ -160,7 +160,9 @@ export default function TranscriptEditPage() {
     updateActiveSegment();
   }, [updateActiveSegment]);
 
-  // Scroll active segment into view
+  // Scroll active segment into view is disabled for the Edit page as requested.
+  // We only show which segment is active/highlighted, but do not force scroll the page.
+  /*
   useEffect(() => {
     if (activeSegmentIndex === null || !segmentRefs.current[activeSegmentIndex]) return;
     segmentRefs.current[activeSegmentIndex]?.scrollIntoView({
@@ -168,6 +170,7 @@ export default function TranscriptEditPage() {
       block: "center",
     });
   }, [activeSegmentIndex]);
+  */
 
   const handleSegmentClick = useCallback(
     (startTime: number) => {

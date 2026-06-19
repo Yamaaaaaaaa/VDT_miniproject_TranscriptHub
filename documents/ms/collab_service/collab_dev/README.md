@@ -80,6 +80,44 @@ Hệ thống chỉnh sửa cộng tác của TranscriptHub được xây dựng 
 | **Collab Microservice** | NestJS, Prisma, TCP | Lưu/lấy transcript; snapshot versioning |
 | **API Gateway** | NestJS, HTTP | Bridge FE → Collab Microservice (qua TCP) |
 | **Frontend** | Next.js, `y-websocket`, `y-quill` | UI editing với Y.js binding |
+### Tại sao tách rời Collab Gateway thành Standalone thay vì tích hợp vào NestJS Monorepo?
+
+Việc tách rời **Collab Gateway** (WebSocket Server chạy Node.js thuần + `ws`) thành một dịch vụ độc lập ngoài monorepo của các service NestJS chính mang lại nhiều lợi thế kỹ thuật quan trọng:
+
+1. **Quản lý trạng thái và Bộ nhớ (Stateful vs Stateless)**:
+   - Các dịch vụ trong monorepo NestJS (`api-gateway`, `meeting`, v.v.) được thiết kế theo dạng **stateless** để dễ dàng scale-out theo chiều ngang.
+   - Ngược lại, **Collab Gateway** là một dịch vụ cực kỳ **stateful**. Nó duy trì các kết nối WebSocket liên tục (persistent connections) và lưu giữ toàn bộ dữ liệu tài liệu cộng tác (`Y.Doc` state vector + history) trong bộ nhớ RAM cho mỗi phòng (room). Việc gom chung một dịch vụ stateful nặng bộ nhớ vào chung cụm microservice stateless sẽ gây khó khăn lớn cho việc điều phối tải và co giãn tài nguyên độc lập.
+
+2. **Tối ưu hóa hiệu năng và Băng thông nhị phân (Binary Protocol)**:
+   - Thư viện `y-websocket` giao tiếp bằng cách truyền các luồng đệm nhị phân (`Uint8Array` chứa sync/awareness updates).
+   - NestJS WebSocket Gateway (`@nestjs/websockets` sử dụng Socket.io hoặc ws adapter) áp dụng thêm các lớp bọc giao thức (wrapper layers), cơ chế serialization JSON mặc định và quản lý vòng đời Class phức tạp. Sử dụng một Node.js script thuần với thư viện `ws` giúp giảm thiểu tối đa overhead CPU, xử lý trực tiếp binary buffer cực nhanh và tối ưu hóa băng thông cho hàng vạn kết nối đồng thời.
+
+3. **Cô lập lỗi (Fault Isolation) & Garbage Collection**:
+   - Y.js quản lý cộng tác thời gian thực bằng cách liên tục đồng bộ hóa và dọn dẹp các bản cập nhật trạng thái trong bộ nhớ. Quá trình này đòi hỏi Garbage Collection (GC) của V8 engine hoạt động tích cực.
+   - Nếu xảy ra sự cố rò rỉ bộ nhớ (memory leak) do kết nối treo hoặc quá tải phòng sửa đổi, chỉ duy nhất tiến trình độc lập của **Collab Gateway** bị ảnh hưởng (hoặc restart). Các service cốt lõi của NestJS như Auth, Meeting, Transcript lưu trữ vẫn hoạt động bình thường, không gây sập diện rộng.
+
+4. **Đặc thù về Cân bằng tải (Load Balancing & Sticky Sessions)**:
+   - Khi scale-out hệ thống cộng tác thời gian thực, các client trong cùng một phòng bắt buộc phải kết nối tới cùng một instance chứa dữ liệu `Y.Doc` in-memory đó (hoặc sử dụng pub/sub như Redis).
+   - Việc tách riêng giúp cấu hình điều hướng Ingress (như Nginx, Kong) dễ dàng route trực tiếp traffic `/collab/*` sang cụm Collab Gateway độc lập với các quy tắc định tuyến WebSocket chuyên biệt.
+### Tại sao không khai báo y-websocket (dùng raw ws) dưới dạng một service NestJS trong Monorepo?
+
+Ngay cả khi không dùng `@nestjs/websockets` mà chỉ khởi tạo `ws` thuần túy, việc dựng một ứng dụng NestJS làm vỏ bọc (wrapper) cho **Collab Gateway** trong monorepo vẫn bộc lộ nhiều điểm hạn chế so với Node.js script độc lập:
+
+1. **Overhead khởi tạo của NestJS (Bootstrap Memory & CPU)**:
+   - Một ứng dụng NestJS khi khởi chạy bắt buộc phải tải IoC Container, quét toàn bộ decorators, phản chiếu metadata (`reflect-metadata`), khởi tạo Dependency Injection và cấu hình vòng đời module.
+   - Quá trình này tiêu tốn từ **40MB - 70MB RAM ban đầu** ngay cả khi chưa nhận bất kỳ kết nối nào. Ngược lại, một Node.js script thuần chỉ cần dưới **10MB RAM** để khởi chạy. Phần tài nguyên RAM tiết kiệm được này có thể phục vụ để lưu trữ thêm hàng trăm thực thể `Y.Doc` in-memory cho các phòng họp trực tuyến.
+
+2. **Kiến trúc NestJS không đem lại giá trị cho Relay Node**:
+   - NestJS được thiết kế cực kỳ mạnh mẽ để quản lý các REST API phức tạp, DTO validation, route handlers, interceptors, và database repositories.
+   - Tuy nhiên, **Collab Gateway** thực chất chỉ đóng vai trò là một **Relay Node** trung chuyển nhị phân. Nó không lưu database trực tiếp (ủy thác hoàn toàn việc lưu trữ transcript và snapshots cho **Collab Microservice** qua giao thức TCP), không cần validation DTO, cũng không cần route controllers. Việc bọc nó bằng NestJS sẽ làm phức tạp hóa mã nguồn một cách không cần thiết (over-engineering).
+
+3. **Nguy cơ nghẽn Event Loop (Low Latency)**:
+   - Do Node.js là đơn luồng (single-threaded), mọi thao tác xử lý logic đồng bộ của NestJS framework (quản lý middleware, validation, exception filters...) đều chia sẻ chung Event Loop.
+   - Đối với việc truyền tải real-time nhịp độ cao như di chuột (awareness cursor) hay gõ phím liên tục, các tác vụ trung gian của NestJS có thể làm tăng độ trễ (latency) của gói tin nhị phân và tăng nguy cơ nghẽn Event Loop khi có hàng ngàn client cùng chỉnh sửa.
+
+4. **Cô lập Dependency và Khả năng bảo trì**:
+   - Thư viện Y.js và hệ sinh thái CRDT cập nhật rất nhanh. Khi tách riêng thành Node.js thuần, chúng ta hoàn toàn chủ động nâng cấp các package Y.js mà không lo ngại xung đột phiên bản TypeScript, webpack/vite/nest-cli builder của dự án chính.
+   - Đặc biệt, trong tương lai nếu muốn tối ưu hóa hiệu năng cực hạn, ta có thể dễ dàng viết lại hoàn toàn **Collab Gateway** bằng **Go** hoặc **Rust** (sử dụng thư viện `y-crdt` / Rust `yjs`) và thay thế trực tiếp mà không ảnh hưởng gì tới cấu trúc monorepo NestJS của backend.
 
 ---
 
@@ -143,51 +181,179 @@ Message Type 1 = messageAwareness
 ### 3.1 Khi user mở trang edit lần đầu
 
 ```
-1. FE load transcript data (API Gateway → Transcript Service)
-2. FE load meetings list → tìm meetingId thực từ audioFileId
+1. FE load dữ liệu bản dịch và metadata tệp âm thanh song song:
+   ├── api.get("/transcripts/file/{fileId}") (API Gateway → Transcript Service)
+   └── api.get("/files/{fileId}") (API Gateway → File Service)
+2. FE giải quyết meetingId (UUID) và vai trò (role) từ audioFileId:
+   └── meetingsApi.getByAudioFile(fileId) (API Gateway → Meeting Service)
+       └── Trả về UUID thực của meetingId và meetingRole (HOST/EDITOR/VIEWER) của user trong meeting này.
 3. useCollab hook: getOrCreateCollab(meetingId)
-   └── Tạo Y.Doc mới trong memory
+   └── Nếu chưa tồn tại trong Registry (Map `activeProviders` dùng để lưu trữ Singleton kết nối ở Client), tạo Y.Doc và ySegmentsArray (Y.Array) mới trong memory.
 4. WebsocketProvider kết nối: ws://collab-gateway:3008/{meetingId}?token=JWT
-5. Server xác thực JWT → lấy userId
-6. Server lấy role từ Identity Service (hoặc Redis cache)
-7. Server gửi Sync Step 1 → Client phản hồi Sync Step 2
-   └── Y.Doc đồng bộ toàn bộ state hiện có từ server
-8. Provider fires "sync" event (synced=true)
-9. useCollab: nếu ySegmentsArray vẫn rỗng → seed initial segments
-   └── Mỗi segment: push Y.Map metadata + insert Y.Text content
-10. QuillEditor mount → bind Quill instance với Y.Text
-11. User thấy nội dung transcript, sẵn sàng chỉnh sửa
+5. Server xác thực JWT → lấy userId và thông tin tài khoản.
+6. Server kiểm tra role của user trong meeting từ Identity Service (có lưu cache Redis 5 phút):
+   └── Nếu role là "VIEWER", đặt cờ conn.isReadOnly = true để chặn mọi gói tin update từ client này.
+7. Bắt đầu bắt tay đồng bộ dữ liệu (Sync Handshake):
+   ├── Server gửi Sync Step 1 (State Vector của server) cho Client.
+   ├── Client nhận, tính toán phần dữ liệu thiếu và gửi Sync Step 2 (Update) cho Server.
+   ├── Server nhận, áp dụng Update vào Y.Doc của mình và gửi trả Sync Step 2 của Client.
+   └── Hai bên hoàn tất đồng bộ hóa trạng thái Y.Doc.
+8. Provider kích hoạt sự kiện "sync" trên Client (synced=true).
+9. useCollab:
+   ├── Khởi tạo trạng thái Presence của user hiện tại (ID, Tên, Màu sắc) lên awareness.
+   └── Nếu ySegmentsArray trên Y.Doc trống (chưa có ai chỉnh sửa trước đó), tiến hành seed dữ liệu ban đầu từ database (transcript.segments).
+10. QuillEditor mount → bind từng đoạn Quill Editor tương ứng với Y.Text ("content-{segmentId}").
+11. User nhìn thấy nội dung hoàn chỉnh và danh sách những người đang online kèm con trỏ chuột thời gian thực.
 ```
 
-### 3.2 Khi user gõ chữ
+```mermaid
+sequenceDiagram
+    autonumber
+    participant FE as Frontend (Browser)
+    participant APIGW as API Gateway
+    participant TS as Transcript Service
+    participant FS as File Service
+    participant MS as Meeting Service
+    participant CGW as Collab Gateway (WS)
+    participant ID as Identity Service / Redis
+
+    Note over FE: User mở trang Edit
+    rect rgb(240, 248, 255)
+        Note over FE, FS: Load Transcript & Audio Metadata (Song song)
+        FE->>APIGW: GET /api/transcripts/file/{fileId}
+        APIGW->>TS: TCP: get-transcript-by-file
+        TS-->>APIGW: Dữ liệu bản dịch (Transcript)
+        APIGW-->>FE: HTTP 200 (Transcript)
+
+        FE->>APIGW: GET /api/files/{fileId}
+        APIGW->>FS: TCP: get-file-metadata
+        FS-->>APIGW: Metadata của file
+        APIGW-->>FE: HTTP 200 (File Meta)
+    end
+
+    Note over FE, MS: Giải quyết meetingId thực và user role
+    FE->>APIGW: GET /api/meetings/by-file/{fileId}
+    APIGW->>MS: TCP: get_meeting_by_audio_file
+    MS-->>APIGW: meetingId & role (HOST/EDITOR/VIEWER)
+    APIGW-->>FE: HTTP 200 (Meeting + Role)
+
+    Note over FE, CGW: Kết nối WebSocket Gateway
+    FE->>CGW: Kết nối ws://collab-gateway:3008/{meetingId}?token=JWT
+    CGW->>ID: Xác thực JWT & Truy vấn Role
+    ID-->>CGW: user details & meetingRole
+    alt vai trò là VIEWER
+        Note over CGW: Đặt conn.isReadOnly = true
+    end
+
+    Note over FE, CGW: Bắt tay đồng bộ (y-websocket Protocol)
+    CGW->>FE: Sync Step 1 (Server State Vector)
+    FE->>CGW: Sync Step 2 (Missing Updates payload)
+    CGW->>FE: Sync Step 2 (Server updates)
+    FE-->>FE: Kích hoạt sự kiện "sync" (synced = true)
+
+    alt ySegmentsArray trống (Lần đầu khởi tạo room)
+        Note over FE: Seed initial segments vào Y.Doc
+        FE->>CGW: Gửi seeded segments (Sync update)
+    end
+
+    Note over FE: QuillEditor mount và bind vào Y.Text
+```
+
+### 3.2 Khi user gõ chữ hoặc di chuyển con trỏ chuột
 
 ```
-1. User gõ trong Quill editor
-2. QuillBinding (y-quill) chuyển Quill delta → Y.Text operation
-3. Y.Doc cập nhật Y.Text ("content-{id}")
-4. WebsocketProvider tự động gửi Y.Doc update:
-   [type=0][sync update payload]  →  Collab Gateway WebSocket
-5. Collab Gateway nhận message, gọi handleMessage():
-   - readSyncMessage() → Y.applyUpdate() → doc local update
-   - Broadcast đến tất cả connections khác (trừ người gửi)
-6. Clients khác nhận update:
-   - Y.applyUpdate() → Y.Text thay đổi
-   - QuillBinding phát hiện → cập nhật Quill display
-   - User khác thấy text thay đổi real-time
+1. User tương tác trên màn hình:
+   ├── User gõ chữ: Quill phát sự kiện → QuillBinding chuyển đổi Quill Delta thành Y.Text operation.
+   └── User di chuột/chọn văn bản: awareness.setLocalState() cập nhật cursor.
+2. Y.Doc cập nhật trạng thái local.
+3. WebsocketProvider tự động đóng gói sự kiện:
+   ├── Với thay đổi văn bản: [type=0 (messageSync)][payload binary update]
+   └── Với di chuột/presence: [type=1 (messageAwareness)][payload binary update]
+4. Gửi qua kết nối WebSocket tới Collab Gateway.
+5. Collab Gateway nhận gói tin nhị phân và kiểm tra:
+   ├── Nếu connection có isReadOnly === true (VIEWER): Bỏ qua gói tin, không áp dụng (bảo vệ phía backend).
+   └── Nếu hợp lệ:
+       ├── Với sync update: readSyncMessage() áp dụng vào server Y.Doc và broadcast update tới các clients khác trong phòng.
+       └── Với awareness update: applyAwarenessUpdate() cập nhật danh sách người dùng và broadcast tới các clients khác.
+6. Các Client khác nhận gói tin cập nhật:
+   ├── Y.Doc áp dụng update → y-quill phát hiện và hiển thị thay đổi văn bản thời gian thực.
+   └── Awareness áp dụng update → hiển thị danh sách người dùng online và vị trí con trỏ chuột động của người khác.
 ```
 
-### 3.3 Khi user bấm "Lưu"
+```mermaid
+sequenceDiagram
+    autonumber
+    actor UserA as User A (Editor)
+    participant FE_A as FE (User A)
+    participant CGW as Collab Gateway
+    participant FE_B as FE (User B)
+    actor UserB as User B (Viewer)
+
+    Note over UserA, FE_A: User A chỉnh sửa văn bản hoặc di chuột
+    alt User A gõ chữ
+        FE_A-->>FE_A: Quill Change -> Y.Text operation
+        FE_A->>CGW: WS: messageSync (type 0) [update payload]
+    else User A di chuyển cursor / chọn text
+        FE_A-->>FE_A: Cập nhật local presence state
+        FE_A->>CGW: WS: messageAwareness (type 1) [awareness update]
+    end
+
+    Note over CGW: Xử lý payload nhị phân nhận được
+    alt Kết nối của sender là isReadOnly === true (VIEWER)
+        Note over CGW: Bỏ qua và hủy bỏ tin nhắn (Security Block)
+    else Kết nối Editor hợp lệ
+        CGW-->>CGW: Áp dụng update vào server Y.Doc / awareness
+        CGW->>FE_B: WS broadcast: messageSync/Awareness (trừ sender A)
+    end
+
+    Note over FE_B, UserB: FE B nhận gói tin và hiển thị
+    FE_B-->>FE_B: Y.applyUpdate()
+    FE_B-->>FE_B: y-quill cập nhật hiển thị Quill
+    FE_B-->>FE_B: Cập nhật danh sách online & con trỏ chuột người khác
+    UserB-->>UserB: Nhìn thấy thay đổi real-time ✅
+```
+
+### 3.3 Khi user bấm "Lưu" (Save Snapshot)
 
 ```
-1. FE gọi saveSnapshot() từ useCollab
-2. collabApi.saveTranscript(meetingId, rawText, structuredContent)
-3. Next.js proxy: /api/collab/transcript → API Gateway :3000/api/v1/collab/transcript
-4. API Gateway: JwtIdentityGuard → CollabController.saveTranscript()
-5. CollabService.saveTranscript(meetingId):
-   a. meetingGateway.getAudioFileId(meetingId) → TCP → Meeting Service
-   b. collabRepository.updateTranscript(audioFileId, {...})
-   c. prisma.transcript.update(...)
-6. Database cập nhật transcript.rawText + transcript.structuredContent
+1. FE gọi hàm saveSnapshot() từ useCollab hook.
+2. hook đọc toàn bộ ySegmentsArray, trích xuất rawText và structuredContent (các segments kèm delta của Quill).
+3. Gửi request POST /api/collab/transcript qua axios client:
+   └── payload: { meetingId, rawText, structuredContent }
+4. Next.js Route Handler / proxy chuyển tiếp đến API Gateway tại cổng :3000/api/v1/collab/transcript.
+5. API Gateway: JwtIdentityGuard giải mã token → CollabController.saveTranscript() nhận payload.
+6. CollabService.saveTranscript(meetingId, rawText, structuredContent):
+   ├── Gọi meetingGateway.getAudioFileId(meetingId) qua giao thức TCP sang Meeting Service để lấy audioFileId.
+   ├── Gọi collabRepository.updateTranscript(audioFileId, { rawText, structuredContent }).
+   └── Prisma thực hiện update bản ghi trong bảng `Transcript` của PostgreSQL.
+7. Database hoàn thành lưu trữ trạng thái bản dịch mới nhất.
+```
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant FE as Frontend (Browser)
+    participant NEXT as Next.js API Proxy
+    participant APIGW as API Gateway
+    participant CS as Collab Service
+    participant MS as Meeting Service
+    database DB as PostgreSQL (Prisma)
+
+    Note over FE: User click nút "Lưu thay đổi"
+    FE-->>FE: read ySegmentsArray -> construct rawText & structuredContent
+    FE->>NEXT: POST /api/collab/transcript [Bearer JWT]
+    NEXT->>APIGW: POST /api/v1/collab/transcript [Bearer JWT]
+    Note over APIGW: JwtIdentityGuard giải mã và kiểm tra JWT
+    APIGW->>CS: TCP: save-transcript { meetingId, rawText, structuredContent }
+    CS->>MS: TCP: get-audioFileId { meetingId }
+    MS-->>CS: Trả về audioFileId thực
+    CS->>DB: collabRepository.updateTranscript(audioFileId, ...)
+    Note over DB: Cập nhật rawText & structuredContent trong db
+    DB-->>CS: OK
+    CS-->>APIGW: OK
+    APIGW-->>NEXT: HTTP 200 OK
+    NEXT-->>FE: HTTP 200 OK
+    Note over FE: Hiển thị thông báo lưu thành công ✅
 ```
 
 ---
