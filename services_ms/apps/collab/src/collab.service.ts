@@ -35,7 +35,7 @@ export class CollabService {
   ) {
     const audioFileId = await this.meetingGateway.getAudioFileId(meetingId);
 
-    await this.collabRepository.updateTranscript(audioFileId, {
+    return this.collabRepository.updateTranscript(audioFileId, {
       rawText,
       structuredContent,
     });
