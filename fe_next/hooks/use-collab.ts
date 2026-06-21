@@ -147,6 +147,7 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
         email: session.user?.email ?? "",
         color: pickColor(session.user?.id ?? session.user?.email ?? meetingId),
       };
+      // Lưu presence vào RAM client + gửi Ws cho Server để lưu awareness + broadcast đồng bộ cho các client khác cùng Room
       provider.awareness.setLocalState({ user: userInfo });
 
       provider.awareness.on("change", () => notifySubscribers());
@@ -247,7 +248,7 @@ export function useCollab({
   // Singleton: Tránh khởi tạo lại kết nối WebSocket nhiều lần
   if (meetingId && (!collabRef.current || collabRef.current._meetingId !== meetingId)) {
     if (collabRef.current) {
-      try { collabRef.current.disconnect(); } catch (_) {}
+      try { collabRef.current.disconnect(); } catch (_) { }
     }
     collabRef.current = getOrCreateCollab(meetingId);
     collabRef.current._meetingId = meetingId;

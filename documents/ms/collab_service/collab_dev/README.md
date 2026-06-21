@@ -411,39 +411,208 @@ function getOrCreateDoc(meetingId) {
 
 ```javascript
 wss.on('connection', async (conn, req) => {
-  // 1. Parse URL — y-websocket gửi room qua PATH, không phải query param!
-  //    Sai:  url.searchParams.get('meetingId')  → luôn null
-  //    Đúng: url.pathname.replace(/^\//, '')
+  // y-websocket sends room name as URL path: ws://host/{meetingId}?token=xxx
   const url = new URL(req.url, `http://${req.headers.host}`);
   const token = url.searchParams.get('token');
-  const meetingId = url.pathname.replace(/^\//, '');
-  //    VD: ws://host/6aeb0839-...?token=eyJ...
-  //    → meetingId = "6aeb0839-..."
-  //    → token = "eyJ..."
+  const meetingId = url.pathname.replace(/^\//, ''); // e.g. "/{uuid}" → "{uuid}"
 
-  // 2. Xác thực JWT
-  const user = await authMiddleware(token);
-  if (!user) { conn.close(4001, 'Unauthorized'); return; }
+  if (!token || !meetingId) {
+    conn.close(4001, 'Missing token or meetingId');
+    logger.warn(`[WS] Rejected: token=${!!token} meetingId="${meetingId}"`);
+    return;
+  }
 
-  // 3. Lấy role (cache Redis 300s)
-  const role = await roleMiddleware(meetingId, user.id);
+  try {
+    const user = await authMiddleware(token);
+    if (!user) {
+      conn.close(4001, 'Unauthorized');
+      return;
+    }
 
-  // 4. Setup connection
-  conn.awarenessClientIDs = new Set(); // Track Y.js clientIDs để cleanup đúng khi disconnect
-  docEntry.connections.add(conn);
+    const role = await roleMiddleware(meetingId, user.id);
 
-  // 5. Đăng ký event handlers
-  docEntry.awareness.on('change', awarenessHandler);
-  docEntry.doc.on('update', updateHandler);
-  conn.on('message', (rawMessage) => handleMessage(...));
-  conn.on('close', () => cleanup());
+    const docEntry = getOrCreateDoc(meetingId);
+    docEntry.connections.add(conn);
+    conn.userId = user.id;
+    conn.role = role;
+    conn.meetingId = meetingId;
+    conn.awarenessClientIDs = new Set(); // track Y.js clientIDs from this conn
 
-  // 6. Gửi sync step 1 ngay cho client mới
-  sendSyncStep1(conn, docEntry.doc);
+    logger.info(`[WS] User ${user.id} (${role}) joined meeting ${meetingId}`);
 
-  // 7. Gửi awareness states hiện tại của các clients khác
-  sendCurrentAwarenessToNewClient(conn, docEntry);
+    if (role === 'VIEWER') {
+      conn.isReadOnly = true;
+    }
+
+    // Relay awareness changes to all other connections
+    const awarenessHandler = ({ added, updated, removed }) => {
+      const changedClients = [...added, ...updated, ...removed];
+      broadcastAwarenessUpdate(docEntry, changedClients, conn);
+    };
+    docEntry.awareness.on('change', awarenessHandler);
+
+    // Relay doc updates to all other connections
+    const updateHandler = (update, origin) => {
+      if (origin !== conn) {
+        broadcastUpdate(docEntry, update, origin);
+      }
+    };
+    docEntry.doc.on('update', updateHandler);
+
+    // Receive and dispatch messages from this client
+    conn.on('message', (rawMessage) => {
+      if (conn.isReadOnly) return;
+      try {
+        handleMessage(conn, docEntry, new Uint8Array(rawMessage));
+      } catch (err) {
+        logger.error(`[WS] Message error: ${err.message}`);
+      }
+    });
+
+    // Cleanup on disconnect
+    conn.on('close', () => {
+      docEntry.connections.delete(conn);
+      if (conn.awarenessClientIDs.size > 0) {
+        awarenessProtocol.removeAwarenessStates(
+          docEntry.awareness,
+          [...conn.awarenessClientIDs],
+          conn
+        );
+      }
+      docEntry.awareness.off('change', awarenessHandler);
+      docEntry.doc.off('update', updateHandler);
+      logger.info(`[WS] User ${user.id} left meeting ${meetingId}`);
+    });
+
+    // Send current doc state to new client (sync step 1)
+    sendSyncStep1(conn, docEntry.doc);
+
+    // Send current awareness states to new client
+    const awarenessStates = docEntry.awareness.getStates();
+    if (awarenessStates.size > 0) {
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, messageAwareness); // type 1
+      const updateData = awarenessProtocol.encodeAwarenessUpdate(
+        docEntry.awareness,
+        Array.from(awarenessStates.keys())
+      );
+      encoding.writeVarUint8Array(encoder, updateData);
+      conn.send(encoding.toUint8Array(encoder));
+    }
+  } catch (err) {
+    logger.error(`[WS] Connection setup error: ${err.message}`);
+    conn.close(1011, 'Internal error');
+  }
 });
+```
+
+#### Giải thích chi tiết các bước xử lý kết nối mới
+
+##### Ý nghĩa của các tham số đầu vào trong sự kiện `connection`
+Sự kiện `connection` nhận vào callback chứa hai tham số:
+*   `conn`: Đại diện cho đối tượng kết nối **WebSocket** (một instance của class `WebSocket` từ thư viện `ws`). Đây là đường truyền socket trực tiếp giữa Client (trình duyệt của một user) và Server.
+    *   Nó hỗ trợ các API có sẵn của WebSocket như gửi gói tin (`conn.send()`), lắng nghe sự kiện (`conn.on('message')`, `conn.on('close')`), đóng kết nối (`conn.close()`).
+    *   Ngoài ra, server còn gán thêm các thuộc tính metadata động lên `conn` để theo dõi ngữ cảnh: `conn.userId` (định danh người dùng), `conn.role` (vai trò của user), `conn.meetingId` (ID cuộc họp), `conn.isReadOnly` (chỉ đọc), `conn.awarenessClientIDs` (ID con trỏ Y.js).
+*   `req`: Đại diện cho đối tượng HTTP Request ban đầu (`IncomingMessage` của Node.js) khi Client gửi yêu cầu bắt tay nâng cấp giao thức (protocol upgrade) lên WebSocket. Nó chứa các siêu dữ liệu HTTP như URL kết nối (`req.url`), headers (`req.headers`), địa chỉ IP client.
+
+##### A. Các bước xử lý chính (Đánh số)
+
+1. **Phân tích tham số kết nối từ URL**:
+   ```javascript
+   const url = new URL(req.url, `http://${req.headers.host}`);
+   const token = url.searchParams.get('token');
+   const meetingId = url.pathname.replace(/^\//, '');
+   ```
+   Server bóc tách `token` và `meetingId` trực tiếp từ URL path gửi lên từ client (ví dụ: `ws://host/{meetingId}?token=xxx`).
+
+2. **Kiểm tra đầu vào (Validation Guard)**:
+   ```javascript
+   if (!token || !meetingId) {
+     conn.close(4001, 'Missing token or meetingId');
+     return;
+   }
+   ```
+   Nếu thiếu token hoặc ID phòng họp, đóng kết nối ngay lập tức bằng mã lỗi WebSocket `4001` để chặn kết nối rác.
+
+3. **Xác thực và lấy vai trò (Authentication & Authorization)**:
+   ```javascript
+   const user = await authMiddleware(token);
+   const role = await roleMiddleware(meetingId, user.id);
+   ```
+   Gọi Middleware xác thực token qua Identity Service và truy xuất quyền hạn (`HOST`, `EDITOR`, hay `VIEWER`) của người dùng tương ứng với cuộc họp hiện tại.
+
+4. **Đăng ký thực thể phòng và kết nối**:
+   ```javascript
+   const docEntry = getOrCreateDoc(meetingId);
+   docEntry.connections.add(conn);
+   conn.userId = user.id;
+   conn.role = role;
+   conn.meetingId = meetingId;
+   conn.awarenessClientIDs = new Set();
+   ```
+   Lấy hoặc tạo phòng cộng tác `Y.Doc` trong bộ nhớ RAM, lưu kết nối `conn` vào phòng và gán các trường siêu dữ liệu định danh (`userId`, `role`, `meetingId`) trực tiếp lên đối tượng kết nối `conn` để quản lý.
+
+5. **Chế độ chỉ đọc đối với VIEWER**:
+   ```javascript
+   if (role === 'VIEWER') {
+     conn.isReadOnly = true;
+   }
+   ```
+   Nếu vai trò là `VIEWER`, đặt cờ `conn.isReadOnly = true` để ngăn chặn các bản cập nhật chỉnh sửa được gửi lên từ kết nối này.
+
+6. **Thiết lập lắng nghe sự kiện đồng bộ (Event Listeners)**:
+   ```javascript
+   // Đồng bộ sự hiện diện chuột (Awareness)
+   const awarenessHandler = ({ added, updated, removed }) => { ... };
+   docEntry.awareness.on('change', awarenessHandler);
+
+   // Đồng bộ cập nhật ký tự (Doc updates)
+   const updateHandler = (update, origin) => { ... };
+   docEntry.doc.on('update', updateHandler);
+   ```
+   Khi có thay đổi về con trỏ chuột (`awareness change`) hoặc nội dung nhập liệu (`doc update`), server sẽ tự động chuyển tiếp (broadcast) các thay đổi này tới toàn bộ những người dùng khác trong phòng họp.
+
+   > [!NOTE]
+   > **Chi tiết về `awareness.on('change', callback)`**:
+   > - **Nhiệm vụ**: Đăng ký một callback để lắng nghe bất kỳ thay đổi nào về trạng thái hiện diện (presence/awareness) của các client trong phòng (ví dụ: thay đổi vị trí con trỏ chuột, cập nhật tên/màu sắc của user, hoặc trạng thái online/offline).
+   > - **Tham số callback**: Callback nhận vào một đối tượng chứa `{ added, updated, removed }` đại diện cho danh sách các Y.js Client ID (định dạng số nguyên) tương ứng vừa được thêm mới, cập nhật hoặc thoát.
+   > - **Các vị trí sử dụng trong hệ thống**:
+   >   1. **Backend (collab-gateway/src/index.js:L172)**: Đăng ký lắng nghe biến đổi của phòng họp trên server. Khi bất kỳ client nào gửi cập nhật chuột lên, server sẽ phát hiện qua sự kiện này và tự động gọi `broadcastAwarenessUpdate` để gửi dữ liệu nhị phân cập nhật đó sang các kết nối client còn lại trong phòng.
+   >   2. **Frontend (fe_next/hooks/use-collab.ts:L152)**: Đăng ký lắng nghe trên Client. Khi client nhận được thông tin cập nhật chuột/danh sách online từ server truyền về, sự kiện này sẽ kích hoạt và gọi `notifySubscribers()` để báo hiệu cho React re-render giao diện hiển thị danh sách người đang truy cập và con trỏ chuột của họ.
+
+7. **Lắng nghe tin nhắn chỉnh sửa từ Client**:
+   ```javascript
+   conn.on('message', (rawMessage) => {
+     if (conn.isReadOnly) return;
+     handleMessage(conn, docEntry, new Uint8Array(rawMessage));
+   });
+   ```
+   Lắng nghe các tin nhắn nhị phân chỉnh sửa từ client gửi lên và gọi hàm giải mã `handleMessage` nếu kết nối không phải là Read-only.
+
+8. **Dọn dẹp tài nguyên khi Client ngắt kết nối (Cleanup Handler)**:
+   ```javascript
+   conn.on('close', () => {
+     docEntry.connections.delete(conn);
+     awarenessProtocol.removeAwarenessStates(docEntry.awareness, [...conn.awarenessClientIDs], conn);
+     docEntry.awareness.off('change', awarenessHandler);
+     docEntry.doc.off('update', updateHandler);
+   });
+   ```
+   Khi client ngắt kết nối, dọn dẹp các sự kiện để chống rò rỉ bộ nhớ (memory leaks) và xóa bỏ vị trí con trỏ chuột của người dùng này khỏi danh sách Presence để tránh hiện tượng con trỏ "ma" (ghost cursor).
+
+##### B. Các phần bổ trợ đồng bộ ban đầu
+
+* **Bắt tay đồng bộ hóa dữ liệu (Sync Step 1)**:
+  ```javascript
+  sendSyncStep1(conn, docEntry.doc);
+  ```
+  Ngay khi kết nối thành công, server chủ động gửi trạng thái vector hiện tại của server sang client để bắt đầu chu trình đối chiếu và tải phần dữ liệu chênh lệch còn thiếu.
+* **Đồng bộ hóa Presence danh sách online**:
+  ```javascript
+  const awarenessStates = docEntry.awareness.getStates();
+  if (awarenessStates.size > 0) { ... }
+  ```
+  Nếu trong phòng đã có người online trước đó, server lập tức đóng gói danh sách Client ID và thông tin Presence của họ dưới dạng binary và gửi sang cho client mới để hiển thị danh sách người dùng trực tuyến ngay tức khắc.
 ```
 
 #### Xử lý message inbound
@@ -748,368 +917,662 @@ async rewrites() {
 
 ---
 
-## 7. Frontend — useCollab Hook & QuillEditor
+## 7. Frontend — FE
 
-### 7.1 `useCollab` hook — `fe_next/hooks/use-collab.ts`
+Kiến trúc đồng bộ phía Frontend của hệ thống Realtime Collaboration được xây dựng xung quanh các thư viện cốt lõi:
+- **`Yjs`**: Thư viện CRDT (Conflict-free Replicated Data Types) hiệu năng cao giúp tự động giải quyết xung đột khi nhiều người cùng gõ.
+- **`y-websocket`**: Cầu nối truyền tin WebSocket đồng bộ dữ liệu `Y.Doc` giữa Client và Server.
+- **`Quill`**: Trình soạn thảo văn bản giàu tính năng (Rich-text Editor).
+- **`y-quill`**: Adapter (Binding) đồng bộ trực tiếp kiểu dữ liệu `Y.Text` với trạng thái hiển thị của Quill.
 
-Hook trung tâm quản lý toàn bộ collab state, thiết lập kết nối, đồng bộ dữ liệu Y.js và quản lý hiện diện của người dùng.
+Dưới đây là sơ đồ luồng dữ liệu cộng tác ở Frontend:
 
-#### 7.1.1 Singleton Pattern & Cơ chế Đồng bộ State (Pub/Sub)
+```mermaid
+graph TD
+    UI[Quill Editor Component] <-->|y-quill Binding| YT[Y.Text in Y.Doc]
+    YT <-->|y-websocket Provider| WS[WebSocket Server]
+    Hook[useCollab Hook] -->|getYText| UI
+    Hook <-->|Observes Updates| YDoc[Y.Doc Local Instance]
+    Singleton[activeProviders Map] <-->|Manages Instance| YDoc
+```
 
-##### A. Thiết kế Singleton Pattern
-Trong React, mỗi khi component chứa hook này re-render (do state hoặc props thay đổi), toàn bộ mã lệnh của hook `useCollab` sẽ chạy lại từ đầu đến cuối. Nếu không kiểm soát, mỗi lần gõ phím sẽ kích hoạt việc khởi tạo lại kết nối WebSocket mới, làm sập server và crash trình duyệt.
-Do đó, hook áp dụng mẫu thiết kế **Singleton** ở hai cấp độ:
-1.  **Component Level (useRef)**: Sử dụng `collabRef = useRef<CollabInstance | null>(null)` và kiểm tra `if (!collabRef.current)`. Vì giá trị của `useRef` được React giữ nguyên qua các lần re-render, thực thể collab chỉ được tạo ra đúng **1 lần duy nhất** khi component mount.
-2.  **Global Level (activeProviders)**: Quản lý một `Map<string, CollabInstance>` đóng vai trò registry. Nếu có nhiều components khác nhau cùng tham gia một phòng họp, chúng sẽ dùng chung một kết nối duy nhất thay vì tạo kết nối thừa.
+---
 
+### 7.1 Chi tiết Code & Giải thích từng phần
+
+#### 7.1.1 Singleton Registry: [getOrCreateCollab](file:///d:/VDT_Tucode/VDT_miniproject_TranscriptHub/fe_next/hooks/use-collab.ts#L96)
+
+Hàm này chịu trách nhiệm khởi tạo hoặc tái sử dụng một thực thể kết nối cộng tác duy nhất ứng với mỗi `meetingId`. Bản chất của nó là triển khai một Singleton Registry, tránh việc khởi tạo nhiều kết nối WebSocket trùng lặp khi có nhiều thành phần giao diện cùng tham gia vào một phiên họp.
+
+##### Khai báo Interface và Registry Map:
 ```typescript
-const activeProviders = new Map<string, CollabInstance>();
+interface CollabInstance {
+  doc: Y.Doc;                                // Thực thể tài liệu cộng tác YJS local
+  ySegmentsArray: Y.Array<Y.Map<any>>;       // Cấu trúc mảng chứa metadata của các segment
+  connect: () => Promise<void>;              // Hàm kích hoạt kết nối WebSocket và thiết lập state
+  disconnect: () => void;                    // Hàm ngắt kết nối, dọn dẹp awareness và hủy provider
+  buildSegments: () => CollabSegment[];      // Chuyển đổi dữ liệu YJS sang dạng React-friendly
+  addSubscriber: (fn: () => void) => () => void; // Cơ chế Pub/Sub để React Component đăng ký re-render
+  provider: WebsocketProvider | null;        // Đối tượng WebSocket provider của y-websocket
+  role: string;                              // Quyền hiện tại của người dùng (HOST, EDITOR, VIEWER)
+  _mountedCount: number;                     // Đếm số lượng React component đang sử dụng instance này
+  _connectDone: boolean;                     // Cờ đánh dấu đã gọi connect thành công
+  _disconnectTimer: ReturnType<typeof setTimeout> | null; // Bộ đệm khử rung (debounce) cho StrictMode
+  _pendingSeeds: TranscriptSegment[] | null; // Lưu trữ dữ liệu seed ban đầu khi YJS chưa đồng bộ xong
+  _meetingRole: string | null;               // Vai trò nhận từ bên ngoài truyền vào
+  _meetingId?: string | null;
+}
 
+const activeProviders = new Map<string, CollabInstance>();
+```
+
+##### Chi tiết Code hàm [getOrCreateCollab](file:///d:/VDT_Tucode/VDT_miniproject_TranscriptHub/fe_next/hooks/use-collab.ts#L96):
+```typescript
 function getOrCreateCollab(meetingId: string): CollabInstance {
   if (!activeProviders.has(meetingId)) {
     const doc = new Y.Doc();
+    // Tạo hoặc lấy một Y.Array có tên là "segments" thuộc về đồ thị Y.Doc
     const ySegmentsArray = doc.getArray<Y.Map<any>>("segments");
-    // Setup providers, subscribers...
-    activeProviders.set(meetingId, instance);
+    const subscribers = new Set<() => void>();
+    let provider: WebsocketProvider | null = null;
+```
+* **Giải thích**: 
+  - `activeProviders` đóng vai trò là một Pool lưu trữ các `CollabInstance`. Nếu `meetingId` đã tồn tại trong Pool, hàm sẽ lập tức trả về thực thể hiện có.
+  - `doc = new Y.Doc()` tạo mới một tài liệu YJS rỗng làm Single Source of Truth cho phiên cộng tác cục bộ.
+  - `ySegmentsArray` lưu trữ danh sách các đoạn hội thoại (segment). Mỗi segment là một `Y.Map` chứa metadata: `id`, `startTime`, `endTime`, `speaker`. Việc sử dụng `doc.getArray("segments")` đảm bảo cấu trúc mảng này nằm trong đồ thị đồng bộ của YJS.
+  - `subscribers = new Set<() => void>()`: Tập hợp lưu trữ các hàm callback cập nhật của React Hook `useCollab` đăng ký tới Singleton instance này. Khi có bất kỳ sự kiện nào xảy ra (Y.Doc thay đổi nội dung, danh sách người dùng online cập nhật), Singleton instance sẽ duyệt qua Set này để gọi các callback kích hoạt React component render lại giao diện mới nhất.
+  - `provider`: Lưu trữ thực thể của `WebsocketProvider` (của thư viện `y-websocket`). Nó khởi tạo ban đầu là `null` và được gán sau khi thực hiện kết nối WebSocket thành công, đóng vai trò đồng bộ hóa YJS delta updates và Awareness state giữa Client và Server.
+
+##### Hàm chuyển đổi cấu trúc dữ liệu `buildSegments`:
+```typescript
+    const buildSegments = (): CollabSegment[] => {
+      return ySegmentsArray.toArray().map((m) => {
+        const id = m.get("id") as string;
+        const yText = doc.getText(`content-${id}`);
+        return {
+          id,
+          startTime: Number(m.get("startTime")),
+          endTime: Number(m.get("endTime")),
+          speaker: m.get("speaker") as string,
+          content: yText?.toString() ?? "",
+          delta: yText ? yText.toDelta() : [],
+        } satisfies CollabSegment;
+      });
+    };
+```
+* **Giải thích**: 
+  - Vì React không thể phát hiện thay đổi trực tiếp trên các cấu trúc dữ liệu nội bộ của YJS (`Y.Array`, `Y.Map`), hàm `buildSegments` được dùng để trích xuất dữ liệu thô (Plain JavaScript Objects).
+  - Với mỗi segment, nó lấy thuộc tính từ `Y.Map` và truy vấn văn bản cộng tác dạng `Y.Text` tương ứng qua định danh khóa `content-${id}`.
+  - Trả về đối tượng `CollabSegment` chứa cả định dạng chuỗi (`content`) và cấu trúc Delta giàu định dạng (`delta`) để binding với Quill.
+
+##### Hàm phát thông báo cập nhật `notifySubscribers`:
+```typescript
+    const notifySubscribers = () => {
+      subscribers.forEach((fn) => fn());
+    };
+```
+* **Giải thích**:
+  - Hàm này chịu trách nhiệm lặp qua toàn bộ danh sách các hàm callback đăng ký trong tập hợp `subscribers` (được lưu bằng `Set`).
+  - **Tham số `fn` (Function) là gì?**:
+    + Trong mã nguồn cụ thể, `fn` chính là hàm **`updateState()`** được truyền từ hook `useCollab` khi hook này đăng ký qua lệnh `collab.addSubscriber(updateState)`.
+    + Nhiệm vụ của `updateState` (tức `fn`) là:
+      1. Đọc lại các dữ liệu mới nhất từ đối tượng Singleton (như lấy trạng thái kết nối `wsconnected`, trạng thái đồng bộ `synced`, danh sách online users qua `awareness.getStates()`, và mảng dữ liệu segment sau khi merge qua `buildSegments()`).
+      2. Thực hiện gọi hàm thay đổi state của React (`setState(...)` và `setSegments(...)`).
+    + **Tại sao phải gọi `fn()`?**: Vì YJS và WebSocket hoạt động bên ngoài React (không kích hoạt re-render tự động). Việc gọi `fn()` (chính là thực thi `updateState()`) đóng vai trò là "nút bấm" ra lệnh cho React cập nhật lại UI (re-render) tương ứng với dữ liệu cộng tác mới nhất vừa nhận được.
+
+##### Kết nối WebSocket và Đồng bộ Hóa (`connect`):
+```typescript
+    const connect = async () => {
+      if (provider || instance._connectDone) return;
+
+      const session = await getSession();
+      const token = session?.accessToken;
+      if (!token) {
+        console.warn("[Collab] Không có access token — chế độ chỉ đọc");
+        return;
+      }
+
+      instance.role = instance._meetingRole ?? "VIEWER";
+
+      // Khởi tạo cầu nối WebSocket
+      provider = new WebsocketProvider(WS_URL, meetingId, doc, {
+        params: { token },
+        connect: true,
+      });
+
+      // Thiết lập Presence (Awareness)
+      const userInfo: CollabUser = {
+        id: session.user?.id ?? "",
+        name: session.user?.name ?? session.user?.email ?? "Unknown",
+        email: session.user?.email ?? "",
+        color: pickColor(session.user?.id ?? session.user?.email ?? meetingId),
+      };
+      provider.awareness.setLocalState({ user: userInfo });
+
+      provider.awareness.on("change", () => notifySubscribers());
+```
+* **Giải thích**:
+  - Hàm `connect` lấy JWT Token của người dùng từ phiên đăng nhập NextAuth để gửi kèm dưới dạng Query Parameter khi bắt đầu bắt tay (handshake) kết nối WebSocket. Việc này giúp API Gateway xác thực người dùng ngay khi thiết lập kết nối TCP.
+  - `WebsocketProvider` tự động đồng bộ hóa `Y.Doc` cục bộ với WebSocket Server. Nó cũng tích hợp sẵn cơ chế tự động kết nối lại (Auto-reconnect) khi mất mạng.
+  - Hệ thống **Awareness** quản lý Presence (trạng thái online). Bằng cách gọi `setLocalState`, client phát quảng bá thông tin định danh của mình (tên, avatar màu sắc) tới tất cả các client khác trong phòng thông qua WebSocket. Khi có sự thay đổi về danh sách online, sự kiện `"change"` kích hoạt thông báo cho các subscribers.
+  - **Lệnh `provider.awareness.setLocalState({ user: userInfo })`**:
+    + Lưu trữ thông tin cá nhân của người dùng hiện tại (userInfo) cục bộ vào bộ nhớ RAM của client (trong class `Awareness`).
+    + Ngay sau đó, nó kích hoạt gửi gói tin WebSocket loại awareness lên server. Server sẽ nhận và ghi đè trạng thái của user này trong RAM của server, rồi broadcast (phát quảng bá) thông tin này tới RAM của toàn bộ các client khác đang online trong cùng một `meetingId`.
+  - **Lệnh `provider.awareness.on("change", () => notifySubscribers())`**:
+    + Lắng nghe mọi sự kiện thay đổi trạng thái online/offline của phòng họp (khi có người mới kết nối, người cũ ngắt kết nối, hoặc ai đó cập nhật trạng thái hoạt động).
+    + Khi có thay đổi, hàm callback `notifySubscribers()` được kích hoạt, dẫn đến việc gọi hàm `updateState()` trong hook `useCollab` để đọc lại danh sách user từ RAM và setState để trigger React render lại giao diện mới nhất.
+  - **Cơ chế lưu trữ Presence (Awareness State)**:
+    + Trạng thái presence là dữ liệu tạm thời (Ephemeral State) chỉ lưu trong bộ nhớ RAM của Client và Server chứ không được ghi vào cơ sở dữ liệu Postgres.
+    + Mỗi client duy trì trạng thái presence của chính mình. Khi người dùng di chuyển chuột, chọn văn bản, hoặc online/offline, thay đổi này được cập nhật vào awareness local state và lập tức broadcast tới tất cả các máy khách đang kết nối cùng phòng họp qua các gói tin WebSocket nhị phân.
+    + Khi client chủ động gọi hàm `disconnect()`, hệ thống sẽ thiết lập `provider.awareness.setLocalState(null)`. Bản tin này phát đi giúp các máy khách khác lập tức xóa user này khỏi danh sách online trên giao diện (UI) mà không cần đợi timeout ping/pong của WebSocket.
+
+##### Cơ chế Seeding Dữ liệu An toàn khi Đồng bộ Xong (`sync`):
+```typescript
+      provider.on("sync", (isSynced: boolean) => {
+        if (isSynced && instance._pendingSeeds && ySegmentsArray.length === 0) {
+          const seeds = instance._pendingSeeds;
+          instance._pendingSeeds = null;
+          doc.transact(() => {
+            seeds.forEach((s) => {
+              const meta = new Y.Map<any>();
+              meta.set("id", s.id);
+              meta.set("startTime", s.startTime);
+              meta.set("endTime", s.endTime);
+              meta.set("speaker", s.speaker);
+              ySegmentsArray.push([meta]);
+              const yText = doc.getText(`content-${s.id}`);
+              if (yText.length === 0) yText.insert(0, s.content ?? "");
+            });
+          });
+        }
+        notifySubscribers();
+      });
+
+      ySegmentsArray.observeDeep(() => notifySubscribers());
+```
+* **Giải thích bằng ví dụ trực quan (Ẩn dụ "Cuốn sổ ghi chép dùng chung")**:
+  - **Bối cảnh**: Bạn và những người khác cùng viết chung một cuốn sổ (tài liệu cộng tác `Y.Doc` trên Server). Khi bạn vừa mở máy tính lên (component mount), bạn có một bản in dữ liệu từ trước (`_pendingSeeds` lấy từ cơ sở dữ liệu Postgres). Lúc này, bạn chưa kết nối mạng nên chưa biết cuốn sổ trên server đang trống hay đã được người khác viết đầy dữ liệu.
+  - **Vấn đề trùng lặp (Race Condition)**: Nếu bạn vội vã chép ngay bản in cũ đó vào cuốn sổ local của bạn trước khi kết nối mạng, khi bạn online, thuật toán của YJS sẽ nghĩ rằng đây là dữ liệu mới được viết độc lập. Nó sẽ tự động hòa trộn (merge) bằng cách giữ lại cả hai: nội dung có sẵn trên server và nội dung bạn vừa chép vào. Kết quả là mọi đoạn hội thoại bị **nhân đôi (duplicate)** trên màn hình.
+  - **Giải pháp xử lý qua sự kiện `"sync"`**:
+    + Bước 1: Khi vừa mở trang, ta **chỉ lưu tạm** bản in cũ vào biến tạm `_pendingSeeds`.
+    + Bước 2: Sự kiện `provider.on("sync", (isSynced) => { ... })` giống như việc bạn gọi điện cho Server hỏi: *"Hãy gửi cho tôi nội dung mới nhất trong sổ"*.
+    + Bước 3: Khi nhận được tín hiệu đồng bộ xong (`isSynced === true`), bạn so khớp: nếu cuốn sổ lúc này **hoàn toàn trống trơn** (`ySegmentsArray.length === 0`), điều đó nghĩa là chưa có ai viết gì cả. Lúc này bạn mới an toàn chép bản in tạm kia vào sổ thông qua một giao dịch duy nhất `doc.transact` (viết một mạch xong rồi mới đóng sổ gửi đi, tránh phát tin nhắn vụn vặt từng chữ qua mạng). Nếu cuốn sổ đã có sẵn nội dung, bạn bỏ qua bản in tạm kia đi và sử dụng nội dung vừa đồng bộ từ server về.
+  - **Hàm `ySegmentsArray.observeDeep(...)` (Trợ lý giám sát sâu)**:
+    + Giống như bạn thuê một trợ lý đứng canh cuốn sổ. Bất cứ khi nào có ai viết thêm một đoạn mới, xóa đi một đoạn, đổi tên Speaker, hay thậm chí sửa một chữ cái lồng sâu trong bất kỳ đoạn hội thoại nào, người trợ lý này sẽ lập tức báo cho bạn (`notifySubscribers()`) để bạn vẽ lại giao diện mới nhất lên màn hình (trigger React re-render). `observeDeep` (giám sát sâu) đảm bảo theo dõi mọi thay đổi ở mọi cấp độ phân cấp của tài liệu.
+
+##### Hàm Ngắt Kết nối (`disconnect`):
+```typescript
+    const disconnect = () => {
+      if (!provider) return;
+      try { provider.awareness.setLocalState(null); } catch (_) { }
+      provider.disconnect();
+      provider.destroy();
+      provider = null;
+      instance.provider = null;
+      instance._connectDone = false;
+    };
+```
+* **Giải thích**:
+  - Trước khi đóng kết nối vật lý, client chủ động đặt local state của awareness về `null`. Thao tác này gửi một bản tin "tạm biệt" nhanh qua WebSocket để báo cho các client khác gỡ bỏ user này khỏi danh sách hiển thị lập tức, thay vì đợi cơ chế timeout của server phát hiện. Sau đó, provider được ngắt kết nối và giải phóng tài nguyên triệt để bằng lệnh `destroy()`.
+
+---
+
+#### 7.1.2 React Hook Custom: [useCollab](file:///d:/VDT_Tucode/VDT_miniproject_TranscriptHub/fe_next/hooks/use-collab.ts#L225)
+
+Hook này làm nhiệm vụ **cầu nối (Bridge)** kết nối hai thế giới hoàn toàn khác nhau:
+1. **Thế giới của Singleton Registry (`getOrCreateCollab`)**: Đây là thế giới JavaScript thuần túy của các thư viện bên ngoài (YJS, WebSocket). Nó chạy độc lập, lưu trữ dữ liệu trong RAM, chỉ hiểu về kết nối WebSocket, thuật toán CRDT giải quyết xung đột, và hoàn toàn không quan tâm hay biết cách để tự render lại giao diện React.
+2. **Thế giới của React Component**: Đây là thế giới của giao diện người dùng (UI). Nó chỉ hiểu các khái niệm của React như State (`useState`) để lưu trữ hiển thị dữ liệu mới và Vòng đời (`useEffect`) để biết khi nào component xuất hiện (mount) hoặc biến mất (unmount) trên màn hình.
+
+**Nhờ có hook `useCollab` làm trung gian, hai thế giới này hoạt động hài hòa:**
+* **Đồng bộ vòng đời (Lifecycle Sync)**: Khi React Component hiển thị trên màn hình, hook bảo Singleton: *"Hãy mở kết nối WebSocket"*. Khi Component biến mất, hook bảo: *"Đóng kết nối sau 150ms buffer nhé"*.
+* **Đồng bộ trạng thái (State Sync)**: Khi Singleton nhận được dữ liệu gõ chữ mới từ người khác qua WebSocket, nó thông báo cho hook. Hook ngay lập tức dùng `setState` để cập nhật biến `segments`. React phát hiện state thay đổi và tự động vẽ lại giao diện mới nhất.
+* **Cung cấp API đơn giản (Clean API)**: Hook đóng gói toàn bộ các thao tác dữ liệu phức tạp (như thao tác đồ thị YJS, khởi tạo transaction `doc.transact`) và xuất ra ngoài các hàm Javascript thông thường cực kỳ sạch sẽ và dễ dùng như `addSegment()`, `saveSnapshot()`, `restoreVersion()` để các React component gọi trực tiếp.
+
+---
+
+##### Khởi tạo và Quản lý Đổi Meeting:
+```typescript
+export function useCollab({
+  meetingId,
+  meetingRole,
+  initialSegments,
+  onContentsChange,
+}: UseCollabOptions) {
+  const collabRef = useRef<CollabInstance | null>(null);
+  
+  // Quản lý state của sự cộng tác để phản hồi lên UI
+  const [state, setState] = useState<CollabState>({
+    connected: false,
+    synced: false,
+    users: [],
+    canEdit: false,
+    role: "VIEWER",
+    segmentCount: initialSegments?.length ?? 0,
+  });
+```
+* **Giải thích sự khác biệt giữa `collabRef` và `state` (React State)**:
+  - **`collabRef` (Động cơ chạy nền — Logic Engine)**: 
+    - Lưu trữ thực thể kết nối thực tế `CollabInstance` (chứa các thực thể phức tạp như `Y.Doc`, `WebsocketProvider` và các hàm `connect`, `disconnect`).
+    - Việc thay đổi các thuộc tính bên trong đối tượng này (ví dụ: client gửi update, trạng thái kết nối chuyển mạch,...) **không làm kích hoạt React re-render**. Điều này là cực kỳ quan trọng cho hiệu năng vì chúng ta không muốn React liên tục render lại giao diện mỗi khi mạng gửi nhận gói tin WebSocket hoặc khi có tác vụ ngầm chạy.
+    - Giúp lưu giữ tham chiếu ổn định đến kết nối cũ để thực hiện `disconnect()` chuẩn xác khi chuyển `meetingId`.
+  - **`state` (Bảng đồng hồ hiển thị — UI Dashboard)**: 
+    - Chỉ lưu trữ các dữ liệu dạng nguyên thủy (như boolean `connected`, `synced`, danh sách mảng người dùng online `users`, `segmentCount`). Đây là những thông số giao diện cần in ra màn hình cho người dùng xem.
+    - Khi các thông số này thay đổi (ví dụ: mất mạng đổi sang `connected: false`), ta gọi `setState(...)` để **ép React re-render** và vẽ lại giao diện tương ứng cho người dùng nhìn thấy.
+  - *Tóm lại*: `collabRef` là **động cơ hoạt động** (giữ logic chạy ngầm), còn `state` là **màn hình hiển thị** (chỉ cập nhật khi cần đổi giao diện). Phân tách như vậy giúp ứng dụng chạy cực kỳ mượt mà, tránh re-render thừa.
+
+---
+
+  const [segments, setSegments] = useState<CollabSegment[]>([]);
+  const onContentsChangeRef = useRef(onContentsChange);
+  onContentsChangeRef.current = onContentsChange;
+
+  // Singleton: Tránh khởi tạo lại kết nối WebSocket nhiều lần
+  if (meetingId && (!collabRef.current || collabRef.current._meetingId !== meetingId)) {
+    if (collabRef.current) {
+      try { collabRef.current.disconnect(); } catch (_) {}
+    }
+    collabRef.current = getOrCreateCollab(meetingId);
+    collabRef.current._meetingId = meetingId;
   }
-  return activeProviders.get(meetingId)!;
+  const collab = collabRef.current;
+```
+* **Giải thích**:
+  - **Không phải tạo lại hook `useCollab`**: Bản thân hook `useCollab` là một hàm chạy bên trong component của React. Khi component thay đổi `meetingId` (ví dụ người dùng chuyển trang xem cuộc họp từ ID `"A"` sang ID `"B"`), component sẽ render lại và gọi tiếp hook này với tham số `meetingId` mới. Hook không bị hủy hay tạo lại.
+  - **Thay đổi đối tượng kết nối bên trong hook**:
+    1. Hook phát hiện `meetingId` mới khác với `collabRef.current._meetingId` đang lưu trữ.
+    2. Nó chủ động gọi `disconnect()` trên thực thể cũ để **ngắt kết nối WebSocket cũ** (đóng kết nối đến phòng họp `"A"`).
+    3. Nó gọi `getOrCreateCollab(meetingId)` để lấy hoặc tạo mới một thực thể `CollabInstance` tương ứng với phòng họp mới `"B"` từ Registry Pool (`activeProviders`).
+    4. Cập nhật con trỏ `collabRef.current` trỏ sang thực thể mới này.
+  - Nhờ cơ chế này, hook vẫn được giữ nguyên nhưng đối tượng WebSocket connection và tài liệu `Y.Doc` bên trong nó đã được hoán đổi thành công sang phòng họp mới một cách an toàn.
+
+##### Đồng bộ Role và Seed dữ liệu ban đầu:
+```typescript
+  useEffect(() => {
+    if (!collab || !meetingRole) return;
+    collab._meetingRole = meetingRole;
+    if (collab.role !== meetingRole) {
+      collab.role = meetingRole;
+    }
+  }, [collab, meetingRole]);
+
+  useEffect(() => {
+    if (!collab || !initialSegments?.length) return;
+    if (collab.ySegmentsArray.length > 0) return;
+    if (collab.provider?.synced) {
+      if (collab.ySegmentsArray.length === 0) {
+        collab.doc.transact(() => {
+          initialSegments.forEach((s) => {
+            const meta = new Y.Map<any>();
+            meta.set("id", s.id);
+            meta.set("startTime", s.startTime);
+            meta.set("endTime", s.endTime);
+            meta.set("speaker", s.speaker);
+            collab.ySegmentsArray.push([meta]);
+            const yText = collab.doc.getText(`content-${s.id}`);
+            if (yText.length === 0) yText.insert(0, s.content ?? "");
+          });
+        });
+      }
+      return;
+    }
+    collab._pendingSeeds = initialSegments;
+  }, [collab, initialSegments]);
+```
+* **Giải thích**:
+  - API trả về role của người dùng trong phòng họp (HOST/EDITOR/VIEWER) có thể diễn ra chậm hơn quá trình kết nối WebSocket. `useEffect` đầu tiên theo dõi và đồng bộ hóa quyền truy cập này vào thực thể `collab` để cập nhật trạng thái chỉ đọc (read-only) kịp thời.
+  - `useEffect` thứ hai đảm bảo nếu tài liệu YJS đã đồng bộ xong (`collab.provider.synced = true`) mà mảng dữ liệu vẫn rỗng, nó sẽ kích hoạt việc seed dữ liệu ngay lập tức. Nếu chưa đồng bộ xong, nó lưu vào `_pendingSeeds` để đợi hàm đồng bộ hoàn thành kích hoạt.
+
+##### Cập nhật State và Quản lý Vòng đời qua Bộ đệm StrictMode:
+```typescript
+  // Đăng ký nhận cập nhật từ Singleton Instance
+  useEffect(() => {
+    if (!collab) return;
+
+    const updateState = () => {
+      const p = collab.provider;
+      const role = collab.role;
+      const canEdit = role !== "VIEWER";
+
+      setState((s) => ({
+        ...s,
+        connected: p?.wsconnected ?? false,
+        synced: p?.synced ?? false,
+        segmentCount: collab.ySegmentsArray.length,
+        role,
+        canEdit,
+      }));
+
+      if (p) {
+        const users: CollabUser[] = [];
+        p.awareness.getStates().forEach((st) => {
+          if (st.user) users.push(st.user as CollabUser);
+        });
+        setState((s) => ({ ...s, users }));
+      }
+
+      const segs = collab.buildSegments();
+      setSegments(segs);
+      onContentsChangeRef.current?.(segs);
+    };
+
+    const unsub = collab.addSubscriber(updateState);
+    updateState();
+    return unsub;
+  }, [collab]);
+
+  // Quản lý kết nối / ngắt kết nối vật lý kèm bộ đệm 150ms chống StrictMode double-mount
+  useEffect(() => {
+    if (!collab) return;
+
+    if (collab._disconnectTimer) {
+      clearTimeout(collab._disconnectTimer);
+      collab._disconnectTimer = null;
+    }
+
+    collab._mountedCount++;
+    collab.connect();
+
+    return () => {
+      collab._mountedCount--;
+      if (collab._mountedCount <= 0) {
+        collab._disconnectTimer = setTimeout(() => {
+          if (collab._mountedCount <= 0) {
+            if (meetingId) activeProviders.delete(meetingId);
+            collab.disconnect();
+          }
+          collab._disconnectTimer = null;
+        }, 150);
+      }
+    };
+  }, [collab, meetingId]);
+```
+* **Giải thích**:
+  - Khi có cập nhật mới (người dùng khác gõ chữ, thay đổi danh sách online), hàm `updateState` được gọi để lấy thông tin mới nhất từ YJS và ánh xạ vào React State (`state`, `segments`), kích hoạt UI render lại.
+  - **Cơ chế chống Double-Mount**: Ở chế độ React StrictMode (môi trường dev), React sẽ tự động chạy hiệu ứng phụ `Mount -> Unmount -> Mount` liên tục để kiểm tra lỗi rò rỉ tài nguyên. Nếu không có biện pháp xử lý, WebSocket sẽ bị kết nối, đóng, rồi kết nối lại tức thì. Bằng cách đếm số lượng `_mountedCount` kết hợp bộ đệm trì hoãn `setTimeout 150ms` trong hàm cleanup, nếu tiến trình remount xảy ra ngay lập tức, `_mountedCount` tăng lại lên `1` và hàm `clearTimeout` sẽ hủy bỏ lệnh đóng kết nối cũ. Nhờ đó, WebSocket giữ trạng thái ổn định tuyệt đối.
+
+##### Các Public APIs và Cơ chế Tự động Lưu (Auto-Save):
+```typescript
+  const getYText = useCallback((segmentId: string): Y.Text | undefined => {
+    return collab?.doc.getText(`content-${segmentId}`);
+  }, [collab]);
+
+  const addSegment = useCallback((segment: TranscriptSegment) => {
+    if (!collab) return;
+    collab.doc.transact(() => {
+      const meta = new Y.Map<any>();
+      meta.set("id", segment.id);
+      meta.set("startTime", segment.startTime);
+      meta.set("endTime", segment.endTime);
+      meta.set("speaker", segment.speaker);
+      collab.ySegmentsArray.push([meta]);
+      collab.doc.getText(`content-${segment.id}`).insert(0, segment.content ?? "");
+    });
+  }, [collab]);
+
+  const saveSnapshot = useCallback(async () => {
+    if (!collab || !meetingId) return false;
+    const segs = collab.buildSegments();
+    const rawText = segs.map((s) => `[${s.speaker}] ${s.content}`).join("\n");
+    const structuredContent = {
+      segments: segs.map((s) => ({
+        id: s.id,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        speaker: s.speaker,
+        text: s.content,
+        delta: s.delta,
+      })),
+    };
+    try {
+      await collabApi.saveTranscript({ meetingId, rawText, structuredContent });
+      return true;
+    } catch {
+      return false;
+    }
+  }, [collab, meetingId]);
+
+  // Tự động lưu sau mỗi 10 thay đổi của chính người dùng hiện tại
+  useEffect(() => {
+    if (!collab || !meetingId) return;
+    let changeCount = 0;
+    const handleUpdate = (update: Uint8Array, origin: any) => {
+      // Bỏ qua các thay đổi nhận về từ bên ngoài qua WebSocket
+      if (collab.provider && origin === collab.provider) return;
+
+      changeCount++;
+      if (changeCount >= 10) {
+        changeCount = 0;
+        console.log("[Collab] Đạt mốc 10 thay đổi nội bộ, tự động lưu...");
+        saveSnapshot();
+      }
+    };
+    collab.doc.on("update", handleUpdate);
+    return () => { collab.doc.off("update", handleUpdate); };
+  }, [collab, meetingId, saveSnapshot]);
+```
+* **Giải thích**:
+  - `addSegment` chèn một `Y.Map` chứa metadata vào `Y.Array` đồng thời chèn nội dung văn bản vào `Y.Text` trong cùng một transaction `doc.transact` để gửi đi một update mạng duy nhất.
+  - `saveSnapshot` đóng gói dữ liệu và gọi API thông qua axios proxy `/api/collab/...` (được Next.js rewrite trỏ đến Gateway API HTTP) để thực hiện lưu trữ vĩnh viễn vào Postgres.
+  - **Lọc Nguồn Thay Đổi để Auto-Save**: Sự kiện `update` của Y.Doc cung cấp tham số `origin`. Nếu sự thay đổi bắt nguồn từ WebSocket Provider (`origin === provider`), nghĩa là thay đổi này do người khác gõ truyền tới máy mình. Chúng ta bỏ qua. Ngược lại, nếu `origin` khác `provider` (ví dụ do editor của local thay đổi), biến đếm `changeCount` tăng lên. Khi đạt đủ 10 thay đổi, nó tự động gọi `saveSnapshot()` để lưu trữ dạng sao lưu định kỳ phòng trường hợp mất mạng đột ngột hoặc tắt trình duyệt.
+
+##### Cơ chế Khôi phục Phiên bản (Rollback):
+```typescript
+  const restoreVersion = useCallback(async (versionId: number) => {
+    if (!collab || !meetingId) return false;
+    try {
+      const restored = await collabApi.restoreVersion({ meetingId, versionId });
+      if (restored && restored.structuredContent?.segments) {
+        collab.doc.transact(() => {
+          // Xóa toàn bộ dữ liệu hiện tại
+          collab.ySegmentsArray.delete(0, collab.ySegmentsArray.length);
+
+          // Ghi đè bằng dữ liệu khôi phục
+          restored.structuredContent.segments.forEach((s: any) => {
+            const meta = new Y.Map<any>();
+            meta.set("id", s.id);
+            meta.set("startTime", s.startTime);
+            meta.set("endTime", s.endTime);
+            meta.set("speaker", s.speaker);
+            collab.ySegmentsArray.push([meta]);
+
+            const yText = collab.doc.getText(`content-${s.id}`);
+            yText.delete(0, yText.length);
+            yText.insert(0, s.text ?? "");
+          });
+        });
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error("[Collab] Phục hồi phiên bản thất bại:", err);
+      return false;
+    }
+  }, [collab, meetingId]);
+```
+* **Giải thích**:
+  - Khi thực hiện khôi phục (rollback) về một phiên bản lịch sử cũ, máy khách gọi API HTTP khôi phục dữ liệu ở Database. Khi API trả về dữ liệu thành công, Client thực hiện việc thay đổi trạng thái Y.Doc local trong một khối giao dịch duy nhất (`collab.doc.transact`).
+  - Nó dọn dẹp sạch sẽ `ySegmentsArray` và mọi `Y.Text` cũ, sau đó điền lại thông tin của phiên bản được khôi phục. Mọi thay đổi ghi đè này sẽ được YJS tính toán delta và gửi quảng bá tức khắc đến tất cả các client khác qua WebSocket, giúp toàn bộ phòng đồng bộ ngay lập tức sang trạng thái của phiên bản cũ.
+
+---
+
+#### 7.1.3 Quill Editor Binding: [QuillEditor](file:///d:/VDT_Tucode/VDT_miniproject_TranscriptHub/fe_next/components/transcript/QuillEditor.tsx#L24)
+
+Component này đóng vai trò giao diện nhập liệu trực tiếp của người dùng, thực hiện liên kết hai chiều giữa trình soạn thảo Quill và thực thể dữ liệu cộng tác `Y.Text`.
+
+##### Chi tiết Code component [QuillEditor](file:///d:/VDT_Tucode/VDT_miniproject_TranscriptHub/fe_next/components/transcript/QuillEditor.tsx#L24):
+```typescript
+export function QuillEditor({
+  segmentId,
+  getYText,
+  canEdit,
+  initialContent,
+  onContentChange,
+}: QuillEditorProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const quillRef = useRef<Quill | null>(null);
+  const bindingRef = useRef<QuillBinding | null>(null);
+  
+  // Sử dụng Stable Refs để loại bỏ dependency không cần thiết khỏi useEffect
+  const onContentChangeRef = useRef(onContentChange);
+  onContentChangeRef.current = onContentChange;
+
+  const getYTextRef = useRef(getYText);
+  getYTextRef.current = getYText;
+
+  const initialContentRef = useRef(initialContent);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    let destroyed = false;
+
+    const init = async () => {
+      // Dynamic import tránh lỗi crash SSR của Next.js do thư viện Quill cần document/window
+      const { default: QuillLib } = await import("quill");
+      const { QuillBinding: QB } = await import("y-quill");
+
+      if (destroyed || !containerRef.current) return;
+      if (quillRef.current) return; // Guard chống tạo lặp
+
+      // Khởi tạo thực thể Quill
+      const quill = new QuillLib(containerRef.current, {
+        theme: "snow",
+        placeholder: "Nhập nội dung...",
+        readOnly: !canEdit,
+        modules: {
+          toolbar: canEdit ? [
+            ["bold", "italic", "underline", "strike"],
+            [{ script: "sub" }, { script: "super" }],
+            [{ list: "ordered" }, { list: "bullet" }],
+            ["clean"],
+          ] : false,
+        },
+      });
+
+      if (destroyed) return;
+      quillRef.current = quill;
+
+      // Hàm liên kết Quill với YJS Text, Polling nếu dữ liệu chưa sync xong
+      const tryBind = () => {
+        const yText = getYTextRef.current(segmentId);
+        if (yText) {
+          if (bindingRef.current) return;
+          bindingRef.current = new QB(yText, quill);
+        } else {
+          // Y.Text chưa sẵn sàng -> Seed tạm text và poll liên tục đến khi có Y.Text
+          if (initialContentRef.current && quill.getLength() <= 1) {
+            quill.setText(initialContentRef.current);
+          }
+          const checkInterval = setInterval(() => {
+            if (destroyed) { clearInterval(checkInterval); return; }
+            const yt = getYTextRef.current(segmentId);
+            if (yt) {
+              clearInterval(checkInterval);
+              if (!bindingRef.current) {
+                bindingRef.current = new QB(yt, quill);
+              }
+            }
+          }, 200);
+          (quill as any)._cleanupInterval = checkInterval;
+        }
+      };
+
+      tryBind();
+
+      quill.on("text-change", () => {
+        onContentChangeRef.current?.(quill.getText().slice(0, -1)); // Loại bỏ newline thừa của Quill
+      });
+    };
+
+    init();
+
+    return () => {
+      destroyed = true;
+      if ((quillRef.current as any)?._cleanupInterval) {
+        clearInterval((quillRef.current as any)?._cleanupInterval);
+      }
+      if (bindingRef.current) {
+        bindingRef.current.destroy();
+        bindingRef.current = null;
+      }
+      if (containerRef.current) {
+        containerRef.current.innerHTML = ""; // Xóa sạch HTML để dọn dẹp DOM
+      }
+      quillRef.current = null;
+    };
+  }, [segmentId, canEdit]); // dependency duy nhất
+
+  return (
+    <div className="quill-editor-wrapper">
+      <div ref={containerRef} className="..." />
+    </div>
+  );
 }
 ```
 
-##### B. Cơ chế Đồng bộ State qua Pub/Sub (`subscribers`)
-Vì Y.js hoạt động độc lập với React state và lưu trữ dữ liệu dưới dạng các cấu trúc dữ liệu CRDT nội bộ, chúng ta cần một cơ chế để đồng bộ hóa và thông báo cho React render lại giao diện bất cứ khi nào Y.js có cập nhật:
-*   **`subscribers`**: Là một `Set<() => void>` chứa các hàm callback cần kích hoạt khi dữ liệu thay đổi.
-*   **Hàm `fn` đăng ký**: Chính là hàm `updateState` nằm bên trong `useCollab`. Hàm này có nhiệm vụ lấy dữ liệu segments mới nhất từ Y.js (`collab.buildSegments()`), danh sách user online từ `awareness` và gọi `setState(...)` của React để kích hoạt re-render UI.
-*   **`notifySubscribers`**: Duyệt qua Set và thực thi tất cả hàm `fn()` để đồng loạt thông báo cho các hook đang lắng nghe cập nhật lại giao diện.
+##### Giải thích chi tiết các điểm kỹ thuật:
+- **Dynamic Import (SSR Evading)**: Quill và `y-quill` phụ thuộc trực tiếp vào môi trường trình duyệt (các API như `window`, `document`). Next.js chạy render ở phía server (Server-Side Rendering) trước khi gửi HTML về trình duyệt, nếu import tĩnh trực tiếp ở đầu file sẽ gây crash ứng dụng. Bằng cách viết hàm `async init` và sử dụng `await import("quill")`, việc import chỉ diễn ra sau khi component được mount thành công ở Client-side.
+- **Khắc phục lỗi Toolbar Duplication (Nhân bản thanh công cụ)**:
+  - *Nguyên nhân*: Thanh công cụ (toolbar) của Quill là một phần tử DOM được sinh ra bên ngoài container chính. Nếu mảng dependencies của `useEffect` chứa các prop biến đổi liên tục (như `getYText`, `initialContent`), `useEffect` sẽ chạy lại cleanup và khởi tạo lại Quill. Đôi khi, cleanup chạy không kịp hoặc không dọn dẹp hết toolbar cũ khiến DOM sinh ra hàng loạt thanh công cụ xếp chồng lên nhau.
+  - *Giải pháp*: Sử dụng React Refs để chứa các giá trị hàm callback và nội dung khởi tạo. dependency array lúc này chỉ bao gồm `[segmentId, canEdit]`. Việc thay đổi nội dung văn bản cộng tác (qua WebSocket) diễn ra trực tiếp thông qua cơ chế cập nhật của `QuillBinding` mà không hề kích hoạt render lại hay khởi tạo lại thực thể Quill.
+- **Cơ chế Polling Y.Text**: Khi tài liệu vừa được load, có thể WebSocket đang trong quá trình đồng bộ hóa đồ thị YJS. Lúc này `getYText(segmentId)` trả về `undefined`. Thay vì báo lỗi, hệ thống sẽ chèn tạm nội dung tĩnh `initialContent` hiển thị cho người dùng xem trước, đồng thời chạy một bộ định thời `setInterval` kiểm tra định kỳ mỗi 200ms. Khi quá trình đồng bộ hoàn tất và `Y.Text` được khởi tạo, nó sẽ lập tức dừng bộ định thời và thiết lập liên kết `QuillBinding`.
+- **Hàm Cleanup an toàn**: Khi component unmount (ví dụ người dùng cuộn khỏi vùng nhìn thấy của danh sách segment ảo), hàm cleanup sẽ dừng polling interval, ngắt liên kết `binding.destroy()`, xóa sạch ruột DOM container bằng `containerRef.current.innerHTML = ""` để ngăn rò rỉ bộ nhớ.
 
 ---
 
-#### 7.1.2 Kết nối WebSocket với StrictMode guard
+### 7.2 Các Cơ chế Đặc thù (Mechanisms)
 
-React StrictMode ở môi trường Development sẽ giả lập việc unmount và mount lại component ngay lập tức (Mount $\rightarrow$ Unmount $\rightarrow$ Mount) để kiểm tra các lỗi rò rỉ bộ nhớ.
-Để tránh việc đóng và mở kết nối WebSocket liên tục trong vài mili-giây, hook sử dụng biến đếm `_mountedCount` kết hợp với bộ trì hoãn `setTimeout 150ms` khi ngắt kết nối:
+#### 7.2.1 Singleton Registry (Quản lý kết nối theo Pool)
+Giúp chia sẻ duy nhất một thực thể kết nối WebSocket và tài liệu `Y.Doc` cho mọi Hook cùng gọi. Khi có nhiều component con trong cây thư mục giao diện cùng tham gia tương tác dữ liệu, việc truy vấn qua Registry Map giúp:
+- Tiết kiệm băng thông, tránh tạo hàng loạt kết nối song song gây quá tải Server.
+- Tránh xung đột đồng bộ giữa các vùng dữ liệu trên giao diện máy khách.
 
-```typescript
-useEffect(() => {
-  if (!collab) return;
+#### 7.2.2 Double-Mount Absorption / Debounce Timer (150ms)
+React 18 ở chế độ phát triển (Development + StrictMode) kích hoạt hai lần mount-unmount tức khắc trên cùng một component. Để triệt tiêu hành vi nhấp nháy kết nối (connect -> disconnect -> connect):
+- Sử dụng biến đếm `_mountedCount`.
+- Khi unmount, thay vì gọi `disconnect()` ngay lập tức, một timer trì hoãn 150ms được thiết lập.
+- Nếu việc mount lần hai diễn ra ngay sau đó (thường chỉ mất vài mili-giây), timer này sẽ bị hủy bỏ trước khi kịp chạy hàm đóng kết nối.
 
-  // Hủy tiến trình ngắt kết nối đang chờ (nếu có từ StrictMode unmount trước)
-  if (collab._disconnectTimer) {
-    clearTimeout(collab._disconnectTimer);
-    collab._disconnectTimer = null;
-  }
+#### 7.2.3 Deep Observer (`observeDeep`)
+YJS quản lý cấu trúc dữ liệu dưới dạng đồ thị cây. Một thay đổi xảy ra trên các thuộc tính của `Y.Map` lồng trong `Y.Array` sẽ không được phát hiện bởi phương thức lắng nghe thông thường `observe` (chỉ lắng nghe thay đổi nông - shallow level). Việc sử dụng `observeDeep` giúp nhận diện mọi thay đổi ở bất kỳ nhánh sâu nào và tự động trigger cập nhật state phía React.
 
-  collab._mountedCount++;
-  collab.connect(); // Mở kết nối WebSocket (hoặc tái sử dụng nếu đã mở)
+#### 7.2.4 Y.Doc Transactions (`doc.transact`)
+Để tránh việc phát các gói tin cập nhật mạng quá vụn vặt (gây chậm hệ thống mạng và tốn tài nguyên CPU xử lý xung đột), cơ chế Transaction nhóm tất cả các thay đổi (ví dụ: vừa thêm metadata segment mới vào mảng, vừa chèn văn bản ban đầu vào `Y.Text`) lại với nhau. YJS chỉ phát sinh và gửi đi một bản tin cập nhật tổng hợp duy nhất sau khi khối transaction kết thúc.
 
-  return () => {
-    collab._mountedCount--;
-    if (collab._mountedCount <= 0) {
-      // Trì hoãn 150ms trước khi thực sự ngắt kết nối
-      collab._disconnectTimer = setTimeout(() => {
-        if (collab._mountedCount <= 0) {
-          activeProviders.delete(meetingId);
-          collab.disconnect(); // Đóng kết nối WebSocket và destroy provider
-        }
-        collab._disconnectTimer = null;
-      }, 150);
-    }
-  };
-}, [collab, meetingId]);
-```
+#### 7.2.5 Auto-Save Origin Filter (`origin !== provider`)
+Nhận diện nguồn gốc thay đổi của tài liệu thông qua thuộc tính `origin` trong sự kiện `update` của Y.Doc.
+- Nếu `origin === provider`: Thay đổi đến từ server (do người khác gõ và gửi qua WebSocket).
+- Nếu `origin !== provider`: Thay đổi do chính người dùng hiện tại thực hiện ở trình soạn thảo local.
+Hệ thống chỉ tích lũy đếm thay đổi từ local để tự động lưu sau mỗi 10 thao tác gõ của chính người dùng đó, tránh việc tự động lưu bị kích hoạt vô hạn bởi các hoạt động gõ của những cộng tác viên khác.
 
----
+#### 7.2.6 Rollback YJS Sync
+Quy trình khôi phục đồng bộ:
+1. Client yêu cầu API Gateway khôi phục DB.
+2. Nhận dữ liệu khôi phục, client bao bọc trong giao dịch `doc.transact`.
+3. Xóa toàn bộ phần tử trong `Y.Array` và toàn bộ text trong các `Y.Text` cũ.
+4. Nạp lại cấu trúc mới từ bản sao lưu.
+5. Sự thay đổi đồ sộ này lập tức tạo ra một bản cập nhật mạng gửi qua WebSocket, ép toàn bộ các trình duyệt đang kết nối khác xóa và nạp lại tương tự mà không cần tải lại trang.
 
-#### 7.1.3 Seeding dữ liệu ban đầu (post-sync)
-
-##### A. Tại sao phải chờ Sync hoàn tất mới Seed?
-Dữ liệu của TranscriptHub ban đầu nằm tĩnh dưới Database. Khi một cuộc họp lần đầu tiên được mở để chỉnh sửa cộng tác, Y.Doc trên WebSocket server hoàn toàn trống rỗng.
-*   **Nếu nạp dữ liệu trước khi sync**: Client mở tab mới $\rightarrow$ thấy Y.Doc cục bộ rỗng $\rightarrow$ vội vã nạp segments từ DB $\rightarrow$ WebSocket kết nối thành công và tải dữ liệu cũ từ server về $\rightarrow$ Y.js tự động merge dữ liệu cũ và dữ liệu mới nạp $\rightarrow$ Gây ra hiện tượng **trùng lặp bản ghi (duplicate segments)** trên giao diện.
-*   **Chờ sync hoàn tất**: Chờ sự kiện `"sync"` của `WebsocketProvider` kích hoạt (`isSynced === true`). Khi đó client đã biết chính xác server đang có dữ liệu hay không. Chỉ khi mảng `ySegmentsArray.length === 0` (server trống), ta mới tiến hành nạp dữ liệu ban đầu từ DB.
-
-##### B. Ý nghĩa của `doc.transact(...)`
-Khi nạp dữ liệu (seed), chúng ta phải đẩy hàng chục segment và text vào tài liệu. Nếu làm điều này theo cách thông thường, mỗi thay đổi nhỏ sẽ kích hoạt sự kiện cập nhật (`observe`), khiến React re-render liên tục và gửi hàng chục gói tin WebSocket nhỏ lên server.
-*   `doc.transact(() => { ... })` gộp toàn bộ các thao tác chèn dữ liệu bên trong nó thành **một transaction duy nhất**.
-*   **Lợi ích**: Tối ưu hiệu năng render (React chỉ vẽ lại UI 1 lần duy nhất sau khi nạp xong) và tối ưu băng thông mạng (chỉ gửi đúng 1 frame WebSocket chứa toàn bộ dữ liệu seed).
-
-```typescript
-provider.on("sync", (isSynced: boolean) => {
-  if (isSynced && instance._pendingSeeds && ySegmentsArray.length === 0) {
-    const seeds = instance._pendingSeeds;
-    instance._pendingSeeds = null;
-    
-    // Gộp tất cả hành động thêm segments vào 1 transaction duy nhất
-    doc.transact(() => {
-      seeds.forEach((s) => {
-        const meta = new Y.Map<any>();
-        meta.set("id", s.id);
-        meta.set("startTime", s.startTime);
-        meta.set("endTime", s.endTime);
-        meta.set("speaker", s.speaker);
-        ySegmentsArray.push([meta]);
-        
-        const yText = doc.getText(`content-${s.id}`);
-        if (yText.length === 0) yText.insert(0, s.content ?? "");
-      });
-    });
-  }
-  notifySubscribers();
-});
-```
+#### 7.2.7 React Ref Stable Bindings
+Sử dụng tham chiếu React Refs (`useRef`) làm nơi chứa các hàm callback hoặc các biến phụ thuộc. Vì giá trị của ref thay đổi không kích hoạt render lại, đồng thời bản thân đối tượng ref có tham chiếu không đổi qua mỗi chu kỳ render, ta có thể triệt tiêu hoàn toàn chúng khỏi danh sách dependencies của `useEffect`, giúp giữ cho hiệu ứng phụ chạy ổn định và chính xác.
 
 ---
 
-#### 7.1.4 Awareness — Hiển thị user đang online
+### 7.3 Các Design Pattern Sử dụng (Design Patterns)
 
-```typescript
-// Trong connect():
-const userInfo: CollabUser = {
-  id: session.user?.id ?? "",
-  name: session.user?.name ?? "Unknown",
-  email: session.user?.email ?? "",
-  color: pickColor(session.user?.id ?? meetingId),
-};
-// PHẢI gọi setLocalState để server và clients khác biết user này đang online
-// Nếu không gọi → awareness luôn rỗng → không thấy ai đang sửa
-provider.awareness.setLocalState({ user: userInfo });
+#### 7.3.1 Singleton Registry Pattern
+Áp dụng tại lớp lưu trữ `activeProviders` Map kết hợp hàm `getOrCreateCollab`. Đảm bảo hệ thống chỉ duy trì tối đa một thực thể kết nối ứng với mỗi `meetingId` bất chấp số lượng component gọi hook `useCollab` là bao nhiêu.
 
-// Đọc awareness của users khác:
-p.awareness.getStates().forEach((state) => {
-  if (state.user) users.push(state.user as CollabUser);
-});
-```
+#### 7.3.2 Observer / Pub-Sub Pattern
+Được triển khai thủ công thông qua tập hợp `subscribers` (đối tượng `Set<() => void>`) trong mỗi `CollabInstance`.
+- **Publisher**: Các sự kiện thay đổi dữ liệu của YJS (`observeDeep`) hoặc thay đổi trạng thái online (`awareness.on("change")`) kích hoạt hàm `notifySubscribers()`.
+- **Subscriber**: Các thực thể hook `useCollab` đăng ký hàm `updateState` của mình vào Pool thông qua `addSubscriber`. Khi có thông báo, tất cả các hook đăng ký sẽ cùng cập nhật React State để đồng bộ hiển thị lên giao diện.
 
----
+#### 7.3.3 Proxy / Gateway Pattern
+Tránh vấn đề CORS và bảo mật đường truyền. Giao diện Frontend gọi API lưu trữ/lịch sử thông qua đường dẫn cục bộ `/api/collab/*`. Hệ thống Next.js `rewrites` đóng vai trò làm proxy chuyển hướng ngầm đến API Gateway. Điều này che giấu địa chỉ IP thực tế của Gateway và cổng TCP nội bộ của các microservice.
 
-#### 7.1.5 Phân quyền thành viên & API Tra cứu Cuộc họp
+#### 7.3.4 Adapter / Binding Pattern
+Thư viện `y-quill` đóng vai trò là một Adapter kết cấu. Nó lắng nghe các sự kiện thay đổi văn bản trên trình soạn thảo Quill (ở dạng các sự kiện text-change của DOM) để chuyển đổi và áp dụng vào mô hình dữ liệu cộng tác `Y.Text`, đồng thời dịch ngược các cập nhật mạng CRDT từ `Y.Text` để render lại giao diện Quill một cách mượt mà và chính xác.
 
-##### A. Phân biệt Quyền hạn Hệ thống (Identity Role) và Quyền hạn Cuộc họp (Meeting Role)
-*   **System Role (`session.user.role`)**: Là vai trò đăng nhập của tài khoản trên hệ thống (ví dụ: `ADMIN`, `USER`). Role này không quyết định quyền hạn chỉnh sửa tài liệu của một cuộc họp cụ thể.
-*   **Meeting Role (`meetingRole`)**: Là quyền hạn của thành viên trong cuộc họp đó (ví dụ: `HOST`, `EDITOR`, `VIEWER`). Khi thiết lập `WebsocketProvider`, Frontend truyền token và lấy vai trò này để truyền vào collab instance. Quyền hạn `canEdit` được thiết lập dựa trên `role !== 'VIEWER'`.
-
-##### B. API Tra cứu Cuộc họp trực tiếp bằng Audio File ID
-Trước đây, Frontend không có API để tra cứu cuộc họp từ ID file âm thanh, buộc phải lấy danh sách tất cả cuộc họp về và lọc ở Client. 
-Hiện tại, hệ thống đã bổ sung API trực tiếp ở backend và tích hợp vào Frontend:
-
-```typescript
-// Gọi API lấy thông tin cuộc họp trực tiếp bằng audioFileId (fileId trong URL)
-useEffect(() => {
-  meetingsApi.getByAudioFile(fileId)
-    .then(async (meeting: any) => {
-      if (!meeting?.id) return;
-      setMeetingId(meeting.id); // Lấy UUID của cuộc họp làm room key
-
-      // Tra cứu quyền của user hiện tại trong cuộc họp
-      try {
-        const members: any[] = await meetingsApi.getMembers(meeting.id);
-        const currentUserId = parseInt((session?.user as any)?.id ?? "0", 10);
-        const myMember = members.find((m: any) => m.userId === currentUserId);
-        if (myMember?.role) setMeetingRole(myMember.role);
-      } catch {
-        // Fallback VIEWER nếu có lỗi xảy ra
-      }
-    })
-    .catch(() => { /* Fallback: dùng fileId làm room key, quyền VIEWER */ });
-}, [fileId, session?.user]);
-```
-
----
-
-#### 7.1.6 Lưu Snapshot về Database (`saveSnapshot`)
-
-Khi người dùng thực hiện lưu bản ghi, chúng ta cần chuyển đổi cấu trúc dữ liệu in-memory Y.js sang các dạng dữ liệu lưu trữ truyền thống:
-1.  **Dạng văn bản thô (`rawText`)**: Nối các đoạn thoại lại với nhau dạng `[Người nói] Nội dung` để lưu log hoặc xuất file `.txt`.
-2.  **Dạng cấu trúc JSON (`structuredContent`)**: Giữ nguyên thông tin id, thời gian, người nói, và Quill Delta để render lại editor.
-3.  **Cầu nối HTTP $\rightarrow$ TCP**: FE gọi API Gateway qua giao thức HTTP (đường dẫn `/api/collab/transcript`). API Gateway sẽ kiểm tra token của người dùng và forward tiếp dữ liệu này xuống **Collab Microservice** thông qua cổng truyền thông nội bộ **TCP**.
-    *   *Lưu ý*: Frontend không thể gửi trực tiếp dữ liệu đến cổng microservice `3007` vì trình duyệt không hỗ trợ gửi raw TCP sockets trực tiếp tới cổng nội bộ này.
-
-```typescript
-const saveSnapshot = useCallback(async () => {
-  if (!collab || !meetingId) return false;
-
-  const segs = collab.buildSegments();
-  const rawText = segs.map((s) => `[${s.speaker}] ${s.content}`).join("\n");
-  const structuredContent = {
-    segments: segs.map((s) => ({
-      id: s.id,
-      startTime: s.startTime,
-      endTime: s.endTime,
-      speaker: s.speaker,
-      text: s.content,
-      delta: s.delta,
-    })),
-  };
-
-  try {
-    // Gọi qua API Gateway HTTP
-    await collabApi.saveTranscript({ meetingId, rawText, structuredContent });
-    return true;
-  } catch {
-    return false;
-  }
-}, [collab, meetingId]);
-```
-
----
-
-#### 7.1.7 Vòng đời hoạt động của useCollab (Hook Lifecycle)
-
-1.  **Mount & Render lần đầu**: Khởi tạo React state, lấy hoặc tạo mới `CollabInstance` duy nhất (Singleton). Trả về dữ liệu để vẽ UI thô (Connected: false).
-2.  **Đăng ký & Mở kết nối**: Chạy `useEffect` đăng ký subscriber (hàm `updateState`). Đồng thời gọi `collab.connect()` để bắt đầu bắt tay (handshake) qua WebSocket, đính kèm token xác thực.
-3.  **Sync & Seed**: Khi bắt tay hoàn tất, sự kiện `sync` được kích hoạt. Nếu Y.Doc trên server trống, thực hiện nạp dữ liệu (`doc.transact`) từ Database. Re-render UI để hiển thị văn bản hoàn chỉnh.
-4.  **Chạy Real-time**: Khi có bất kỳ thay đổi nào từ phía local hoặc nhận từ socket server, YJS gọi subscriber `updateState` $\rightarrow$ React gọi `setState()` $\rightarrow$ re-render UI cập nhật ký tự gõ.
-5.  **Unmount**: Khi người dùng đóng trang, số lượng mount giảm. Bộ đếm trì hoãn 150ms chạy, nếu không mount lại, hệ thống sẽ giải phóng tài nguyên (`provider.destroy()`) và ngắt kết nối WebSocket hoàn toàn.
-
----
-
-#### 7.1.8 Cơ chế tự động lưu khi đạt 10 thay đổi (Auto-Save on 10 Edits)
-
-Hệ thống cung cấp cơ chế tự động lưu bản dịch mỗi khi người dùng đang thao tác tại client hiện tại thực hiện đủ **10 thay đổi** (gõ/xóa ký tự, hoàn tác, sửa segment,...).
-
-*   **Bộ lọc thay đổi cục bộ**: Lắng nghe sự kiện `doc.on("update", (update, origin) => ...)` trên `Y.Doc`. Gói tin nhận về từ kết nối WebSocket (sự thay đổi của những người dùng khác) sẽ có `origin === collab.provider`. Do đó ta chỉ đếm các thay đổi có `origin !== collab.provider`.
-*   **Kích hoạt lưu**: Mỗi khi biến đếm đạt mốc 10, hệ thống tự động reset biến đếm về 0 và gọi hàm `saveSnapshot()` để đồng bộ hóa bản ghi hiện tại xuống PostgreSQL và ghi nhận một phiên bản lưu trữ mới.
-
-```typescript
-useEffect(() => {
-  if (!collab || !meetingId) return;
-
-  let changeCount = 0;
-  const handleUpdate = (update: Uint8Array, origin: any) => {
-    // Bỏ qua các update nhận về từ WebSocket (thay đổi của người dùng khác)
-    if (collab.provider && origin === collab.provider) return;
-
-    changeCount++;
-    if (changeCount >= 10) {
-      changeCount = 0;
-      console.log("[Collab] Đạt mốc 10 thay đổi nội bộ, tự động lưu phiên bản...");
-      saveSnapshot();
-    }
-  };
-
-  collab.doc.on("update", handleUpdate);
-  return () => {
-    collab.doc.off("update", handleUpdate);
-  };
-}, [collab, meetingId, saveSnapshot]);
-```
-
----
-
-#### 7.1.9 Lịch sử phiên bản & Phục hồi qua Yjs Transactions (Rollback Flow)
-
-Khi người dùng thực hiện khôi phục (rollback) dữ liệu về một phiên bản lịch sử:
-1.  **Giao tiếp HTTP**: Client gửi yêu cầu khôi phục thông qua API `collabApi.restoreVersion({ meetingId, versionId })`.
-2.  **Khôi phục Database**: Backend cập nhật dữ liệu của phiên bản cũ đè lên bản ghi transcript chính trong cơ sở dữ liệu PostgreSQL.
-3.  **Khôi phục thời gian thực (Y.Doc Sync)**: Để tránh tình trạng dữ liệu DB đã lùi nhưng màn hình của các người dùng khác đang kết nối WebSocket không cập nhật (do Y.Doc memory trên server/client chưa thay đổi), client thực hiện khôi phục phải cập nhật cục bộ Y.Doc trong một transaction:
-    *   Xóa toàn bộ segments cũ trên mảng Yjs: `ySegmentsArray.delete(...)`.
-    *   Tái tạo lại các mảng segment và văn bản Y.Text tương ứng từ dữ liệu của phiên bản được khôi phục.
-    *   Thay đổi này sẽ tự động đóng gói dưới dạng `messageSync` gửi lên Collab Gateway để broadcast và cập nhật tức thời màn hình của tất cả các cộng tác viên khác trong phòng.
-
-```typescript
-const restoreVersion = useCallback(async (versionId: number) => {
-  if (!collab || !meetingId) return false;
-  try {
-    const restored = await collabApi.restoreVersion({ meetingId, versionId });
-    if (restored && restored.structuredContent?.segments) {
-      // Cập nhật Yjs document ở local để đồng bộ tới tất cả client trong phòng
-      collab.doc.transact(() => {
-        // Xóa sạch segments hiện tại
-        collab.ySegmentsArray.delete(0, collab.ySegmentsArray.length);
-
-        // Nạp lại các segment từ dữ liệu khôi phục
-        restored.structuredContent.segments.forEach((s: any) => {
-          const meta = new Y.Map<any>();
-          meta.set("id", s.id);
-          meta.set("startTime", s.startTime);
-          meta.set("endTime", s.endTime);
-          meta.set("speaker", s.speaker);
-          collab.ySegmentsArray.push([meta]);
-
-          const yText = collab.doc.getText(`content-${s.id}`);
-          yText.delete(0, yText.length);
-          yText.insert(0, s.text ?? "");
-        });
-      });
-      return true;
-    }
-    return false;
-  } catch (err) {
-    console.error("[Collab] Phục hồi phiên bản thất bại:", err);
-    return false;
-  }
-}, [collab, meetingId]);
-```
-
----
-
-#### 7.1.10 Tách biệt component giao diện Lịch sử (`TranscriptHistoryModal`)
-
-Nhằm tối ưu hóa hiệu năng render, tránh phình to mã nguồn trang chỉnh sửa chính [page.tsx](file:///d:/VDT_Tucode/VDT_miniproject_TranscriptHub/fe_next/app/%28dashboard%29/transcripts/%5BfileId%5D/edit/page.tsx) (vốn đã dài hơn 600 dòng code), toàn bộ giao diện và logic quản lý modal lịch sử đã được tách thành một component riêng biệt: [TranscriptHistoryModal.tsx](file:///d:/VDT_Tucode/VDT_miniproject_TranscriptHub/fe_next/components/transcript/TranscriptHistoryModal.tsx).
-
-*   **Trách nhiệm của trang cha (`page.tsx`)**: Chỉ lưu trữ duy nhất 1 cờ trạng thái bật/tắt modal `showHistoryModal` và cung cấp các hàm API call từ `useCollab` xuống cho modal.
-*   **Trách nhiệm của Modal Component**:
-    *   Tự quản lý các trạng thái nội bộ: danh sách phiên bản (`versions`), chi tiết phiên bản đang chọn (`selectedVersion`), các trạng thái loading danh sách/chi tiết, và trạng thái hiển thị popup xác nhận khôi phục (`showConfirmRestore`).
-    *   Render giao diện chia làm hai phần (Bên trái: danh sách 10 phiên bản gần nhất kèm thông tin người sửa và thời gian sửa; Bên phải: Panel xem trước nội dung chi tiết từng segment).
-    *   Enforce kiểm tra xác nhận từ phía người dùng (Confirm Popup) trước khi thực thi lùi dữ liệu tránh thao tác nhầm.
-
----
-
-
-### 7.2 `QuillEditor` component — `fe_next/components/transcript/QuillEditor.tsx`
-
-#### 7.2.1 Tại sao dùng Quill?
-
-- **Quill** là rich text editor với Delta format (array of ops)
-- **y-quill** (`QuillBinding`) tự động sync giữa Quill Delta và Y.Text CRDT
-- Không cần xử lý conflict thủ công — Y.js lo hết
-
-#### 7.2.2 Design pattern: deps array
-
-```typescript
-useEffect(() => {
-  // Khởi tạo Quill và bind với Y.Text
-  init();
-
-  return () => {
-    // Cleanup: destroy binding, clear DOM
-  };
-}, [segmentId, canEdit]); 
-// ↑ CHỈ 2 deps này — KHÔNG có getYText, initialContent
-
-// Lý do KHÔNG để getYText, initialContent trong deps:
-// - Mỗi khi Y.js sync → parent re-render → initialContent thay đổi
-// - Nếu initialContent trong deps → effect re-run → Quill mới được tạo và append vào DOM
-// - Kết quả: 5, 10, 20 toolbars chồng nhau trong 1 segment!
-// Fix: dùng useRef cho getYText và initialContent (stable reference)
-
-const getYTextRef = useRef(getYText);
-getYTextRef.current = getYText; // Luôn trỏ đến latest function
-```
-
-#### 7.2.3 Binding workflow
-
-```typescript
-const tryBind = () => {
-  const yText = getYTextRef.current(segmentId);
-  if (yText) {
-    // Y.Text đã sẵn sàng → bind ngay
-    bindingRef.current = new QuillBinding(yText, quill);
-    // QuillBinding tự động:
-    //   - Apply Y.Text state vào Quill display
-    //   - Forward Quill changes → Y.Text operations
-    //   - Nhận Y.Text changes từ remote → update Quill display
-  } else {
-    // Y.Text chưa ready (doc đang sync) → hiện text tạm + poll
-    if (initialContentRef.current) quill.setText(initialContentRef.current);
-    const interval = setInterval(() => {
-      const yt = getYTextRef.current(segmentId);
-      if (yt) { clearInterval(interval); bindingRef.current = new QB(yt, quill); }
-    }, 200);
-  }
-};
-```
-
----
 
 ## 8. Database Schema
 

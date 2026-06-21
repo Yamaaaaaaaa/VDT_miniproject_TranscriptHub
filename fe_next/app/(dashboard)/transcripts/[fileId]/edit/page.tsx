@@ -108,7 +108,7 @@ export default function TranscriptEditPage() {
 
   // Local edited segments — kept in sync with collabSegments
   const [editedSegments, setEditedSegments] = useState<Record<string, string>>({});
-  const [activeSegmentIndex, setActiveSegmentIndex] = useState<number | null>(null);
+  const [activeSegmentIndex, setActiveSegmentIndex] = useState<number | null>(null); // Theo dõi Segment đang phát
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);

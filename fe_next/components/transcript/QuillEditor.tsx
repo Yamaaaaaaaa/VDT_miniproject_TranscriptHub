@@ -5,19 +5,19 @@ import type Quill from "quill";
 import * as Y from "yjs";
 import { QuillBinding } from "y-quill";
 
-// Import Quill styles (must be imported once; Next.js deduplicates)
+// Import style của Quill (chỉ cần import một lần; Next.js tự động khử trùng lặp)
 import "quill/dist/quill.snow.css";
 
 interface QuillEditorProps {
-  /** Segment ID — used to look up the corresponding Y.Text */
+  /** ID của Segment — dùng để tra cứu Y.Text tương ứng */
   segmentId: string;
-  /** Callback to resolve Y.Text for this segment. Returns undefined if not ready. */
+  /** Callback để lấy đối tượng Y.Text cho segment này. Trả về undefined nếu chưa sẵn sàng. */
   getYText: (segmentId: string) => Y.Text | undefined;
-  /** Whether the current user has edit permission */
+  /** Người dùng hiện tại có quyền chỉnh sửa hay không */
   canEdit: boolean;
-  /** Initial plain text content — used ONCE as seed if Y.Text isn't ready yet */
+  /** Nội dung văn bản thô ban đầu — dùng làm dữ liệu seed duy nhất MỘT LẦN nếu Y.Text chưa sẵn sàng */
   initialContent: string;
-  /** Called when content changes (plain text) */
+  /** Được gọi khi nội dung thay đổi (văn bản thô) */
   onContentChange: (content: string) => void;
 }
 
@@ -34,19 +34,19 @@ export function QuillEditor({
   const onContentChangeRef = useRef(onContentChange);
   onContentChangeRef.current = onContentChange;
 
-  // Keep refs for values used inside the effect so we don't need them as deps.
-  // This way the Quill instance is created ONCE per segment and never destroyed
-  // just because the parent re-renders with new content (Y.js binding handles that).
+  // Lưu trữ các refs cho các giá trị sử dụng bên trong effect để không cần khai báo chúng làm dependencies.
+  // Nhờ đó thực thể Quill chỉ được tạo MỘT LẦN cho mỗi segment và không bao giờ bị hủy
+  // chỉ vì component cha re-render với nội dung mới (cơ chế binding của Y.js tự lo phần đồng bộ nội dung).
   const getYTextRef = useRef(getYText);
   getYTextRef.current = getYText;
 
   const initialContentRef = useRef(initialContent);
-  // intentionally NOT updated — only the mount-time value is used as seed
+  // Cố ý KHÔNG cập nhật — chỉ sử dụng giá trị lúc mount làm dữ liệu seed ban đầu
 
-  // FIX: only depend on [segmentId, canEdit] so we never recreate the Quill
-  // editor on collab content updates. Previously [getYText, initialContent] were
-  // in the deps array, causing a new Quill instance to be appended to the DOM on
-  // every remote Y.js change → multiple toolbars stacking up per segment.
+  // SỬA LỖI: chỉ phụ thuộc vào [segmentId, canEdit] để không bao giờ khởi tạo lại Quill
+  // editor mỗi khi nội dung collab cập nhật. Trước đây [getYText, initialContent] nằm trong
+  // deps array, khiến một thực thể Quill mới bị chèn thêm vào DOM sau mỗi lần nội dung Y.js từ xa cập nhật
+  // dẫn đến việc xuất hiện nhiều thanh công cụ (toolbar) xếp chồng lên nhau ở mỗi segment.
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -58,7 +58,7 @@ export function QuillEditor({
 
       if (destroyed || !containerRef.current) return;
 
-      // Guard: if Quill already initialised for this mount, skip
+      // Guard: Nếu Quill đã được khởi tạo cho lượt mount này, bỏ qua
       if (quillRef.current) return;
 
       const quill = new QuillLib(containerRef.current, {
@@ -78,14 +78,14 @@ export function QuillEditor({
       if (destroyed) return;
       quillRef.current = quill;
 
-      // Try to bind to Y.Text immediately; if not ready yet, poll until available
+      // Thử liên kết (bind) với Y.Text ngay lập tức; nếu chưa sẵn sàng, poll liên tục đến khi có
       const tryBind = () => {
         const yText = getYTextRef.current(segmentId);
         if (yText) {
-          if (bindingRef.current) return; // already bound
+          if (bindingRef.current) return; // Đã được liên kết (bound) rồi
           bindingRef.current = new QB(yText, quill);
         } else {
-          // Y.Text not ready (doc still syncing) — seed with plain text and poll
+          // Y.Text chưa sẵn sàng (doc đang đồng bộ) — seed tạm văn bản thô ban đầu và chạy polling
           if (initialContentRef.current && quill.getLength() <= 1) {
             quill.setText(initialContentRef.current);
           }
@@ -105,9 +105,9 @@ export function QuillEditor({
 
       tryBind();
 
-      // Sync plain text changes back to parent for toolbar indicators
+      // Đồng bộ các thay đổi văn bản thô ngược về component cha để cập nhật các chỉ báo trạng thái
       quill.on("text-change", () => {
-        onContentChangeRef.current?.(quill.getText().slice(0, -1)); // strip trailing newline
+        onContentChangeRef.current?.(quill.getText().slice(0, -1)); // Loại bỏ ký tự xuống dòng (\n) thừa ở cuối của Quill
       });
     };
 
@@ -122,17 +122,17 @@ export function QuillEditor({
         bindingRef.current.destroy();
         bindingRef.current = null;
       }
-      // Remove Quill from DOM cleanly
+      // Dọn dẹp và xóa bỏ Quill ra khỏi DOM
       if (containerRef.current) {
         containerRef.current.innerHTML = "";
       }
       quillRef.current = null;
     };
-  }, [segmentId, canEdit]); // ← ONLY these two: never recreate for content updates
+  }, [segmentId, canEdit]); // ← CHỈ duy nhất 2 giá trị này: không bao giờ tạo lại khi nội dung collab thay đổi
 
   return (
     <div className="quill-editor-wrapper">
-      {/* Quill injects its own styles; we just provide the mount point */}
+      {/* Quill sẽ tự inject các style của nó; chúng ta chỉ cung cấp thẻ chứa làm điểm mount */}
       <div
         ref={containerRef}
         className={`quill-container [&_.ql-editor]:!p-1 [&_.ql-editor]:!text-xs [&_.ql-editor]:!leading-relaxed [&_.ql-toolbar]:!border-slate-200 [&_.ql-container]:!border-slate-200 [&_.ql-toolbar.ql-snow_.ql-stroke]:!stroke-slate-400 [&_.ql-toolbar.ql-snow_.ql-fill]:!fill-slate-400 ${
