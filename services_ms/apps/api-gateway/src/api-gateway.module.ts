@@ -7,6 +7,8 @@ import { FilesModule } from './files/files.module';
 import { TranscriptsModule } from './transcripts/transcripts.module';
 import { MeetingsModule } from './meetings/meetings.module';
 import { CollabModule } from './collab/collab.module';
+import { AppController } from './api-gateway.controller';
+import { AppService } from './api-gateway.service';
 
 @Module({
   imports: [
@@ -21,7 +23,7 @@ import { CollabModule } from './collab/collab.module';
     MeetingsModule,
     CollabModule,
   ],
-  controllers: [],
-  providers: [],
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class ApiGatewayModule {}

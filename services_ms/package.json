@@ -17,7 +17,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./apps/services_ms/test/jest-e2e.json"
+    "test:e2e": "jest --config jest-e2e.json"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -74,6 +74,7 @@
     "eslint-plugin-prettier": "^5.2.2",
     "globals": "^17.0.0",
     "jest": "^30.0.0",
+    "jest-junit": "^17.0.0",
     "prettier": "^3.4.2",
     "prisma": "^7.8.0",
     "socket.io-client": "^4.8.3",
@@ -104,6 +105,16 @@
     "testEnvironment": "node",
     "roots": [
       "<rootDir>/apps/"
+    ],
+    "reporters": [
+      "default",
+      [
+        "jest-junit",
+        {
+          "outputDirectory": "test-reports",
+          "outputName": "junit-unit.xml"
+        }
+      ]
     ]
   },
   "prisma": {
