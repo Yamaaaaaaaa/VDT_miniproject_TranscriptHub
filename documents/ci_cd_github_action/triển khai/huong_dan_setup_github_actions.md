@@ -51,15 +51,17 @@ GitHub Repository Settings
      > [!WARNING]
      > Hãy copy toàn bộ nội dung của tệp key, bao gồm cả dòng đầu `-----BEGIN OPENSSH PRIVATE KEY-----` (hoặc `-----BEGIN RSA PRIVATE KEY-----`) và dòng cuối `-----END OPENSSH PRIVATE KEY-----` (hoặc `-----END RSA PRIVATE KEY-----`).
    * *Hướng dẫn tạo và lấy khóa trực tiếp trên máy chủ VPS*:
-     1. **SSH vào VPS của bạn và tạo cặp khóa mới**:
-        ```bash
-        ssh-keygen -t rsa -b 4096 -f ~/.ssh/github_actions_key -N ""
-        ```
-     2. **Đăng ký ổ khóa (Public Key) vào chính VPS**:
-        ```bash
-        cat ~/.ssh/github_actions_key.pub >> ~/.ssh/authorized_keys
-        chmod 600 ~/.ssh/authorized_keys
-        ```
+      1. **SSH vào VPS của bạn và tạo cặp khóa mới (sử dụng thuật toán ed25519 hiện đại, bảo mật và được Ubuntu mới hỗ trợ mặc định)**:
+         ```bash
+         ssh-keygen -t ed25519 -f ~/.ssh/github_actions_key -N ""
+         ```
+      2. **Đăng ký ổ khóa (Public Key) vào chính VPS và phân quyền chuẩn**:
+         ```bash
+         cat ~/.ssh/github_actions_key.pub >> ~/.ssh/authorized_keys
+         chmod 700 ~/.ssh
+         chmod 600 ~/.ssh/authorized_keys
+         chmod 755 ~
+         ```
      3. **Hiển thị chìa khóa (Private Key) để cấu hình lên GitHub**:
         ```bash
         cat ~/.ssh/github_actions_key
