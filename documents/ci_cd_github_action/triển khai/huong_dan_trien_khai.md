@@ -168,11 +168,7 @@ jobs:
   docker-build-and-push:
     needs: lint-and-test
     runs-on: ubuntu-latest
-    # Chỉ build/push khi merge/push vào dev_js và có cấu hình secrets
-    if: |
-      github.event_name == 'push' && 
-      secrets.DOCKER_USERNAME != '' && 
-      secrets.DOCKER_PASSWORD != ''
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
         service:
@@ -255,10 +251,7 @@ jobs:
   deploy:
     needs: docker-build-and-push
     runs-on: ubuntu-latest
-    if: |
-      github.event_name == 'push' && 
-      secrets.VPS_HOST != '' && 
-      secrets.SSH_PRIVATE_KEY != ''
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
