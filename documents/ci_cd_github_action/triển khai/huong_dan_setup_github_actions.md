@@ -1,112 +1,86 @@
-# Hướng dẫn Thiết lập và Cấu hình GitHub Actions
+# Hướng dẫn Thiết lập và Cấu hình GitHub Actions cho VPS
 
-Tài liệu này cung cấp hướng dẫn chi tiết cách cấu hình thông tin bảo mật (Secrets), thiết lập môi trường chạy và đăng ký **Self-hosted Runner** (nếu cần) cho dự án **TranscriptHub** khi sử dụng GitHub Actions.
+Tài liệu này cung cấp hướng dẫn chi tiết cách cấu hình thông tin bảo mật (Secrets), thiết lập môi trường chạy để triển khai dự án **TranscriptHub** lên máy chủ VPS bằng GitHub Actions.
 
 ---
 
 ## 1. Tổng quan Hạ tầng chạy Pipeline
 
-Khác với Jenkins (yêu cầu bạn tự xây dựng một Docker Container custom chứa Node.js, npm, Docker CLI và chạy qua Docker Compose), GitHub Actions hoạt động theo cơ chế **Serverless** mặc định:
+GitHub Actions hoạt động theo cơ chế **Serverless (Cloud-hosted)**:
 
-* **GitHub-hosted Runners (Khuyên dùng cho production/staging)**: GitHub cung cấp sẵn máy ảo cloud (Ubuntu-latest) đã được cài đặt sẵn hầu hết các công cụ phát triển phổ biến bao gồm **Node.js**, **npm**, **Docker CLI**, và **kubectl**. Bạn hoàn toàn **không cần thiết lập máy chủ build**.
-* **Self-hosted Runners (Thích hợp cho thử nghiệm cục bộ/môi trường mạng nội bộ)**: Nếu bạn muốn chạy pipeline kiểm thử và deploy trực tiếp vào cụm Minikube hoặc Docker Compose đang chạy trên **máy cá nhân (local)** của bạn (vốn không mở cổng ra ngoài internet công cộng), bạn có thể cài đặt một ứng dụng agent nhỏ của GitHub lên máy local. Máy ảo GitHub Actions Cloud sẽ gửi lệnh về máy local của bạn để thực thi trực tiếp.
+* **Không cần cài máy chủ build**: Toàn bộ quy trình kiểm thử (Lint, Unit Test, E2E Test) và đóng gói (Docker Build & Push) diễn ra trên máy ảo Cloud do GitHub cung cấp (Ubuntu-latest).
+* **Quy trình kích hoạt**: Khi bạn push code lên nhánh `dev_js`, GitHub sẽ khởi tạo máy ảo build. Sau khi build xong và đẩy image lên Docker Hub, máy ảo này sẽ gửi lệnh deploy qua cổng SSH tới VPS của bạn để VPS tự động kéo image về và chạy.
+* **Tài nguyên VPS được bảo vệ**: Việc phân tách này giúp VPS không bị quá tải do thiếu RAM hay CPU khi build ứng dụng Node.js/Next.js (vốn tiêu tốn rất nhiều tài nguyên biên dịch).
 
 ---
 
-## 2. Bước 1: Cấu hình GitHub Secrets (Thông tin xác thực bảo mật)
+## 2. Cấu hình GitHub Secrets (Thông tin xác thực bảo mật)
 
-Tệp workflow của GitHub Actions (`ci-cd.yml`) sẽ cần các thông tin xác thực để push image lên Docker Hub, SSH vào VPS hoặc tương tác với Minikube. Để bảo mật và tránh lộ mật khẩu, bạn cần lưu trữ chúng trong **GitHub Secrets**:
-
-### 2.1. Hướng dẫn truy cập và tạo Secrets trên GitHub:
-1. Mở repository dự án của bạn trên GitHub.
-2. Chọn tab **Settings** (Cấu hình dự án) ở menu trên cùng.
-3. Ở menu bên trái, cuộn xuống phần **Security** -> chọn **Secrets and variables** -> nhấn vào **Actions**.
-4. Nhấn nút **New repository secret** ở góc phải màn hình để tạo mới từng biến dưới đây.
+Tệp workflow của GitHub Actions (`ci-cd.yml`) sẽ cần các thông tin xác thực để push image lên Docker Hub và SSH vào VPS. Bạn cần cấu hình các thông tin này trong phần **Settings -> Secrets and variables -> Actions** của repository trên GitHub.
 
 ```text
-GitHub Repository
-└── Settings
-    └── Secrets and variables
-        └── Actions
-            ├── DOCKER_USERNAME      # Tài khoản Docker Hub
-            ├── DOCKER_PASSWORD      # Access Token Docker Hub
-            ├── VPS_HOST             # IP máy chủ VPS triển khai
-            ├── VPS_USER             # User SSH truy cập VPS (ubuntu/root)
-            ├── SSH_PRIVATE_KEY      # SSH Private Key dùng để login VPS
-            └── KUBECONFIG_RAW       # Nội dung tệp cấu hình kubeconfig (K8s)
+GitHub Repository Settings
+└── Secrets and variables
+    └── Actions
+        ├── DOCKER_USERNAME      # Tài khoản Docker Hub
+        ├── DOCKER_PASSWORD      # Access Token Docker Hub
+        ├── VPS_HOST             # IP máy chủ VPS triển khai
+        ├── VPS_USER                   # User SSH truy cập VPS (ubuntu/root)
+        ├── SSH_PRIVATE_KEY            # SSH Private Key dùng để login VPS
+        ├── DATABASE_URL               # Connection string DB để chạy Test ở bước CI
+        ├── JWT_SECRET                 # Secret Key của JWT để chạy Test ở bước CI
+        └── JWT_REFRESH_SECRET         # Refresh Secret Key của JWT để chạy Test ở bước CI
 ```
 
-### 2.2. Danh sách các Secrets cần tạo:
+### Hướng dẫn thiết lập từng Secrets:
 
 1. **`DOCKER_USERNAME`**:
    * *Nội dung*: Tên tài khoản Docker Hub của bạn (ví dụ: `yourdockerhubusername`).
 2. **`DOCKER_PASSWORD`**:
-   * *Nội dung*: **Access Token** sinh ra từ tài khoản Docker Hub của bạn (Khuyên dùng Access Token thay vì mật khẩu chính để có thể thu hồi khi cần).
+   * *Nội dung*: **Access Token** của tài khoản Docker Hub (Đăng nhập Docker Hub, vào *Account Settings -> Security -> New Access Token* để sinh mã). Không nên dùng mật khẩu chính để đảm bảo bảo mật.
 3. **`VPS_HOST`**:
-   * *Nội dung*: Địa chỉ IP công cộng của máy chủ VPS dùng để deploy ứng dụng (ví dụ: `1.2.3.4`).
+   * *Nội dung*: Địa chỉ IP public của máy chủ VPS của bạn (ví dụ: `159.223.x.x`).
 4. **`VPS_USER`**:
-   * *Nội dung*: Username đăng nhập SSH của VPS (ví dụ: `ubuntu` hoặc `root`).
+   * *Nội dung*: Tên người dùng SSH để đăng nhập vào VPS (thường là `ubuntu`, `debian` hoặc `root`).
 5. **`SSH_PRIVATE_KEY`**:
-   * *Nội dung*: Nội dung của tệp SSH Private Key của bạn (thường là nội dung file `id_rsa` hoặc `private_key.pem` dùng để SSH từ máy của bạn tới VPS mà không cần mật khẩu).
+   * *Nội dung*: Nội dung của tệp SSH Private Key tương ứng với Public Key được cấu hình trên VPS để cho phép SSH không cần mật khẩu.
      > [!WARNING]
-     > Hãy copy toàn bộ nội dung của tệp key, bao gồm cả dòng đầu `-----BEGIN OPENSSH PRIVATE KEY-----` và dòng cuối `-----END OPENSSH PRIVATE KEY-----`.
-6. **`KUBECONFIG_RAW`** (Chỉ cần nếu deploy lên Kubernetes/Minikube):
-   * *Nội dung*: Copy toàn bộ nội dung tệp `~/.kube/config` trên máy có quyền quản lý cụm.
-     > [!IMPORTANT]
-     > * Nếu bạn dùng **GitHub-hosted runner** (máy ảo Cloud) để deploy lên cụm Kubernetes thật (như AWS EKS, Google GKE), API Server IP trong file config phải là IP public của cụm K8s.
-     > * Nếu bạn chạy **Self-hosted runner** ngay trên máy local để deploy vào Minikube local, bạn có thể giữ nguyên IP local `127.0.0.1` hoặc IP mạng ảo docker.
+     > Hãy copy toàn bộ nội dung của tệp key, bao gồm cả dòng đầu `-----BEGIN OPENSSH PRIVATE KEY-----` (hoặc `-----BEGIN RSA PRIVATE KEY-----`) và dòng cuối `-----END OPENSSH PRIVATE KEY-----` (hoặc `-----END RSA PRIVATE KEY-----`).
+   * *Hướng dẫn tạo và lấy khóa trực tiếp trên máy chủ VPS*:
+     1. **SSH vào VPS của bạn và tạo cặp khóa mới**:
+        ```bash
+        ssh-keygen -t rsa -b 4096 -f ~/.ssh/github_actions_key -N ""
+        ```
+     2. **Đăng ký ổ khóa (Public Key) vào chính VPS**:
+        ```bash
+        cat ~/.ssh/github_actions_key.pub >> ~/.ssh/authorized_keys
+        chmod 600 ~/.ssh/authorized_keys
+        ```
+     3. **Hiển thị chìa khóa (Private Key) để cấu hình lên GitHub**:
+        ```bash
+        cat ~/.ssh/github_actions_key
+        ```
+        *Hãy copy toàn bộ nội dung hiển thị trên terminal để dán làm giá trị cho secret `SSH_PRIVATE_KEY`.*
+     4. **Dọn dẹp bảo mật trên VPS**: Xóa 2 file tạm vừa tạo sau khi đã cấu hình xong:
+        ```bash
+        rm ~/.ssh/github_actions_key ~/.ssh/github_actions_key.pub
+        ```
+6. **`DATABASE_URL`**:
+   * *Nội dung*: Chuỗi kết nối đến database chạy thử nghiệm trong môi trường test (Ví dụ: `postgresql://postgres:postgres@localhost:5432/transcripthub`).
+7. **`JWT_SECRET`**:
+   * *Nội dung*: Khóa bí mật ký JWT dùng cho quá trình kiểm thử Backend (NestJS).
+8. **`JWT_REFRESH_SECRET`**:
+   * *Nội dung*: Khóa bí mật làm mới JWT (Refresh Token) dùng cho kiểm thử.
 
 ---
 
-## 3. Bước 2: Thiết lập Self-hosted Runner (Tùy chọn chạy cục bộ)
+## 3. Cấu hình Môi trường Triển khai phê duyệt thủ công (Environments - Tùy chọn)
 
-Nếu bạn muốn chạy thử nghiệm toàn bộ luồng CI/CD (bao gồm cả deploy lên Minikube cục bộ) trực tiếp trên máy của mình thay vì mua VPS, hãy cài đặt một **Self-hosted Runner**.
+Nếu bạn muốn quy trình CI/CD tạm dừng để người quản trị kiểm duyệt và nhấn nút đồng ý (Approval) trên giao diện GitHub trước khi deploy lên VPS:
 
-### Hướng dẫn cài đặt nhanh trên máy Local (Linux / WSL2 / macOS):
-
-1. Trên trang GitHub Repository, vào **Settings** -> **Actions** -> **Runners**.
-2. Nhấn nút **New self-hosted runner**.
-3. Chọn hệ điều hành máy của bạn (ví dụ: **Linux** và kiến trúc **x64** nếu dùng Ubuntu/WSL2).
-4. GitHub sẽ hiển thị chính xác các lệnh cần gõ trong Terminal. Thực hiện tuần tự các bước:
-
-#### A. Tải ứng dụng runner về máy:
-```bash
-# Tạo thư mục và di chuyển vào
-mkdir actions-runner && cd actions-runner
-
-# Tải gói cài đặt runner (Thay phiên bản mới nhất tương ứng hiển thị trên web)
-curl -o actions-runner-linux-x64-2.317.0.tar.gz -L https://github.com/actions/runner/releases/download/v2.317.0/actions-runner-linux-x64-2.317.0.tar.gz
-
-# Giải nén
-tar xzf ./actions-runner-linux-x64-2.317.0.tar.gz
-```
-
-#### B. Cấu hình và Đăng ký Runner với GitHub:
-Gõ lệnh cấu hình đi kèm token bảo mật do GitHub cung cấp sẵn trên giao diện (lưu ý thay URL và Token chính xác của bạn):
-```bash
-./config.sh --url https://github.com/username/VDT_miniproject_TranscriptHub --token AOBXYZ123456789...
-```
-* Trong quá trình cấu hình, hệ thống sẽ hỏi bạn một số câu hỏi (bạn có thể nhấn **Enter** để chọn mặc định):
-  * *Enter the name of the runner group*: Nhấn Enter (Default)
-  * *Enter the name of runner*: Nhập tên gợi nhớ (ví dụ: `my-local-runner`)
-  * *Enter any additional labels*: Nhập label đặc trưng để lọc trong YAML workflow (ví dụ: `self-hosted`, `local-build`)
-  * *Enter name of work folder*: Nhấn Enter (`_work`)
-
-#### C. Khởi chạy Runner:
-```bash
-./run.sh
-```
-Sau khi chạy lệnh, màn hình hiển thị `Listening for Jobs` nghĩa là runner đã kết nối thành công và sẵn sàng nhận lệnh từ GitHub để build code.
-
----
-
-## 4. Bước 3: Cấu hình Môi trường Triển khai phê duyệt thủ công (Environments)
-
-Đối với quy trình **Continuous Delivery (CD)**, bạn có thể không muốn hệ thống tự động deploy lên Production mỗi khi push code, mà cần có người phê duyệt (Approval). GitHub hỗ trợ tính năng này qua **Environments**:
-
-1. Vào **Settings** -> **Environments** -> Nhấn **New environment**.
+1. Trên GitHub Repository, vào **Settings** -> **Environments** -> Nhấn **New environment**.
 2. Đặt tên môi trường là `production`.
 3. Tích chọn ô **Required reviewers**.
-4. Thêm tài khoản của bạn hoặc Leader của dự án làm người phê duyệt.
+4. Thêm tài khoản GitHub của bạn hoặc người chịu trách nhiệm phê duyệt.
 5. Nhấn **Save protection rules**.
-6. Trong tệp cấu hình workflow YAML, bạn chỉ cần chỉ định `environment: production` cho job Deploy. Khi workflow chạy đến job này, nó sẽ tạm dừng và gửi thông báo yêu cầu bấm phê duyệt trên giao diện GitHub trước khi tiếp tục chạy lệnh deploy.
+6. Trong tệp cấu hình workflow YAML, chỉ cần thêm cấu hình `environment: production` vào job `deploy`.

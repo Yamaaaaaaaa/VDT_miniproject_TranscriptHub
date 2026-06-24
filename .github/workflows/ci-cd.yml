@@ -1,55 +1,3 @@
-# Hướng dẫn Triển khai CI/CD lên VPS bằng GitHub Actions và Docker Compose
-
-Tài liệu này hướng dẫn từng bước chi tiết để cấu hình và chạy thực tế quy trình CI/CD tự động cho dự án **TranscriptHub** từ GitHub lên máy chủ **VPS** sử dụng **GitHub Actions** và **Docker Compose**.
-
----
-
-## 1. Chuẩn bị môi trường trên máy chủ VPS
-
-Để quá trình triển khai tự động thành công, máy chủ VPS của bạn cần chuẩn bị sẵn các điều kiện sau:
-
-### 1.1. Cài đặt Docker & Docker Compose
-Đảm bảo VPS đã được cài đặt Docker Engine và plugin Docker Compose. Bạn có thể kiểm tra phiên bản trên VPS:
-```bash
-docker --version
-docker compose version
-```
-
-### 1.2. Clone mã nguồn dự án về VPS
-Di chuyển vào thư mục ứng dụng (ví dụ: `/app`) và kéo mã nguồn dự án về VPS để cấu hình chạy Docker Compose:
-```bash
-cd /app
-git clone https://github.com/yourusername/VDT_miniproject_TranscriptHub.git
-cd VDT_miniproject_TranscriptHub
-```
-* **Lưu ý**: Hãy chắc chắn đường dẫn thư mục này khớp chính xác với biến bí mật `DEPLOY_PATH` mà bạn cấu hình trong GitHub Secrets (hoặc mặc định là `/app/VDT_miniproject_TranscriptHub`).
-
-### 1.3. Cấu hình bảo mật các biến môi trường (.env) trên VPS
-Vì các thông tin nhạy cảm (như `GEMINI_API_KEY`, mật khẩu database, JWT Secrets,...) đã được thêm vào `.gitignore` để tránh bị lộ khi đưa mã nguồn lên Git, bản cấu hình `.env` này cần được lưu trữ trực tiếp trên hệ thống tệp tin bảo mật của VPS:
-
-1. SSH trực tiếp vào máy chủ VPS của bạn.
-2. Di chuyển đến thư mục chứa microservices của dự án trên VPS:
-   ```bash
-   cd /app/VDT_miniproject_TranscriptHub/services_ms
-   ```
-3. Tạo file `.env` từ file mẫu:
-   ```bash
-   cp .env.example .env
-   ```
-4. Chỉnh sửa file `.env` để điền các thông số hoạt động thực tế trên VPS (sử dụng công cụ `nano` hoặc `vi`):
-   ```bash
-   nano .env
-   # Cập nhật các giá trị thực tế của VPS: GEMINI_API_KEY, JWT_SECRET, DATABASE_URL,...
-   ```
-5. Khi GitHub Actions chạy lệnh `docker compose up -d` qua SSH, Docker Compose trên VPS sẽ tự động đọc tệp `.env` cục bộ này để đưa vào container (thông qua khai báo `env_file: - ./services_ms/.env` trong docker-compose.yml).
-
----
-
-## 2. Tệp cấu hình Workflow GitHub Actions (`.github/workflows/ci-cd.yml`)
-
-Dưới đây là tệp cấu hình hoàn chỉnh hiện đang áp dụng trong codebase của dự án. Quy trình này sử dụng **Matrix Strategy** để xây dựng song song 9 Docker Images giúp tối ưu thời gian chạy pipeline, sau đó SSH vào VPS để cập nhật hệ thống.
-
-```yaml
 name: TranscriptHub CI/CD Pipeline
 
 on:
@@ -124,7 +72,7 @@ jobs:
   docker-build-and-push:
     needs: lint-and-test
     runs-on: ubuntu-latest
-    # Chỉ build/push khi merge/push vào dev_js và có cấu hình secrets
+    # Only push Docker images if pushing to dev_js branch and Docker secrets are present
     if: |
       github.event_name == 'push' && 
       secrets.DOCKER_USERNAME != '' && 
@@ -211,6 +159,7 @@ jobs:
   deploy:
     needs: docker-build-and-push
     runs-on: ubuntu-latest
+    # Only run deploy if push/dispatch on dev_js and SSH secrets are configured
     if: |
       github.event_name == 'push' && 
       secrets.VPS_HOST != '' && 
@@ -234,38 +183,3 @@ jobs:
             echo 'Cleaning old Docker images...'
             docker image prune -f
             echo 'Deployment Completed successfully!'
-```
-
----
-
-## 3. Các bước Kích hoạt và Kiểm tra kết quả
-
-### Bước 1: Kích hoạt Pipeline
-Tiến hành commit và push tệp tin cấu hình lên nhánh `dev_js` để kích hoạt workflow chạy tự động:
-```bash
-git add .github/workflows/ci-cd.yml
-git commit -m "ci: configure GitHub Actions workflow for dev_js"
-git push origin dev_js
-```
-
-### Bước 2: Theo dõi Pipeline trên GitHub
-1. Mở trang GitHub của repository dự án.
-2. Chọn tab **Actions**.
-3. Nhấp chọn tiến trình build đang chạy để theo dõi logs real-time của từng stage:
-   * **`lint-and-test`**: Cài đặt node_modules và chạy các bộ test case Backend, Frontend.
-   * **`docker-build-and-push`**: 9 luồng build chạy song song.
-   * **`deploy`**: SSH tới VPS để kích hoạt docker compose.
-
-### Bước 3: Xác minh trực tiếp trên VPS
-Sau khi job `deploy` báo thành công (tick xanh), bạn có thể SSH vào VPS để kiểm tra trạng thái hoạt động của các container:
-```bash
-# Di chuyển tới thư mục deploy
-cd /app/VDT_miniproject_TranscriptHub
-
-# Kiểm tra danh sách container đang chạy
-docker compose ps
-
-# Xem log runtime của các service để đảm bảo không bị crash khi cập nhật phiên bản mới
-docker compose logs -f --tail=100
-```
-*(Nếu hiển thị tất cả service ở trạng thái `Up` và logs chạy bình thường tức là quy trình deploy lên VPS đã hoàn thành thành công).*
