@@ -43,7 +43,9 @@ GitHub Repository Settings
 3. **`VPS_HOST`**:
    * *Nội dung*: Địa chỉ IP public của máy chủ VPS của bạn (ví dụ: `159.223.x.x`).
 4. **`VPS_USER`**:
-   * *Nội dung*: Tên người dùng SSH để đăng nhập vào VPS (thường là `ubuntu`, `debian` hoặc `root`).
+   * *Nội dung*: Tên người dùng SSH để đăng nhập vào VPS.
+     > [!IMPORTANT]
+     > Hãy cấu hình là **`sonasked1`** (tên user SSH của bạn trên VPS). Nếu bạn để trống hoặc cấu hình sai, pipeline sẽ dùng mặc định là `ubuntu` và lỗi kết nối sẽ xảy ra.
 5. **`SSH_PRIVATE_KEY`**:
    * *Nội dung*: Nội dung của tệp SSH Private Key tương ứng với Public Key được cấu hình trên VPS để cho phép SSH không cần mật khẩu.
      > [!WARNING]
