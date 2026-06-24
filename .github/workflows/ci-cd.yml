@@ -159,6 +159,7 @@ jobs:
   deploy:
     needs: docker-build-and-push
     runs-on: ubuntu-latest
+    # environment: production # Bỏ comment dòng này nếu muốn kích hoạt phê duyệt thủ công (Manual Approval)
     # Only run deploy if push/dispatch on dev_js and SSH secrets are configured
     if: |
       github.event_name == 'push' && 

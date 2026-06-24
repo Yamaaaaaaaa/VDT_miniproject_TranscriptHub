@@ -4,27 +4,71 @@ Tài liệu này hướng dẫn từng bước chi tiết để cấu hình và 
 
 ---
 
-## 1. Chuẩn bị môi trường trên máy chủ VPS
+## 1. Chuẩn bị môi trường trên máy chủ VPS (Từ hệ điều hành Ubuntu trắng)
 
-Để quá trình triển khai tự động thành công, máy chủ VPS của bạn cần chuẩn bị sẵn các điều kiện sau:
+Nếu máy chủ VPS của bạn là máy ảo mới tinh chưa có bất kỳ cài đặt nào (sử dụng hệ điều hành Ubuntu 22.04 LTS hoặc 24.04 LTS), hãy thực hiện các bước thiết lập môi trường nền tảng dưới đây:
 
-### 1.1. Cài đặt Docker & Docker Compose
-Đảm bảo VPS đã được cài đặt Docker Engine và plugin Docker Compose. Bạn có thể kiểm tra phiên bản trên VPS:
+### 1.1. Cập nhật hệ thống và cài đặt các công cụ cơ bản
+SSH vào VPS của bạn và chạy chuỗi lệnh sau để cập nhật danh sách gói và cài đặt các công cụ cơ bản:
 ```bash
-docker --version
-docker compose version
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y git curl ca-certificates gnupg lsb-release nano
 ```
 
-### 1.2. Clone mã nguồn dự án về VPS
-Di chuyển vào thư mục ứng dụng (ví dụ: `/app`) và kéo mã nguồn dự án về VPS để cấu hình chạy Docker Compose:
-```bash
-cd /app
-git clone https://github.com/yourusername/VDT_miniproject_TranscriptHub.git
-cd VDT_miniproject_TranscriptHub
-```
-* **Lưu ý**: Hãy chắc chắn đường dẫn thư mục này khớp chính xác với biến bí mật `DEPLOY_PATH` mà bạn cấu hình trong GitHub Secrets (hoặc mặc định là `/app/VDT_miniproject_TranscriptHub`).
+### 1.2. Cài đặt Docker Engine và Docker Compose (Bản chính thức từ Docker Hub)
+Chạy tuần tự các lệnh sau để cài đặt Docker:
 
-### 1.3. Cấu hình bảo mật các biến môi trường (.env) trên VPS
+1. **Thêm khóa GPG chính thức của Docker**:
+   ```bash
+   sudo mkdir -p /etc/apt/keyrings
+   curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+   ```
+
+2. **Thiết lập apt repository của Docker**:
+   ```bash
+   echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+   ```
+
+3. **Cài đặt các gói Docker**:
+   ```bash
+   sudo apt update
+   sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+   ```
+
+4. **Xác minh cài đặt thành công**:
+   ```bash
+   sudo docker --version
+   sudo docker compose version
+   ```
+
+### 1.3. Cấu hình phân quyền chạy Docker không cần sudo
+Mặc định lệnh `docker` yêu cầu quyền root (`sudo`). Để máy ảo GitHub Actions đăng nhập qua SSH có thể thực thi các lệnh Docker trực tiếp, bạn cần thêm user SSH vào nhóm `docker`:
+```bash
+# Thêm user hiện tại (ví dụ: ubuntu) vào nhóm docker
+sudo usermod -aG docker $USER
+
+# Áp dụng thay đổi quyền ngay lập tức mà không cần log out
+newgrp docker
+```
+*Xác minh: Thử chạy `docker ps` xem có lỗi phân quyền không. Nếu hiển thị danh sách trống mà không báo lỗi là đã thành công.*
+
+### 1.4. Thiết lập thư mục triển khai và kéo mã nguồn (Clone)
+1. **Tạo thư mục ứng dụng tại đường dẫn `/app` và phân quyền cho user**:
+   ```bash
+   sudo mkdir -p /app
+   sudo chown -R $USER:$USER /app
+   cd /app
+   ```
+2. **Kéo mã nguồn dự án về máy chủ**:
+   ```bash
+   git clone https://github.com/yourusername/VDT_miniproject_TranscriptHub.git
+   cd VDT_miniproject_TranscriptHub
+   ```
+   * **Lưu ý**: Hãy chắc chắn đường dẫn `/app/VDT_miniproject_TranscriptHub` khớp chính xác với biến bí mật `DEPLOY_PATH` mà bạn cấu hình trong GitHub Secrets (nếu cấu hình khác, hãy đổi theo thư mục thực tế của bạn).*
+
+---
+
+### 1.5. Cấu hình bảo mật các biến môi trường (.env) trên VPS
 Vì các thông tin nhạy cảm (như `GEMINI_API_KEY`, mật khẩu database, JWT Secrets,...) đã được thêm vào `.gitignore` để tránh bị lộ khi đưa mã nguồn lên Git, bản cấu hình `.env` này cần được lưu trữ trực tiếp trên hệ thống tệp tin bảo mật của VPS:
 
 1. SSH trực tiếp vào máy chủ VPS của bạn.
