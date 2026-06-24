@@ -14,6 +14,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -45,6 +51,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       permission: "manage_roles",
     },
     {
+      name: "Quản lý Cuộc họp",
+      href: "/meetings",
+      icon: Video,
+    },
+    {
       name: "Quản lý File",
       href: "/files",
       icon: FileAudio,
@@ -53,11 +64,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       name: "Quản lý Bản Dịch",
       href: "/transcripts",
       icon: FileText,
-    },
-    {
-      name: "Quản lý Cuộc họp",
-      href: "/meetings",
-      icon: Video,
     },
   ];
 
@@ -80,7 +86,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {/* Navigation Links */}
           <nav className="space-y-1.5">
             {menuItems.map((item) => {
-              if (item.permission && !hasPermission(item.permission)) {
+              if (item.permission && (!mounted || !hasPermission(item.permission))) {
                 return null;
               }
               const Icon = item.icon;
@@ -101,7 +107,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               );
             })}
 
-            {hasPermission("manage_system") && (
+            {mounted && hasPermission("manage_system") && (
               <Link
                 href="/system"
                 className={`flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all ${
@@ -165,11 +171,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 className="flex items-center gap-3 hover:bg-slate-50 p-1.5 rounded-2xl transition-all cursor-pointer text-left focus:outline-none"
               >
                 <div className="text-right">
-                  <p className="text-sm font-extrabold text-slate-800 leading-tight">{user?.name}</p>
-                  <p className="text-xs text-slate-400 capitalize">{user?.role?.toLowerCase()}</p>
+                  <p className="text-sm font-extrabold text-slate-800 leading-tight">{mounted ? user?.name : ""}</p>
+                  <p className="text-xs text-slate-400 capitalize">{mounted ? user?.role?.toLowerCase() : ""}</p>
                 </div>
                 <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center font-bold text-slate-600 capitalize">
-                  {user?.name?.[0] ?? "U"}
+                  {mounted ? (user?.name?.[0] ?? "U") : "U"}
                 </div>
               </button>
 
