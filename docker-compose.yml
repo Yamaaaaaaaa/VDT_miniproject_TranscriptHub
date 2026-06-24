@@ -184,11 +184,17 @@ services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
     container_name: transcripthub-zookeeper
+    restart: always
     ports:
       - "2181:2181"
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD-SHELL", "echo srvr | nc localhost 2181 | grep Mode"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - transcripthub_net
 
@@ -196,6 +202,7 @@ services:
   kafka:
     image: confluentinc/cp-kafka:7.4.0
     container_name: transcripthub-kafka
+    restart: always
     ports:
       - "9092:9092"
     environment:
@@ -206,7 +213,8 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy
     networks:
       - transcripthub_net
 
