@@ -139,6 +139,8 @@ export class FileController {
       pageNumber: response.page,
       pageSize: response.size,
       totalPages: response.totalPages,
+      first: response.page === 0,
+      last: response.page >= response.totalPages - 1 || response.totalPages === 0,
     };
   }
 
@@ -199,6 +201,8 @@ export class FileController {
       pageNumber: response.page,
       pageSize: response.size,
       totalPages: response.totalPages,
+      first: response.page === 0,
+      last: response.page >= response.totalPages - 1 || response.totalPages === 0,
     };
   }
 

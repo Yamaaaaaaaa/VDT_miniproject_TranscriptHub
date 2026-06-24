@@ -19,11 +19,11 @@ export default function HomePage() {
       try {
         const [filesRes, transcriptsRes] = await Promise.all([
           filesApi.list(0, 1).catch(() => ({ totalElements: 0 })),
-          transcriptsApi.getAll().catch(() => [])
+          transcriptsApi.getAll(0, 1).catch(() => ({ totalElements: 0 }))
         ]);
         setStats({
           filesCount: filesRes?.totalElements ?? 0,
-          transcriptsCount: transcriptsRes?.length ?? 0
+          transcriptsCount: transcriptsRes?.totalElements ?? 0
         });
       } catch (err) {
         console.error("Failed to load dashboard stats:", err);

@@ -78,7 +78,7 @@ export default function TranscriptViewPage() {
 
   if (loading) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-6" suppressHydrationWarning>
         <div className="h-28 bg-white border border-slate-100 rounded-3xl shadow-sm animate-pulse" />
         <div className="space-y-4">
           {[1, 2, 3, 4].map((i) => (
@@ -114,7 +114,7 @@ export default function TranscriptViewPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" suppressHydrationWarning>
       {/* Sticky Header with audio player */}
       <div className="sticky top-0 z-40">
         <TranscriptHeader

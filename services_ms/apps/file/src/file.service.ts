@@ -461,8 +461,8 @@ export class FileService implements OnModuleInit {
     const take = size;
 
     const [items, total] = await Promise.all([
-      this.fileRepo.findMany(skip, take),
-      this.fileRepo.count(),
+      this.fileRepo.findManyByUploaderId(uploaderId, skip, take),
+      this.fileRepo.countByUploaderId(uploaderId),
     ]);
 
     return {

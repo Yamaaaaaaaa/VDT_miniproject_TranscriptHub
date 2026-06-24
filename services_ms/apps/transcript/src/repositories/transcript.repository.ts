@@ -23,6 +23,18 @@ export class TranscriptRepository {
     });
   }
 
+  async findMany(skip: number, take: number) {
+    return this.prisma.transcript.findMany({
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take,
+    });
+  }
+
+  async count() {
+    return this.prisma.transcript.count();
+  }
+
   async create(audioFileId: string) {
     return this.prisma.transcript.create({
       data: {

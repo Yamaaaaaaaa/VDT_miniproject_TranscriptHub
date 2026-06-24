@@ -24,9 +24,27 @@ export class TranscriptService {
     return transcript;
   }
 
-  async getAllTranscripts() {
-    console.log('Fetching all transcripts');
-    return this.transcriptRepo.findAll();
+  async getAllTranscripts(page: number, size: number) {
+    console.log(`Fetching all transcripts - page: ${page}, size: ${size}`);
+    const skip = page * size;
+    const take = size;
+
+    const [items, total] = await Promise.all([
+      this.transcriptRepo.findMany(skip, take),
+      this.transcriptRepo.count(),
+    ]);
+
+    const totalPages = Math.ceil(total / size);
+
+    return {
+      content: items,
+      totalElements: total,
+      pageNumber: page,
+      pageSize: size,
+      totalPages: totalPages,
+      first: page === 0,
+      last: page >= totalPages - 1 || totalPages === 0,
+    };
   }
 
   async generateTranscriptAsync(fileId: string) {

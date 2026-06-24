@@ -47,9 +47,9 @@ export default function FileManagementPage() {
     try {
       const [filesData, transcriptsData] = await Promise.all([
         filesApi.list(page, size),
-        transcriptsApi.getAll().catch(e => {
+        transcriptsApi.getAll(0, 100).catch(e => {
           console.warn("Failed to load transcripts:", e);
-          return [];
+          return { content: [] };
         })
       ]);
       if (filesData) {
@@ -59,9 +59,12 @@ export default function FileManagementPage() {
       }
       if (transcriptsData) {
         const transcriptsMap: Record<string, any> = {};
-        transcriptsData.forEach((t: any) => {
-          transcriptsMap[t.audioFileId] = t;
-        });
+        const transcriptsList = transcriptsData.content || transcriptsData || [];
+        if (Array.isArray(transcriptsList)) {
+          transcriptsList.forEach((t: any) => {
+            transcriptsMap[t.audioFileId] = t;
+          });
+        }
         setTranscripts(transcriptsMap);
       }
     } catch (error) {
@@ -82,11 +85,14 @@ export default function FileManagementPage() {
 
     const interval = setInterval(async () => {
       try {
-        const allTranscripts = await transcriptsApi.getAll();
+        const allTranscriptsData = await transcriptsApi.getAll(0, 100);
+        const allTranscripts = allTranscriptsData.content || allTranscriptsData || [];
         const updatedMap: Record<string, any> = {};
-        allTranscripts.forEach((t: any) => {
-          updatedMap[t.audioFileId] = t;
-        });
+        if (Array.isArray(allTranscripts)) {
+          allTranscripts.forEach((t: any) => {
+            updatedMap[t.audioFileId] = t;
+          });
+        }
         setTranscripts(updatedMap);
       } catch (error) {
         console.error("Lỗi khi cập nhật trạng thái bản dịch:", error);
@@ -106,11 +112,14 @@ export default function FileManagementPage() {
       }));
       await transcriptsApi.generate(fileId);
       // Reload to update status in list
-      const allTranscripts = await transcriptsApi.getAll();
+      const allTranscriptsData = await transcriptsApi.getAll(0, 100);
+      const allTranscripts = allTranscriptsData.content || allTranscriptsData || [];
       const updatedMap: Record<string, any> = {};
-      allTranscripts.forEach((t: any) => {
-        updatedMap[t.audioFileId] = t;
-      });
+      if (Array.isArray(allTranscripts)) {
+        allTranscripts.forEach((t: any) => {
+          updatedMap[t.audioFileId] = t;
+        });
+      }
       setTranscripts(updatedMap);
     } catch (error) {
       console.error("Không thể kích hoạt dịch thuật:", error);
@@ -625,7 +634,7 @@ export default function FileManagementPage() {
                 </div>
 
                 {/* Phân trang Pagination */}
-                {totalPages > 1 && (
+                {totalElements > 0 && (
                   <div className="flex items-center justify-between border-t border-slate-100 pt-4 mt-2">
                     <p className="text-xs text-slate-500 font-bold">
                       Hiển thị {files.length} trên tổng số {totalElements} tệp tin

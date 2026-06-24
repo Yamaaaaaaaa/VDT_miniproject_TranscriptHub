@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { transcriptsApi, filesApi } from "@/lib/api";
 import Link from "next/link";
 import {
-  FileText, RefreshCw, Trash2, CheckCircle2, AlertCircle, Loader2, Sparkles, FolderOpen, Eye, Pencil
+  FileText, RefreshCw, Trash2, CheckCircle2, AlertCircle, Loader2, Sparkles, FolderOpen, Eye, Pencil,
+  ChevronLeft, ChevronRight
 } from "lucide-react";
 
 export default function TranscriptsListPage() {
@@ -13,18 +14,29 @@ export default function TranscriptsListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [page, setPage] = useState(0);
+  const [size] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalElements, setTotalElements] = useState(0);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       const [transcriptsData, filesData] = await Promise.all([
-        transcriptsApi.getAll(),
+        transcriptsApi.getAll(page, size),
         filesApi.list(0, 100).catch((err) => {
           console.warn("Failed to load files list mapping:", err);
           return { content: [] };
         })
       ]);
-      setTranscripts(transcriptsData || []);
+      if (transcriptsData) {
+        setTranscripts(transcriptsData.content || transcriptsData || []);
+        setTotalPages(transcriptsData.totalPages || 1);
+        setTotalElements(transcriptsData.totalElements || 0);
+      } else {
+        setTranscripts([]);
+      }
       setFiles(filesData?.content || []);
     } catch (err: any) {
       console.error(err);
@@ -32,7 +44,7 @@ export default function TranscriptsListPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page, size]);
 
   useEffect(() => {
     loadData();
@@ -45,15 +57,19 @@ export default function TranscriptsListPage() {
 
     const interval = setInterval(async () => {
       try {
-        const transcriptsData = await transcriptsApi.getAll();
-        setTranscripts(transcriptsData || []);
+        const transcriptsData = await transcriptsApi.getAll(page, size);
+        if (transcriptsData) {
+          setTranscripts(transcriptsData.content || transcriptsData || []);
+          setTotalPages(transcriptsData.totalPages || 1);
+          setTotalElements(transcriptsData.totalElements || 0);
+        }
       } catch (err) {
         console.error("Lỗi cập nhật trạng thái tự động:", err);
       }
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [transcripts]);
+  }, [transcripts, page, size]);
 
   const handleDelete = async (id: number) => {
     if (!confirm("Bạn có chắc chắn muốn xóa bản dịch này? Hành động này không thể hoàn tác.")) return;
@@ -264,6 +280,31 @@ export default function TranscriptsListPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Pagination Controls */}
+          {totalElements > 0 && (
+            <div className="flex justify-between items-center border-t border-slate-100 pt-4 mt-2">
+              <span className="text-xs text-slate-400 font-bold">
+                Trang {page + 1} / {totalPages}
+              </span>
+              <div className="flex gap-1">
+                <button 
+                  onClick={() => setPage(prev => Math.max(0, prev - 1))}
+                  className="p-1.5 border border-slate-200 hover:border-slate-300 rounded-xl text-slate-600 disabled:opacity-40 transition-all cursor-pointer"
+                  disabled={page === 0}
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <button 
+                  onClick={() => setPage(prev => Math.min(totalPages - 1, prev + 1))}
+                  className="p-1.5 border border-slate-200 hover:border-slate-300 rounded-xl text-slate-600 disabled:opacity-40 transition-all cursor-pointer"
+                  disabled={page === totalPages - 1}
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

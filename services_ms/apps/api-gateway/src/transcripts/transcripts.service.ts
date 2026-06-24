@@ -14,9 +14,9 @@ export class TranscriptsService {
       .pipe(catchError((err) => throwError(() => err)));
   }
 
-  getAllTranscripts(): Observable<any> {
+  getAllTranscripts(page: number, size: number): Observable<any> {
     return this.transcriptClient
-      .send('get_all_transcripts', {})
+      .send('get_all_transcripts', { page, size })
       .pipe(catchError((err) => throwError(() => err)));
   }
 

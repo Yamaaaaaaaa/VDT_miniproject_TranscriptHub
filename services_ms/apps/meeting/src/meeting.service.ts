@@ -157,6 +157,8 @@ export class MeetingService {
       pageNumber: page,
       pageSize: size,
       totalPages: totalPages,
+      first: page === 0,
+      last: page >= totalPages - 1 || totalPages === 0,
     };
   }
 

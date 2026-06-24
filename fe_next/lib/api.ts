@@ -76,7 +76,7 @@ export const filesApi = {
 };
 
 export const transcriptsApi = {
-    getAll: () => api.get("/transcripts").then((res) => res.data.result ?? res.data),
+    getAll: (page = 0, size = 10) => api.get(`/transcripts?page=${page}&size=${size}`).then((res) => res.data.result ?? res.data),
     getByAudioFile: (audioFileId: string) => api.get(`/transcripts/file/${audioFileId}`).then((res) => res.data),
     generate: (fileId: string) => api.post("/transcripts/generate", { fileId }).then((res) => res.data.result ?? res.data),
     delete: (id: number) => api.delete(`/transcripts/${id}`).then((res) => res.data.result ?? res.data),

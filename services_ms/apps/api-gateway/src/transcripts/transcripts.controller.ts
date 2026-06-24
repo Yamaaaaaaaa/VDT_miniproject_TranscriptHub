@@ -5,12 +5,13 @@ import {
   Delete,
   Param,
   Body,
+  Query,
   UseGuards,
   HttpException,
   HttpStatus,
   ParseIntPipe,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags, ApiOperation, ApiBody } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags, ApiOperation, ApiBody, ApiQuery } from '@nestjs/swagger';
 import { JwtIdentityGuard } from '../identity/guards/jwt-identity.guard';
 import { TranscriptsService } from './transcripts.service';
 
@@ -29,8 +30,16 @@ export class TranscriptsController {
 
   @Get()
   @ApiOperation({ summary: 'Get all transcripts' })
-  getAllTranscripts() {
-    return this.transcriptsService.getAllTranscripts();
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 0 })
+  @ApiQuery({ name: 'size', required: false, type: Number, example: 10 })
+  getAllTranscripts(
+    @Query('page') page = '0',
+    @Query('size') size = '10',
+  ) {
+    return this.transcriptsService.getAllTranscripts(
+      parseInt(page, 10),
+      parseInt(size, 10),
+    );
   }
 
   @Post('generate')

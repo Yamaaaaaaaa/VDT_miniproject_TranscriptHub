@@ -324,7 +324,7 @@ export default function MeetingManagement() {
           </div>
 
           {/* Pagination Controls */}
-          {totalPages > 1 && (
+          {totalElements > 0 && (
             <div className="flex justify-between items-center border-t border-slate-100 pt-4 mt-2">
               <span className="text-xs text-slate-400 font-bold">
                 Trang {page + 1} / {totalPages}

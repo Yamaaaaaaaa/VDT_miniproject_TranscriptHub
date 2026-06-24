@@ -18,8 +18,10 @@ export class TranscriptController {
   }
 
   @MessagePattern('get_all_transcripts')
-  async getAllTranscripts() {
-    return this.transcriptService.getAllTranscripts();
+  async getAllTranscripts(@Payload() payload: { page?: number; size?: number }) {
+    const page = payload?.page ?? 0;
+    const size = payload?.size ?? 10;
+    return this.transcriptService.getAllTranscripts(page, size);
   }
 
   @MessagePattern('generate_transcript_manual')
