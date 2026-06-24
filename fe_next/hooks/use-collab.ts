@@ -41,6 +41,7 @@ export interface UseCollabOptions {
    * Lưu ý: session.user.role là system role (ADMIN/USER) — KHÔNG dùng cái đó.
    */
   meetingRole?: string;
+  session?: any;
   initialSegments?: TranscriptSegment[];
   onContentsChange?: (segments: CollabSegment[]) => void;
 }
@@ -66,7 +67,7 @@ function pickColor(seed: string): string {
 interface CollabInstance {
   doc: Y.Doc;
   ySegmentsArray: Y.Array<Y.Map<any>>;
-  connect: () => Promise<void>;
+  connect: (session: any) => void;
   disconnect: () => void;
   buildSegments: () => CollabSegment[];
   addSubscriber: (fn: () => void) => () => void;
@@ -120,10 +121,9 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
       subscribers.forEach((fn) => fn());
     };
 
-    const connect = async () => {
+    const connect = (session: any) => {
       if (provider || instance._connectDone) return;
 
-      const session = await getSession();
       const token = session?.accessToken;
       if (!token) {
         console.warn("[Collab] Không có access token — chế độ chỉ đọc");
@@ -171,6 +171,11 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
             });
           });
         }
+        notifySubscribers();
+      });
+
+      // Đăng ký lắng nghe sự kiện thay đổi trạng thái kết nối mạng của WebSocket Provider (Online/Offline, Reconnecting...)
+      provider.on("status", () => {
         notifySubscribers();
       });
 
@@ -226,6 +231,7 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
 export function useCollab({
   meetingId,
   meetingRole,
+  session,
   initialSegments,
   onContentsChange,
 }: UseCollabOptions) {
@@ -331,13 +337,13 @@ export function useCollab({
     const unsub = collab.addSubscriber(updateState);
     updateState();
     return unsub;
-  }, [collab]);
+  }, [collab, meetingRole]);
 
   // Mount/unmount: kết nối khi mount lần đầu, ngắt kết nối khi unmount lần cuối.
   // FIX #4: dùng timer 150ms để hấp thụ double-mount/unmount của React StrictMode,
   // ngăn việc tạo thêm kết nối WebSocket thứ hai.
   useEffect(() => {
-    if (!collab) return;
+    if (!collab || !session?.accessToken) return;
 
     // Hủy pending disconnect từ lần cleanup StrictMode trước
     if (collab._disconnectTimer) {
@@ -346,7 +352,7 @@ export function useCollab({
     }
 
     collab._mountedCount++;
-    collab.connect();
+    collab.connect(session);
 
     return () => {
       collab._mountedCount--;
@@ -361,7 +367,7 @@ export function useCollab({
         }, 150);
       }
     };
-  }, [collab, meetingId]);
+  }, [collab, meetingId, session?.accessToken]);
 
   // ---------------------------------------------------------------------------
   // Public API
