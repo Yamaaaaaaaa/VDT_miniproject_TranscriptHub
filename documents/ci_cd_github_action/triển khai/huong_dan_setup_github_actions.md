@@ -38,6 +38,8 @@ GitHub Repository Settings
    * *Nội dung*: Tên tài khoản Docker Hub của bạn (ví dụ: `yourdockerhubusername`).
 2. **`DOCKER_PASSWORD`**:
    * *Nội dung*: **Access Token** của tài khoản Docker Hub (Đăng nhập Docker Hub, vào *Account Settings -> Security -> New Access Token* để sinh mã). Không nên dùng mật khẩu chính để đảm bảo bảo mật.
+     > [!IMPORTANT]
+     > Khi tạo Access Token trên Docker Hub, bạn **phải chọn quyền (Access Permissions) là Read & Write** (hoặc **Read, Write, Delete**). Nếu vô tình chọn **Read-only**, pipeline vẫn đăng nhập thành công nhưng bước push image lên Docker Hub sẽ bị lỗi `401 Unauthorized: access token has insufficient scopes`.
 3. **`VPS_HOST`**:
    * *Nội dung*: Địa chỉ IP public của máy chủ VPS của bạn (ví dụ: `159.223.x.x`).
 4. **`VPS_USER`**:
@@ -84,3 +86,23 @@ Nếu bạn muốn quy trình CI/CD tạm dừng để người quản trị ki�
 4. Thêm tài khoản GitHub của bạn hoặc người chịu trách nhiệm phê duyệt.
 5. Nhấn **Save protection rules**.
 6. Trong tệp cấu hình workflow YAML, chỉ cần thêm cấu hình `environment: production` vào job `deploy`.
+
+---
+
+## 4. Lưu ý quan trọng khi sử dụng Secrets trong biểu thức điều kiện (if)
+
+> [!WARNING]
+> **Không được tham chiếu trực tiếp ngữ cảnh `secrets` trong điều kiện `if` ở cấp độ Job hoặc Step** (ví dụ: `if: secrets.DOCKER_USERNAME != ''`).
+> 
+> * **Lý do**: GitHub Actions hạn chế việc sử dụng trực tiếp đối tượng `secrets` trong các biểu thức điều kiện `if` để đảm bảo an toàn thông tin, tránh nguy cơ rò rỉ dữ liệu nhạy cảm ra file log. Nếu cố tình viết, bạn sẽ nhận được lỗi phân tích cú pháp: `Unrecognized named-value: 'secrets'`.
+> * **Cách giải quyết**:
+>   1. Kiểm tra các điều kiện chung như sự kiện push (`github.event_name == 'push'`) hoặc nhánh cụ thể (`github.ref == 'refs/heads/dev_js'`).
+>   2. Nếu thực sự cần kiểm tra sự tồn tại của một Secret, hãy truyền Secret đó thành một biến môi trường ở cấp Job/Step, sau đó kiểm tra biến môi trường đó:
+>      ```yaml
+>      env:
+>        MY_SECRET_ENV: ${{ secrets.MY_SECRET }}
+>      steps:
+>        - name: Run step
+>          if: env.MY_SECRET_ENV != ''
+>          run: echo "Secret is configured!"
+>      ```
