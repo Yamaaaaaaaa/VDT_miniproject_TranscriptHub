@@ -16,6 +16,7 @@ import { FileGateway } from './gateways/file.gateway';
     }),
     PrismaModule,
     ClientsModule.registerAsync([
+      // TCP client để giao tiếp với file-service (get metadata, check existence)
       {
         name: 'FILES_CLIENT',
         useFactory: (configService: ConfigService) => ({
@@ -23,6 +24,25 @@ import { FileGateway } from './gateways/file.gateway';
           options: {
             host: configService.get<string>('FILE_SERVICE_HOST', 'localhost'),
             port: configService.get<number>('FILE_SERVICE_TCP_PORT', 3004),
+          },
+        }),
+        inject: [ConfigService],
+      },
+      // Kafka producer — dùng để emit jobs vào transcription-jobs và transcription-dlq
+      {
+        name: 'TRANSCRIPT_KAFKA_PRODUCER',
+        useFactory: (configService: ConfigService) => ({
+          transport: Transport.KAFKA,
+          options: {
+            client: {
+              clientId: 'transcript-service-producer',
+              brokers: configService
+                .get<string>('KAFKA_BOOTSTRAP_SERVERS', 'kafka:9092')
+                .split(','),
+            },
+            producer: {
+              allowAutoTopicCreation: true,
+            },
           },
         }),
         inject: [ConfigService],

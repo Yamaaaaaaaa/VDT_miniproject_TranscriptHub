@@ -38,6 +38,10 @@ async function bootstrap() {
       consumer: {
         groupId: 'transcript-group',
         allowAutoTopicCreation: true,
+        // Tăng timeout để tránh consumer bị kích khỏi group khi xử lý các task transcription chậm (ví dụ: file lớn, Gemini API phản hồi lâu)
+        sessionTimeout: 90000,    // 90 giây
+        rebalanceTimeout: 120000, // 120 giây
+        heartbeatInterval: 25000, // 25 giây
       },
     },
   });

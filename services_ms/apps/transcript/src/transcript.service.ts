@@ -1,16 +1,83 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ClientKafka } from '@nestjs/microservices';
 import { AppException, ErrorCodes } from '../../../libs/common/src/exceptions/error-code';
 import { TranscriptRepository } from './repositories/transcript.repository';
 import { FileGateway } from './gateways/file.gateway';
 
+// Simple custom Semaphore for concurrency control without extra dependencies
+class Semaphore {
+  private permits: number;
+  private queue: (() => void)[] = [];
+
+  constructor(permits: number) {
+    this.permits = permits;
+  }
+
+  async acquire(): Promise<void> {
+    if (this.permits > 0) {
+      this.permits--;
+      return;
+    }
+    return new Promise<void>((resolve) => {
+      this.queue.push(resolve);
+    });
+  }
+
+  release(): void {
+    if (this.queue.length > 0) {
+      const next = this.queue.shift();
+      if (next) next();
+    } else {
+      this.permits++;
+    }
+  }
+}
+
 @Injectable()
-export class TranscriptService {
+export class TranscriptService implements OnModuleInit {
+  private readonly semaphore = new Semaphore(3); // MAX_CONCURRENT_TRANSCRIPTIONS = 3
+
   constructor(
     private readonly transcriptRepo: TranscriptRepository,
     private readonly fileGateway: FileGateway,
     private readonly configService: ConfigService,
+    @Inject('TRANSCRIPT_KAFKA_PRODUCER') private readonly kafkaProducer: ClientKafka,
   ) {}
+
+  async onModuleInit() {
+    await this.kafkaProducer.connect();
+    console.log('📡 TranscriptService connected to Kafka Producer client');
+    
+    // Recovery of stuck processing jobs on startup
+    await this.recoverStuckJobs();
+  }
+
+  private async recoverStuckJobs() {
+    try {
+      console.log('[Startup Recovery] Checking for stuck PROCESSING transcriptions...');
+      const stuckTranscripts = await this.transcriptRepo.findByStatus('PROCESSING');
+      if (stuckTranscripts.length > 0) {
+        console.log(`[Startup Recovery] Found ${stuckTranscripts.length} stuck PROCESSING transcriptions. Re-enqueueing...`);
+        for (const transcript of stuckTranscripts) {
+          const jobPayload = {
+            fileId: transcript.audioFileId,
+            transcriptId: transcript.id,
+            attempt: 1,
+          };
+          console.log(`[Startup Recovery] Re-enqueueing job for fileId: ${transcript.audioFileId}, transcriptId: ${transcript.id}`);
+          this.kafkaProducer.emit('transcription-jobs', {
+            key: String(transcript.id),
+            value: JSON.stringify(jobPayload),
+          });
+        }
+      } else {
+        console.log('[Startup Recovery] No stuck PROCESSING transcriptions found.');
+      }
+    } catch (err) {
+      console.error('[Startup Recovery] Failed to recover stuck transcriptions:', err);
+    }
+  }
 
   async getTranscriptByAudioFileId(audioFileId: string) {
     console.log(`Fetching transcript for audioFileId: ${audioFileId}`);
@@ -49,22 +116,7 @@ export class TranscriptService {
 
   async generateTranscriptAsync(fileId: string) {
     console.log(`Checking transcript status for fileId: ${fileId}`);
-    let transcript = await this.transcriptRepo.findByAudioFileId(fileId);
-
-    if (!transcript) {
-      transcript = await this.transcriptRepo.create(fileId);
-      this.triggerBackgroundTranscription(fileId, transcript.id);
-    } else if (transcript.status === 'FAILED') {
-      transcript = await this.transcriptRepo.updateStatusAndContent(
-        transcript.id,
-        'PROCESSING',
-      );
-      this.triggerBackgroundTranscription(fileId, transcript.id);
-    } else {
-      console.log(
-        `Transcript for fileId ${fileId} already exists in state: ${transcript.status}`,
-      );
-    }
+    await this.enqueueTranscriptionJob(fileId);
   }
 
   async generateTranscriptManually(fileId: string) {
@@ -84,49 +136,130 @@ export class TranscriptService {
       throw new AppException(ErrorCodes.INVALID_KEY, 'Failed to verify audio file existence');
     }
 
+    return this.enqueueTranscriptionJob(fileId);
+  }
+
+  async enqueueTranscriptionJob(fileId: string) {
     let transcript = await this.transcriptRepo.findByAudioFileId(fileId);
 
     if (!transcript) {
       transcript = await this.transcriptRepo.create(fileId);
-      this.triggerBackgroundTranscription(fileId, transcript.id);
     } else if (transcript.status === 'FAILED') {
       transcript = await this.transcriptRepo.updateStatusAndContent(
         transcript.id,
         'PROCESSING',
+        '',
+        { segments: [] },
       );
-      this.triggerBackgroundTranscription(fileId, transcript.id);
+    } else if (transcript.status === 'PROCESSING') {
+      console.log(`Transcript for fileId ${fileId} is already in PROCESSING state. Re-enqueueing.`);
     } else {
       console.log(
         `Transcript for fileId ${fileId} already exists in state: ${transcript.status}`,
       );
+      return transcript;
     }
+
+    const jobPayload = {
+      fileId,
+      transcriptId: transcript.id,
+      attempt: 1,
+    };
+
+    console.log(`[Kafka Producer] Publishing job to transcription-jobs for fileId: ${fileId}, transcriptId: ${transcript.id}`);
+    this.kafkaProducer.emit('transcription-jobs', {
+      key: String(transcript.id),
+      value: JSON.stringify(jobPayload),
+    });
 
     return transcript;
   }
 
-  private triggerBackgroundTranscription(fileId: string, transcriptId: number) {
-    setImmediate(async () => {
-      console.log(
-        `Background thread started transcription for fileId: ${fileId}, transcriptId: ${transcriptId}`,
+  async processTranscriptionJob(payload: { fileId: string; transcriptId: number; attempt: number }) {
+    const { fileId, transcriptId, attempt } = payload;
+    
+    // Acquire semaphore permit to respect the concurrency limit of 3
+    console.log(`[Job Worker] Acquiring semaphore permit for transcript ID: ${transcriptId}`);
+    await this.semaphore.acquire();
+    console.log(`[Job Worker] Semaphore permit acquired. Processing transcript ID: ${transcriptId} (Attempt: ${attempt})`);
+    
+    try {
+      // 1. Double check current DB status to avoid redundant processing if already COMPLETED
+      const transcript = await this.transcriptRepo.findById(transcriptId);
+      if (!transcript || transcript.status === 'COMPLETED') {
+        console.log(`[Job Worker] Transcript ID ${transcriptId} is already completed or not found. Skipping.`);
+        return;
+      }
+
+      // 2. Perform AI Transcription
+      const result = await this.transcribe(fileId);
+      
+      // 3. Save successful result to database
+      await this.updateTranscriptStatus(
+        transcriptId,
+        'COMPLETED',
+        result.rawText,
+        { segments: result.segments },
       );
-      try {
-        const result = await this.transcribe(fileId);
-        await this.updateTranscriptStatus(
+      
+      console.log(`[Job Worker] Successfully transcribed fileId: ${fileId}, transcriptId: ${transcriptId}`);
+    } catch (err: any) {
+      console.error(
+        `[Job Worker] Error transcribing fileId: ${fileId}, transcriptId: ${transcriptId} (Attempt: ${attempt})`,
+        err,
+      );
+
+      const isRateLimit = err?.status === 429 || err?.message?.includes('429');
+      const maxRetries = 3;
+
+      if (attempt < maxRetries) {
+        const nextAttempt = attempt + 1;
+        const backoffDelay = Math.pow(2, attempt) * 2000; // Exponential backoff: 2s, 4s, 8s
+        
+        console.log(`[Job Worker] Retrying in ${backoffDelay}ms (attempt ${nextAttempt}/${maxRetries})...`);
+        
+        // Wait for the backoff duration inside this asynchronous context
+        await new Promise<void>((resolve) => setTimeout(resolve, backoffDelay));
+
+        const retryPayload = {
+          fileId,
           transcriptId,
-          'COMPLETED',
-          result.rawText,
-          { segments: result.segments },
-        );
-      } catch (err) {
-        console.error(
-          `Failed to transcribe fileId: ${fileId}, transcriptId: ${transcriptId}`,
-          err,
-        );
+          attempt: nextAttempt,
+        };
+
+        // Publish job back to queue
+        this.kafkaProducer.emit('transcription-jobs', {
+          key: String(transcriptId),
+          value: JSON.stringify(retryPayload),
+        });
+      } else {
+        console.error(`[Job Worker] Max retries (${maxRetries}) reached for transcript ID: ${transcriptId}. Sending to DLQ.`);
+
+        // Update database to FAILED status
         await this.updateTranscriptStatus(transcriptId, 'FAILED', '', {
           segments: [],
+          error: err?.message || String(err),
+        });
+
+        // Emit to Dead Letter Queue (DLQ)
+        const dlqPayload = {
+          fileId,
+          transcriptId,
+          attempt,
+          error: err?.message || String(err),
+          failedAt: new Date().toISOString(),
+        };
+
+        this.kafkaProducer.emit('transcription-dlq', {
+          key: String(transcriptId),
+          value: JSON.stringify(dlqPayload),
         });
       }
-    });
+    } finally {
+      // Always release semaphore permit
+      this.semaphore.release();
+      console.log(`[Job Worker] Released semaphore permit for transcript ID: ${transcriptId}`);
+    }
   }
 
   private async updateTranscriptStatus(
@@ -243,8 +376,8 @@ export class TranscriptService {
     console.log(`[File API] Upload complete. File: ${fileInfo.name}, State: ${fileInfo.state}`);
 
     return {
-      name: fileInfo.name,        // ví dụ: "files/abc123xyz"
-      uri: fileInfo.uri,          // URI dùng trong generateContent
+      name: fileInfo.name, // ví dụ: "files/abc123xyz"
+      uri: fileInfo.uri,   // URI dùng trong generateContent
       mimeType: fileInfo.mimeType,
     };
   }
@@ -457,9 +590,11 @@ Requirements:
 
     if (!response.ok) {
       const errBody = await response.text();
-      throw new Error(
+      const err = new Error(
         `Gemini API returned non-success code: ${response.status} - ${errBody}`,
       );
+      (err as any).status = response.status;
+      throw err;
     }
 
     // ── BƯỚC 7: Parse kết quả JSON ────────────────────────────────────────────
@@ -493,7 +628,7 @@ Requirements:
   /**
    * Parse JSON từ Gemini với cơ chế tự phục hồi (recovery) khi bị truncate.
    *
-   * Nguyên nhân truncate: Gemini đạt giới hạn maxOutputTokens và cắt giữa chừng
+   * Nguyên nhân truncate: Gemini đạt giới hạn maxOutputTokens và cắt giữ chừng
    * → chuỗi JSON chưa đóng → JSON.parse() throw SyntaxError.
    *
    * Chiến lược recovery:

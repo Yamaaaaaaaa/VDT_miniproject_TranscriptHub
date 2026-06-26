@@ -67,4 +67,11 @@ export class TranscriptRepository {
       where: { id },
     });
   }
+
+  async findByStatus(status: string) {
+    return this.prisma.transcript.findMany({
+      where: { status },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
 }
