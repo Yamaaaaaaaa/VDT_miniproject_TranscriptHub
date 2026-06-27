@@ -454,7 +454,7 @@ export default function TranscriptEditPage() {
                 mode="edit"
                 editedContent={editedSegments[segment.id]}
                 canEdit={collabState.canEdit}
-                getYText={getYText}
+                getYText={collabState.synced ? getYText : undefined}
                 onContentChange={(content) => handleContentChange(segment.id, content)}
                 onSpeakerChange={(segmentId, speaker) => updateSpeaker(segmentId, speaker)}
                 onSegmentClick={handleSegmentClick}
