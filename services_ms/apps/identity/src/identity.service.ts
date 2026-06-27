@@ -339,10 +339,15 @@ export class IdentityService {
   }
 
   async getMeetingRole(meetingId: string, userId: number) {
-    // Stub: in a real system, query meeting-participants table.
-    // Returns a default role for now.
-    if (userId === 1) return 'HOST';
-    if (userId === 2) return 'EDITOR';
-    return 'VIEWER';
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(meetingId)) {
+      throw new AppException(ErrorCodes.MEMBER_NOT_FOUND, 'Invalid meeting ID format');
+    }
+
+    const member = await this.identityRepo.findMeetingMember(meetingId, userId);
+    if (!member) {
+      throw new AppException(ErrorCodes.MEMBER_NOT_FOUND, `User is not a member of this meeting`);
+    }
+    return member.role;
   }
 }

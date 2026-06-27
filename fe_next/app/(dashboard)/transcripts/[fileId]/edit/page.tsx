@@ -11,6 +11,7 @@ import { TranscriptSegmentItem } from "@/components/transcript/TranscriptSegment
 import { TranscriptHistoryModal } from "@/components/transcript/TranscriptHistoryModal";
 import { TranscriptSegment } from "@/types/transcript";
 import { meetingsApi } from "@/lib/api";
+import ConfirmModal from "@/components/confirm-modal";
 import {
   FileText,
   AlertCircle,
@@ -29,6 +30,39 @@ export default function TranscriptEditPage() {
   const params = useParams();
   const router = useRouter();
   const fileId = params.fileId as string;
+
+  // Reusable Confirm Modal State
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    isDanger?: boolean;
+    isAlert?: boolean;
+    type?: 'warning' | 'success' | 'info' | 'error';
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+    isDanger: false,
+    isAlert: false,
+    type: 'warning',
+  });
+
+  const triggerAlert = (title: string, message: string, type: 'success' | 'error' | 'info' | 'warning' = 'success') => {
+    setConfirmState({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        setConfirmState(prev => ({ ...prev, isOpen: false }));
+      },
+      isDanger: type === 'error',
+      isAlert: true,
+      type,
+    });
+  };
 
   const {
     transcript,
@@ -54,11 +88,18 @@ export default function TranscriptEditPage() {
   const [meetingId, setMeetingId] = useState<string>("");
   const [meetingRole, setMeetingRole] = useState<string>("VIEWER");
   const [showNoPermissionModal, setShowNoPermissionModal] = useState<boolean>(false);
+  const [noPermissionTitle, setNoPermissionTitle] = useState<string>("Không có quyền truy cập");
+  const [noPermissionDesc, setNoPermissionDesc] = useState<string>("Bạn không phải là thành viên của cuộc họp này hoặc không có quyền chỉnh sửa bản dịch. Hệ thống sẽ chuyển bạn về danh sách.");
 
   useEffect(() => {
     meetingsApi.getByAudioFile(fileId)
       .then(async (meeting: any) => {
-        if (!meeting?.id) return;
+        if (!meeting?.id) {
+          setNoPermissionTitle("Không tìm thấy cuộc họp");
+          setNoPermissionDesc("Bản dịch này không được liên kết với cuộc họp nào nên không thể chỉnh sửa. Hệ thống sẽ tự động quay lại.");
+          setShowNoPermissionModal(true);
+          return;
+        }
 
         setMeetingId(meeting.id);
 
@@ -76,7 +117,13 @@ export default function TranscriptEditPage() {
         const status = err?.response?.status;
         const msg = err?.response?.data?.message ?? "";
         const code = err?.response?.data?.code;
-        if (status === 403 || msg.includes("permission") || code === 1007) {
+        if (status === 404 || code === 5001) {
+          setNoPermissionTitle("Không tìm thấy cuộc họp");
+          setNoPermissionDesc("Bản dịch này không được liên kết với cuộc họp nào nên không thể chỉnh sửa. Hệ thống sẽ tự động quay lại.");
+          setShowNoPermissionModal(true);
+        } else if (status === 403 || msg.includes("permission") || code === 1007) {
+          setNoPermissionTitle("Không có quyền truy cập");
+          setNoPermissionDesc("Bạn không phải là thành viên của cuộc họp này hoặc không có quyền chỉnh sửa bản dịch. Hệ thống sẽ chuyển bạn về danh sách.");
           setShowNoPermissionModal(true);
         }
       });
@@ -222,7 +269,7 @@ export default function TranscriptEditPage() {
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (err) {
       console.error(err);
-      alert("Lưu thất bại. Vui lòng thử lại.");
+      triggerAlert("Lưu thất bại", "Lưu bản dịch thất bại. Vui lòng thử lại.", "error");
     } finally {
       setIsSaving(false);
     }
@@ -436,9 +483,9 @@ export default function TranscriptEditPage() {
               <ShieldAlert size={32} />
             </div>
             <div className="space-y-2">
-              <h3 className="text-lg font-black text-slate-800 tracking-tight">Không có quyền truy cập</h3>
+              <h3 className="text-lg font-black text-slate-800 tracking-tight">{noPermissionTitle}</h3>
               <p className="text-xs text-slate-400 font-bold leading-relaxed">
-                Bạn không phải là thành viên của cuộc họp này hoặc không có quyền chỉnh sửa bản dịch. Hệ thống sẽ chuyển bạn về danh sách.
+                {noPermissionDesc}
               </p>
             </div>
             <button
@@ -462,6 +509,17 @@ export default function TranscriptEditPage() {
           formatDuration={formatDuration}
         />
       )}
+      {/* Reusable Confirm Modal */}
+      <ConfirmModal
+        isOpen={confirmState.isOpen}
+        title={confirmState.title}
+        message={confirmState.message}
+        onConfirm={confirmState.onConfirm}
+        onCancel={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
+        isDanger={confirmState.isDanger}
+        isAlert={confirmState.isAlert}
+        type={confirmState.type}
+      />
     </div>
   );
 }

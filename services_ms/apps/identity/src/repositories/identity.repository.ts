@@ -165,4 +165,14 @@ export class IdentityRepository {
       where: { id },
     });
   }
+
+  async findMeetingMember(meetingId: string, userId: number) {
+    return this.prisma.meetingMember.findFirst({
+      where: {
+        meetingId,
+        userId,
+      },
+    });
+  }
 }
+

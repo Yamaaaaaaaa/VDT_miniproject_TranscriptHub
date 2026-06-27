@@ -55,11 +55,13 @@ export const identityService = {
       clearTimeout(timeout);
       if (response.ok) {
         const data = await response.json();
-        return data.role || 'VIEWER';
+        if (data.role && ['HOST', 'EDITOR', 'VIEWER'].includes(data.role)) {
+          return data.role;
+        }
       }
-    } catch (_) {
-      // network unavailable
+      throw new Error(`Identity service returned status ${response.status}`);
+    } catch (err) {
+      throw new Error(`Access Denied: Unable to verify meeting membership. Detail: ${err.message}`);
     }
-    return 'VIEWER';
   },
 };

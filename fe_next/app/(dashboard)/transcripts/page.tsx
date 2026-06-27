@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { transcriptsApi, filesApi } from "@/lib/api";
+import { transcriptsApi, filesApi, meetingsApi } from "@/lib/api";
 import Link from "next/link";
+import ConfirmModal from "@/components/confirm-modal";
 import {
   FileText, RefreshCw, Trash2, CheckCircle2, AlertCircle, Loader2, Sparkles, FolderOpen, Eye, Pencil,
   ChevronLeft, ChevronRight
@@ -11,8 +12,56 @@ import {
 export default function TranscriptsListPage() {
   const [transcripts, setTranscripts] = useState<any[]>([]);
   const [files, setFiles] = useState<any[]>([]);
+  const [meetings, setMeetings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    isDanger?: boolean;
+    isAlert?: boolean;
+    type?: 'warning' | 'success' | 'info' | 'error';
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+    isDanger: false,
+    isAlert: false,
+    type: 'warning',
+  });
+
+  const triggerConfirm = (title: string, message: string, onConfirm: () => void, isDanger = false) => {
+    setConfirmState({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        onConfirm();
+        setConfirmState(prev => ({ ...prev, isOpen: false }));
+      },
+      isDanger,
+      isAlert: false,
+      type: isDanger ? 'error' : 'warning',
+    });
+  };
+
+  const triggerAlert = (title: string, message: string, type: 'success' | 'error' | 'info' | 'warning' = 'success') => {
+    setConfirmState({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        setConfirmState(prev => ({ ...prev, isOpen: false }));
+      },
+      isDanger: type === 'error',
+      isAlert: true,
+      type,
+    });
+  };
 
   const [page, setPage] = useState(0);
   const [size] = useState(10);
@@ -23,10 +72,14 @@ export default function TranscriptsListPage() {
     setLoading(true);
     setError("");
     try {
-      const [transcriptsData, filesData] = await Promise.all([
+      const [transcriptsData, filesData, meetingsData] = await Promise.all([
         transcriptsApi.getAll(page, size),
         filesApi.list(0, 100).catch((err) => {
           console.warn("Failed to load files list mapping:", err);
+          return { content: [] };
+        }),
+        meetingsApi.list(0, 100).catch((err) => {
+          console.warn("Failed to load meetings list mapping:", err);
           return { content: [] };
         })
       ]);
@@ -38,6 +91,7 @@ export default function TranscriptsListPage() {
         setTranscripts([]);
       }
       setFiles(filesData?.content || []);
+      setMeetings(meetingsData?.content || meetingsData || []);
     } catch (err: any) {
       console.error(err);
       setError(err?.response?.data?.message || "Không thể tải danh sách bản dịch.");
@@ -71,20 +125,30 @@ export default function TranscriptsListPage() {
     return () => clearInterval(interval);
   }, [transcripts, page, size]);
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("Bạn có chắc chắn muốn xóa bản dịch này? Hành động này không thể hoàn tác.")) return;
-    try {
-      await transcriptsApi.delete(id);
-      alert("Xóa bản dịch thành công!");
-      loadData();
-    } catch (err) {
-      console.error(err);
-      alert("Xóa bản dịch thất bại.");
-    }
+  const handleDelete = (id: number) => {
+    triggerConfirm(
+      "Xóa bản dịch",
+      "Bạn có chắc chắn muốn xóa bản dịch này? Hành động này không thể hoàn tác.",
+      async () => {
+        try {
+          await transcriptsApi.delete(id);
+          triggerAlert("Thành công", "Xóa bản dịch thành công!", "success");
+          loadData();
+        } catch (err) {
+          console.error(err);
+          triggerAlert("Lỗi", "Xóa bản dịch thất bại.", "error");
+        }
+      },
+      true
+    );
   };
 
   const getFileForTranscript = (audioFileId: string) => {
     return files.find((f) => f.id === audioFileId);
+  };
+
+  const getMeetingForTranscript = (audioFileId: string) => {
+    return meetings.find((m) => m.audioFileId === audioFileId);
   };
 
   // Formatting helpers
@@ -199,6 +263,8 @@ export default function TranscriptsListPage() {
                 ) : (
                   transcripts.map((t) => {
                     const relatedFile = getFileForTranscript(t.audioFileId);
+                    const relatedMeeting = getMeetingForTranscript(t.audioFileId);
+                    const hasMeeting = !!relatedMeeting;
                     const fileName = relatedFile?.fileName || `File âm thanh (${t.audioFileId.slice(0, 8)})`;
                     const fileSize = relatedFile ? formatBytes(relatedFile.fileSize) : "N/A";
                     const fileDuration = relatedFile ? formatDuration(relatedFile.durationSeconds) : "N/A";
@@ -248,13 +314,15 @@ export default function TranscriptsListPage() {
                                   <Eye size={12} />
                                   <span>Xem</span>
                                 </Link>
-                                <Link
-                                  href={`/transcripts/${t.audioFileId}/edit`}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700 rounded-xl transition-all"
-                                >
-                                  <Pencil size={12} />
-                                  <span>Chỉnh sửa</span>
-                                </Link>
+                                {hasMeeting && (
+                                  <Link
+                                    href={`/transcripts/${t.audioFileId}/edit`}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700 rounded-xl transition-all"
+                                  >
+                                    <Pencil size={12} />
+                                    <span>Chỉnh sửa</span>
+                                  </Link>
+                                )}
                               </>
                             ) : (
                               <button
@@ -307,6 +375,18 @@ export default function TranscriptsListPage() {
           )}
         </div>
       )}
+
+      {/* Reusable Confirm Modal */}
+      <ConfirmModal
+        isOpen={confirmState.isOpen}
+        title={confirmState.title}
+        message={confirmState.message}
+        onConfirm={confirmState.onConfirm}
+        onCancel={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
+        isDanger={confirmState.isDanger}
+        isAlert={confirmState.isAlert}
+        type={confirmState.type}
+      />
     </div>
   );
 }

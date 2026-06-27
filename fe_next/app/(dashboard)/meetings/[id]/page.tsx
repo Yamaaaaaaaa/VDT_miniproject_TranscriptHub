@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { meetingsApi, usersApi, filesApi } from '@/lib/api';
 import { useAuth } from '@/hooks/use-auth';
+import ConfirmModal from '@/components/confirm-modal';
 import { 
   Video, 
   ArrowLeft, 
@@ -72,6 +73,34 @@ function MeetingDetailInner({ id }: MeetingDetailInnerProps) {
   const [meetingsList, setMeetingsList] = useState<any[]>([]);
   
   const [loading, setLoading] = useState<boolean>(true);
+
+  // Reusable Confirm Modal State
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    isDanger?: boolean;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+    isDanger: false,
+  });
+
+  const triggerConfirm = (title: string, message: string, onConfirm: () => void, isDanger = false) => {
+    setConfirmState({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        onConfirm();
+        setConfirmState(prev => ({ ...prev, isOpen: false }));
+      },
+      isDanger,
+    });
+  };
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [membersLoading, setMembersLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
@@ -243,22 +272,27 @@ function MeetingDetailInner({ id }: MeetingDetailInnerProps) {
   };
 
   // Handle member removal
-  const handleRemoveMember = async (targetUserId: number) => {
+  const handleRemoveMember = (targetUserId: number) => {
     if (!id) return;
-    if (confirm('Bạn có chắc muốn xóa thành viên này khỏi cuộc họp?')) {
-      setMembersLoading(true);
-      try {
-        await meetingsApi.removeMember(id, targetUserId);
-        addToast('success', 'Đã xóa thành viên khỏi cuộc họp.');
-        const updatedList = await meetingsApi.getMembers(id);
-        setMembers(updatedList || []);
-      } catch (err: any) {
-        console.error(err);
-        addToast('danger', err.response?.data?.message || err.message || 'Lỗi khi xóa thành viên.');
-      } finally {
-        setMembersLoading(false);
-      }
-    }
+    triggerConfirm(
+      "Xóa thành viên khỏi cuộc họp",
+      "Bạn có chắc muốn xóa thành viên này khỏi cuộc họp?",
+      async () => {
+        setMembersLoading(true);
+        try {
+          await meetingsApi.removeMember(id, targetUserId);
+          addToast('success', 'Đã xóa thành viên khỏi cuộc họp.');
+          const updatedList = await meetingsApi.getMembers(id);
+          setMembers(updatedList || []);
+        } catch (err: any) {
+          console.error(err);
+          addToast('danger', err.response?.data?.message || err.message || 'Lỗi khi xóa thành viên.');
+        } finally {
+          setMembersLoading(false);
+        }
+      },
+      true
+    );
   };
 
   const handleBack = () => {
@@ -659,6 +693,16 @@ function MeetingDetailInner({ id }: MeetingDetailInnerProps) {
 
         </div>
       )}
+
+      {/* Reusable Confirm Modal */}
+      <ConfirmModal
+        isOpen={confirmState.isOpen}
+        title={confirmState.title}
+        message={confirmState.message}
+        onConfirm={confirmState.onConfirm}
+        onCancel={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
+        isDanger={confirmState.isDanger}
+      />
     </div>
   );
 }

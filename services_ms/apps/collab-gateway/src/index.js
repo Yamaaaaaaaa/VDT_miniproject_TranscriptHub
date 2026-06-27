@@ -98,6 +98,16 @@ function handleMessage(conn, docEntry, message) {
 
   switch (messageType) {
     case messageSync: { // 0 — sync handshake / doc update
+      // Check message subtype for read-only connections
+      const syncDecoder = decoding.createDecoder(message);
+      decoding.readVarUint(syncDecoder); // consume messageSync (type 0)
+      const syncType = decoding.readVarUint(syncDecoder);
+
+      if (conn.isReadOnly && syncType !== 0) {
+        logger.warn(`[WS] Read-only user ${conn.userId} blocked from sending sync update type ${syncType}`);
+        break;
+      }
+
       const encoder = encoding.createEncoder();
       encoding.writeVarUint(encoder, messageSync);
       syncProtocol.readSyncMessage(decoder, encoder, docEntry.doc, null);
@@ -181,7 +191,6 @@ wss.on('connection', async (conn, req) => {
 
     // Receive and dispatch messages from this client
     conn.on('message', (rawMessage) => {
-      if (conn.isReadOnly) return;
       try {
         handleMessage(conn, docEntry, new Uint8Array(rawMessage));
       } catch (err) {

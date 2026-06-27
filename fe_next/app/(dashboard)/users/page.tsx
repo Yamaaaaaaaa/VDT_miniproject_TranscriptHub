@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { usersApi, rolesApi } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 import { PermissionGuard } from "@/components/permission-guard";
+import ConfirmModal from "@/components/confirm-modal";
 import { Plus, Edit2, Trash2, ShieldAlert, X, Users, Shield, UserCheck, ShieldCheck, Mail, Phone, Info } from "lucide-react";
 
 export default function UsersManagementPage() {
@@ -11,6 +12,54 @@ export default function UsersManagementPage() {
   const [users, setUsers] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Reusable Confirm Modal State
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    isDanger?: boolean;
+    isAlert?: boolean;
+    type?: 'warning' | 'success' | 'info' | 'error';
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+    isDanger: false,
+    isAlert: false,
+    type: 'warning',
+  });
+
+  const triggerConfirm = (title: string, message: string, onConfirm: () => void, isDanger = false) => {
+    setConfirmState({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        onConfirm();
+        setConfirmState(prev => ({ ...prev, isOpen: false }));
+      },
+      isDanger,
+      isAlert: false,
+      type: isDanger ? 'error' : 'warning',
+    });
+  };
+
+  const triggerAlert = (title: string, message: string, type: 'success' | 'error' | 'info' | 'warning' = 'success') => {
+    setConfirmState({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        setConfirmState(prev => ({ ...prev, isOpen: false }));
+      },
+      isDanger: type === 'error',
+      isAlert: true,
+      type,
+    });
+  };
   
   // Trạng thái cho Modals
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -53,19 +102,25 @@ export default function UsersManagementPage() {
 
 
   // Xóa người dùng
-  const handleDelete = async (id: number) => {
+  const handleDelete = (id: number) => {
     if (user && Number(user.id) === id) {
-      alert("Bạn không thể tự xóa tài khoản của chính mình!");
+      triggerAlert("Không hợp lệ", "Bạn không thể tự xóa tài khoản của chính mình!", "error");
       return;
     }
-    if (!confirm("Bạn có chắc chắn muốn xóa thành viên này không?")) return;
-    try {
-      await usersApi.remove(id);
-      alert("Xóa thành viên thành công!");
-      loadUsers();
-    } catch {
-      alert("Xóa thất bại. Bạn không đủ quyền hạn.");
-    }
+    triggerConfirm(
+      "Xóa thành viên",
+      "Bạn có chắc chắn muốn xóa thành viên này không?",
+      async () => {
+        try {
+          await usersApi.remove(id);
+          triggerAlert("Thành công", "Xóa thành viên thành công!", "success");
+          loadUsers();
+        } catch {
+          triggerAlert("Lỗi", "Xóa thất bại. Bạn không đủ quyền hạn.", "error");
+        }
+      },
+      true
+    );
   };
 
   // Mở modal tạo mới người dùng
@@ -97,11 +152,11 @@ export default function UsersManagementPage() {
         });
       }
 
-      alert(`Thêm thành viên thành công! Mật khẩu mặc định của tài khoản là: ${defaultPassword}`);
+      triggerAlert("Thành công", `Thêm thành viên thành công! Mật khẩu mặc định của tài khoản là: ${defaultPassword}`, "success");
       setIsCreateModalOpen(false);
       loadUsers();
     } catch (err: any) {
-      alert(err.response?.data?.message ?? "Không thể tạo tài khoản mới.");
+      triggerAlert("Lỗi", err.response?.data?.message ?? "Không thể tạo tài khoản mới.", "error");
     }
   };
 
@@ -123,11 +178,11 @@ export default function UsersManagementPage() {
 
     try {
       await usersApi.update(selectedUser.id, formData);
-      alert("Cập nhật thành công!");
+      triggerAlert("Thành công", "Cập nhật hồ sơ thành công!", "success");
       setIsEditModalOpen(false);
       loadUsers();
     } catch {
-      alert("Không thể cập nhật hồ sơ.");
+      triggerAlert("Lỗi", "Không thể cập nhật hồ sơ.", "error");
     }
   };
 
@@ -145,11 +200,11 @@ export default function UsersManagementPage() {
 
     try {
       await usersApi.updateUserRoles(selectedUser.id, selectedRoles);
-      alert("Cập nhật vai trò người dùng thành công!");
+      triggerAlert("Thành công", "Cập nhật vai trò người dùng thành công!", "success");
       setIsRoleModalOpen(false);
       loadUsers();
     } catch {
-      alert("Cập nhật vai trò thất bại.");
+      triggerAlert("Lỗi", "Cập nhật vai trò thất bại.", "error");
     }
   };
 
@@ -531,6 +586,18 @@ export default function UsersManagementPage() {
           </div>
         </div>
       )}
+
+      {/* Reusable Confirm Modal */}
+      <ConfirmModal
+        isOpen={confirmState.isOpen}
+        title={confirmState.title}
+        message={confirmState.message}
+        onConfirm={confirmState.onConfirm}
+        onCancel={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
+        isDanger={confirmState.isDanger}
+        isAlert={confirmState.isAlert}
+        type={confirmState.type}
+      />
     </div>
   );
 }

@@ -5,10 +5,12 @@ import { filesApi, transcriptsApi } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 import Link from "next/link";
 import axios from "axios";
+import ConfirmModal from "@/components/confirm-modal";
 import {
   UploadCloud, FileAudio, Trash2, Play, Pause, Edit2,
   Music, HardDrive, Clock, ChevronLeft, ChevronRight, X,
-  CheckCircle2, AlertCircle, Loader2, Volume2, Sparkles, FolderOpen
+  CheckCircle2, AlertCircle, Loader2, Volume2, Sparkles, FolderOpen,
+  Plus, RefreshCw
 } from "lucide-react";
 
 export default function FileManagementPage() {
@@ -26,11 +28,60 @@ export default function FileManagementPage() {
   // Upload progress & UI states
   const [uploadQueue, setUploadQueue] = useState<any[]>([]);
   const [dragActive, setDragActive] = useState(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
   // Edit filename modal
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingFile, setEditingFile] = useState<any | null>(null);
   const [newFileName, setNewFileName] = useState("");
+
+  // Reusable Confirm Modal State
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    isDanger?: boolean;
+    isAlert?: boolean;
+    type?: 'warning' | 'success' | 'info' | 'error';
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+    isDanger: false,
+    isAlert: false,
+    type: 'warning',
+  });
+
+  const triggerConfirm = (title: string, message: string, onConfirm: () => void, isDanger = false) => {
+    setConfirmState({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        onConfirm();
+        setConfirmState(prev => ({ ...prev, isOpen: false }));
+      },
+      isDanger,
+      isAlert: false,
+      type: isDanger ? 'error' : 'warning',
+    });
+  };
+
+  const triggerAlert = (title: string, message: string, type: 'success' | 'error' | 'info' | 'warning' = 'success') => {
+    setConfirmState({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        setConfirmState(prev => ({ ...prev, isOpen: false }));
+      },
+      isDanger: type === 'error',
+      isAlert: true,
+      type,
+    });
+  };
 
   // Premium audio player state
   const [playingFile, setPlayingFile] = useState<any | null>(null);
@@ -123,7 +174,7 @@ export default function FileManagementPage() {
       setTranscripts(updatedMap);
     } catch (error) {
       console.error("Không thể kích hoạt dịch thuật:", error);
-      alert("Kích hoạt dịch thuật thất bại.");
+      triggerAlert("Lỗi kích hoạt", "Kích hoạt dịch thuật thất bại.", "error");
       loadFiles();
     }
   };
@@ -218,7 +269,7 @@ export default function FileManagementPage() {
       const droppedFiles = Array.from(e.dataTransfer.files);
       const audioFiles = droppedFiles.filter(file => file.type.startsWith("audio/"));
       if (audioFiles.length === 0) {
-        alert("Chỉ chấp nhận các tệp tin âm thanh!");
+        triggerAlert("Lỗi định dạng", "Chỉ chấp nhận các tệp tin âm thanh!", "error");
         return;
       }
       audioFiles.forEach(file => processUpload(file));
@@ -230,7 +281,7 @@ export default function FileManagementPage() {
       const selectedFiles = Array.from(e.target.files);
       const audioFiles = selectedFiles.filter(file => file.type.startsWith("audio/"));
       if (audioFiles.length === 0) {
-        alert("Chỉ chấp nhận các tệp tin âm thanh!");
+        triggerAlert("Lỗi định dạng", "Chỉ chấp nhận các tệp tin âm thanh!", "error");
         return;
       }
       audioFiles.forEach(file => processUpload(file));
@@ -296,20 +347,26 @@ export default function FileManagementPage() {
   };
 
   // Delete file
-  const handleDelete = async (fileId: string) => {
-    if (!confirm("Bạn có chắc chắn muốn xóa tệp tin này không? Việc này cũng sẽ xóa file trên bộ nhớ lưu trữ.")) return;
-    try {
-      await filesApi.delete(fileId);
-      alert("Xóa tệp tin thành công!");
-      if (playingFile && playingFile.id === fileId) {
-        setPlayingFile(null);
-        setIsPlaying(false);
-      }
-      loadFiles();
-    } catch (error) {
-      console.error(error);
-      alert("Xóa tệp tin thất bại. Bạn không đủ quyền.");
-    }
+  const handleDelete = (fileId: string) => {
+    triggerConfirm(
+      "Xóa tệp tin",
+      "Bạn có chắc chắn muốn xóa tệp tin này không? Việc này cũng sẽ xóa file trên bộ nhớ lưu trữ.",
+      async () => {
+        try {
+          await filesApi.delete(fileId);
+          triggerAlert("Thành công", "Xóa tệp tin thành công!", "success");
+          if (playingFile && playingFile.id === fileId) {
+            setPlayingFile(null);
+            setIsPlaying(false);
+          }
+          loadFiles();
+        } catch (error) {
+          console.error(error);
+          triggerAlert("Lỗi", "Xóa tệp tin thất bại. Bạn không đủ quyền.", "error");
+        }
+      },
+      true
+    );
   };
 
   // Open Rename Modal
@@ -326,7 +383,7 @@ export default function FileManagementPage() {
 
     try {
       await filesApi.updateMetadata(editingFile.id, newFileName.trim());
-      alert("Đổi tên tệp tin thành công!");
+      triggerAlert("Thành công", "Đổi tên tệp tin thành công!", "success");
       setIsEditModalOpen(false);
       loadFiles();
       if (playingFile && playingFile.id === editingFile.id) {
@@ -334,7 +391,7 @@ export default function FileManagementPage() {
       }
     } catch (error) {
       console.error(error);
-      alert("Đổi tên thất bại.");
+      triggerAlert("Lỗi", "Đổi tên thất bại.", "error");
     }
   };
 
@@ -375,16 +432,235 @@ export default function FileManagementPage() {
 
   return (
     <div className="space-y-8 pb-32">
+      {/* Header section */}
+      <div className="flex justify-between items-center flex-wrap gap-4">
+        <div>
+          <h2 className="text-2xl font-black text-slate-800 tracking-tight">Quản lý File</h2>
+          <p className="text-slate-400 text-xs mt-1">Tải lên, phát lại và quản lý các tệp âm thanh ghi âm cuộc họp</p>
+        </div>
+        <div className="flex gap-2">
+          <button 
+            onClick={loadFiles} 
+            className="flex items-center gap-2 px-4 py-2 border border-slate-200 hover:border-slate-300 text-slate-600 bg-white hover:bg-slate-50 font-bold text-xs rounded-xl transition-all cursor-pointer disabled:opacity-50" 
+            disabled={loading}
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            <span>Làm mới</span>
+          </button>
+          <button 
+            onClick={() => setIsUploadModalOpen(true)} 
+            className="flex items-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-red-500/20 transition-all cursor-pointer"
+          >
+            <Plus size={14} />
+            <span>Tải lên tệp âm thanh mới</span>
+          </button>
+        </div>
+      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Vùng Drag Drop Upload (Cột trái) */}
-        <div className="lg:col-span-1 space-y-6">
-          <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm shadow-slate-100/50">
-            <h3 className="text-base font-extrabold text-slate-800 mb-4 flex items-center gap-2">
-              <Sparkles size={18} className="text-red-500 animate-pulse" />
-              Tải lên tệp âm thanh mới
-            </h3>
-            
+      {/* Danh sách tệp tin */}
+      <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm shadow-slate-100/50">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+            <FolderOpen size={18} className="text-red-500" />
+            Danh sách tệp tin âm thanh
+          </h3>
+        </div>
+
+        {loading ? (
+          <div className="h-64 flex flex-col items-center justify-center text-slate-400 gap-2">
+            <Loader2 size={36} className="animate-spin text-red-500" />
+            <p className="text-xs font-bold">Đang tải danh sách tệp tin...</p>
+          </div>
+        ) : files.length === 0 ? (
+          <div className="h-64 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-100 rounded-2xl">
+            <FileAudio size={48} className="text-slate-300 mb-2" />
+            <p className="text-sm font-bold text-slate-500">Chưa có tệp tin nào</p>
+            <p className="text-xs text-slate-400 mt-1">Nhấp vào nút "Tải lên tệp âm thanh mới" ở trên để tải lên ngay</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    <th className="pb-3 pl-2 w-10"></th>
+                    <th className="pb-3">Tên file</th>
+                    <th className="pb-3">Dung lượng</th>
+                    <th className="pb-3">Thời lượng</th>
+                    <th className="pb-3">Trạng thái</th>
+                    <th className="pb-3">Bản dịch AI</th>
+                    <th className="pb-3">Ngày tạo</th>
+                    <th className="pb-3 pr-2 text-right">Hành động</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50 text-xs">
+                  {files.map((file) => {
+                    const isCurrentPlaying = playingFile?.id === file.id;
+                    return (
+                      <tr key={file.id} className="hover:bg-slate-50/50 transition-all group">
+                        <td className="py-3.5 pl-2">
+                          {file.status === "READY" ? (
+                            <button
+                              onClick={() => togglePlay(file)}
+                              className={`p-2 rounded-xl transition-all cursor-pointer ${
+                                isCurrentPlaying
+                                  ? "bg-red-50 text-red-500"
+                                  : "bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-500"
+                              }`}
+                            >
+                              {isCurrentPlaying && isPlaying ? <Pause size={14} /> : <Play size={14} />}
+                            </button>
+                          ) : (
+                            <div className="p-2 bg-slate-50 text-slate-300 rounded-xl">
+                              <Loader2 size={14} className="animate-spin" />
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-3.5 font-bold text-slate-800 max-w-[240px] truncate" title={file.fileName}>
+                          {file.fileName}
+                        </td>
+                        <td className="py-3.5 text-slate-500">{formatBytes(file.fileSize)}</td>
+                        <td className="py-3.5 text-slate-500 font-bold">{formatDuration(file.durationSeconds)}</td>
+                        <td className="py-3.5">
+                          {file.status === "READY" && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-green-600 bg-green-50 border border-green-100 rounded-full px-2 py-0.5">
+                              <CheckCircle2 size={10} /> Sẵn sàng
+                            </span>
+                          )}
+                          {file.status === "UPLOADING" && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-100 rounded-full px-2 py-0.5">
+                              <Loader2 size={10} className="animate-spin" /> Đang tải
+                            </span>
+                          )}
+                          {file.status === "FAILED" && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 rounded-full px-2 py-0.5">
+                              <AlertCircle size={10} /> Lỗi tải
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5">
+                          {(() => {
+                            const transcript = transcripts[file.id];
+                            const status = transcript ? transcript.status : "NO_TRANSCRIPT";
+                            
+                            if (status === "PROCESSING") {
+                              return (
+                                <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-100 rounded-full px-2 py-0.5 animate-pulse">
+                                  <Loader2 size={10} className="animate-spin" /> Đang dịch...
+                                </span>
+                              );
+                            } else if (status === "COMPLETED") {
+                              return (
+                                <Link
+                                  href={`/transcripts/${file.id}/view`}
+                                  className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 hover:bg-red-500 hover:text-white rounded-full px-2 py-0.5 transition-all"
+                                >
+                                  Xem bản dịch
+                                </Link>
+                              );
+                            } else if (status === "FAILED") {
+                              return (
+                                <button
+                                  onClick={() => handleTriggerTranscription(file.id)}
+                                  className="inline-flex items-center gap-1 text-[10px] font-bold text-red-500 hover:bg-red-50 border border-red-200 hover:border-red-300 rounded-full px-2 py-0.5 transition-all cursor-pointer"
+                                >
+                                  Thử lại
+                                </button>
+                              );
+                            } else {
+                              return (
+                                <button
+                                  onClick={() => handleTriggerTranscription(file.id)}
+                                  className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 hover:bg-slate-100 border border-slate-200 hover:border-slate-300 rounded-full px-2 py-0.5 transition-all cursor-pointer"
+                                >
+                                  Dịch AI
+                                </button>
+                              );
+                            }
+                          })()}
+                        </td>
+                        <td className="py-3.5 text-slate-400">{formatDate(file.createdAt)}</td>
+                        <td className="py-3.5 pr-2 text-right">
+                          {(user?.role === "ADMIN" || Number(file.uploaderId) === Number(user?.id)) ? (
+                            <div className="flex items-center justify-end gap-1.5 transition-all">
+                              <button
+                                onClick={() => openRenameModal(file)}
+                                className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-700 rounded-lg transition-all cursor-pointer"
+                                title="Đổi tên"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button
+                                onClick={() => handleDelete(file.id)}
+                                className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-all cursor-pointer"
+                                title="Xóa tệp"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-slate-400 italic font-medium pr-2">Đọc dữ liệu</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Phân trang Pagination */}
+            {totalElements > 0 && (
+              <div className="flex items-center justify-between border-t border-slate-100 pt-4 mt-2">
+                <p className="text-xs text-slate-500 font-bold">
+                  Hiển thị {files.length} trên tổng số {totalElements} tệp tin
+                </p>
+                
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setPage(p => Math.max(0, p - 1))}
+                    disabled={page === 0}
+                    className="p-1.5 border border-slate-200 hover:border-slate-300 rounded-xl text-slate-600 disabled:opacity-40 disabled:hover:border-slate-200 transition-all cursor-pointer"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span className="text-xs font-bold px-3">
+                    Trang {page + 1} / {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                    disabled={page === totalPages - 1}
+                    className="p-1.5 border border-slate-200 hover:border-slate-300 rounded-xl text-slate-600 disabled:opacity-40 disabled:hover:border-slate-200 transition-all cursor-pointer"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Modal Tải tệp mới */}
+      {isUploadModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-lg w-full border border-slate-100 shadow-2xl animate-scale-up space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-50">
+              <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                <Sparkles size={18} className="text-red-500 animate-pulse" />
+                Tải lên tệp âm thanh mới
+              </h3>
+              <button
+                onClick={() => {
+                  setIsUploadModalOpen(false);
+                  loadFiles();
+                }}
+                className="p-1.5 hover:bg-slate-50 text-slate-400 hover:text-slate-700 rounded-full transition-all cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
             <div
               onDragEnter={handleDrag}
               onDragLeave={handleDrag}
@@ -412,260 +688,68 @@ export default function FileManagementPage() {
                 MP3, WAV, M4A, OGG
               </span>
             </div>
-          </div>
 
-          {/* Hàng đợi Upload (Upload Queue) */}
-          {uploadQueue.length > 0 && (
-            <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm shadow-slate-100/50 space-y-4">
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                Tiến độ tải lên ({uploadQueue.length})
-              </h4>
-              
-              <div className="space-y-3.5 max-h-80 overflow-y-auto pr-1">
-                {uploadQueue.map((item) => (
-                  <div key={item.id} className="border border-slate-100 rounded-xl p-3.5 space-y-2 bg-slate-50/50 relative overflow-hidden">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-slate-700 truncate">{item.name}</p>
-                        <p className="text-[10px] text-slate-400 font-bold mt-0.5">{formatBytes(item.size)}</p>
-                      </div>
-                      
-                      {/* Trạng thái Status badge */}
-                      {item.status === "initializing" && (
-                        <span className="text-[9px] bg-blue-50 text-blue-500 border border-blue-100 rounded-full px-1.5 py-0.5 font-bold animate-pulse">
-                          Khởi tạo...
-                        </span>
-                      )}
-                      {item.status === "uploading" && (
-                        <span className="text-[9px] bg-amber-50 text-amber-500 border border-amber-100 rounded-full px-1.5 py-0.5 font-bold">
-                          Đang tải lên
-                        </span>
-                      )}
-                      {item.status === "completing" && (
-                        <span className="text-[9px] bg-indigo-50 text-indigo-500 border border-indigo-100 rounded-full px-1.5 py-0.5 font-bold animate-pulse">
-                          Xử lý...
-                        </span>
-                      )}
-                      {item.status === "failed" && (
-                        <span className="text-[9px] bg-red-50 text-red-500 border border-red-100 rounded-full px-1.5 py-0.5 font-bold flex items-center gap-1">
-                          <AlertCircle size={10} /> Lỗi
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Thanh phần trăm tiến độ Progress bar */}
-                    {item.status === "uploading" && (
-                      <div className="space-y-1">
-                        <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                          <div
-                            className="bg-red-500 h-1.5 rounded-full transition-all duration-300"
-                            style={{ width: `${item.progress}%` }}
-                          />
-                        </div>
-                        <div className="flex justify-end">
-                          <span className="text-[9px] font-bold text-slate-400">{item.progress}%</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Danh sách tệp tin (Cột phải) */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm shadow-slate-100/50">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
-                <FolderOpen size={18} className="text-red-500" />
-                Danh sách tệp tin âm thanh
-              </h3>
-              <button
-                onClick={loadFiles}
-                className="text-xs font-bold text-red-500 hover:bg-red-50 rounded-xl px-3 py-1.5 border border-transparent hover:border-red-100 transition-all cursor-pointer"
-              >
-                Làm mới
-              </button>
-            </div>
-
-            {loading ? (
-              <div className="h-64 flex flex-col items-center justify-center text-slate-400 gap-2">
-                <Loader2 size={36} className="animate-spin text-red-500" />
-                <p className="text-xs font-bold">Đang tải danh sách tệp tin...</p>
-              </div>
-            ) : files.length === 0 ? (
-              <div className="h-64 flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-100 rounded-2xl">
-                <FileAudio size={48} className="text-slate-300 mb-2" />
-                <p className="text-sm font-bold text-slate-500">Chưa có tệp tin nào</p>
-                <p className="text-xs text-slate-400 mt-1">Kéo thả file ở cột bên trái để tải lên ngay</p>
-              </div>
-            ) : (
+            {/* Hàng đợi Upload (Upload Queue) */}
+            {uploadQueue.length > 0 && (
               <div className="space-y-4">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider">
-                        <th className="pb-3 pl-2 w-10"></th>
-                        <th className="pb-3">Tên file</th>
-                        <th className="pb-3">Dung lượng</th>
-                        <th className="pb-3">Thời lượng</th>
-                        <th className="pb-3">Trạng thái</th>
-                        <th className="pb-3">Bản dịch AI</th>
-                        <th className="pb-3">Ngày tạo</th>
-                        <th className="pb-3 pr-2 text-right">Hành động</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50 text-xs">
-                      {files.map((file) => {
-                        const isCurrentPlaying = playingFile?.id === file.id;
-                        return (
-                          <tr key={file.id} className="hover:bg-slate-50/50 transition-all group">
-                            <td className="py-3.5 pl-2">
-                              {file.status === "READY" ? (
-                                <button
-                                  onClick={() => togglePlay(file)}
-                                  className={`p-2 rounded-xl transition-all cursor-pointer ${
-                                    isCurrentPlaying
-                                      ? "bg-red-50 text-red-500"
-                                      : "bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-500"
-                                  }`}
-                                >
-                                  {isCurrentPlaying && isPlaying ? <Pause size={14} /> : <Play size={14} />}
-                                </button>
-                              ) : (
-                                <div className="p-2 bg-slate-50 text-slate-300 rounded-xl">
-                                  <Loader2 size={14} className="animate-spin" />
-                                </div>
-                              )}
-                            </td>
-                            <td className="py-3.5 font-bold text-slate-800 max-w-[180px] truncate" title={file.fileName}>
-                              {file.fileName}
-                            </td>
-                            <td className="py-3.5 text-slate-500">{formatBytes(file.fileSize)}</td>
-                            <td className="py-3.5 text-slate-500 font-bold">{formatDuration(file.durationSeconds)}</td>
-                            <td className="py-3.5">
-                              {file.status === "READY" && (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-green-600 bg-green-50 border border-green-100 rounded-full px-2 py-0.5">
-                                  <CheckCircle2 size={10} /> Sẵn sàng
-                                </span>
-                              )}
-                              {file.status === "UPLOADING" && (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-100 rounded-full px-2 py-0.5">
-                                  <Loader2 size={10} className="animate-spin" /> Đang tải
-                                </span>
-                              )}
-                              {file.status === "FAILED" && (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 rounded-full px-2 py-0.5">
-                                  <AlertCircle size={10} /> Lỗi tải
-                                </span>
-                              )}
-                            </td>
-                            <td className="py-3.5">
-                              {(() => {
-                                const transcript = transcripts[file.id];
-                                const status = transcript ? transcript.status : "NO_TRANSCRIPT";
-                                
-                                if (status === "PROCESSING") {
-                                  return (
-                                    <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-100 rounded-full px-2 py-0.5 animate-pulse">
-                                      <Loader2 size={10} className="animate-spin" /> Đang dịch...
-                                    </span>
-                                  );
-                                } else if (status === "COMPLETED") {
-                                  return (
-                                    <Link
-                                      href={`/transcripts/${file.id}/view`}
-                                      className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 hover:bg-red-500 hover:text-white rounded-full px-2 py-0.5 transition-all"
-                                    >
-                                      Xem bản dịch
-                                    </Link>
-                                  );
-                                } else if (status === "FAILED") {
-                                  return (
-                                    <button
-                                      onClick={() => handleTriggerTranscription(file.id)}
-                                      className="inline-flex items-center gap-1 text-[10px] font-bold text-red-500 hover:bg-red-50 border border-red-200 hover:border-red-300 rounded-full px-2 py-0.5 transition-all cursor-pointer"
-                                    >
-                                      Thử lại
-                                    </button>
-                                  );
-                                } else {
-                                  return (
-                                    <button
-                                      onClick={() => handleTriggerTranscription(file.id)}
-                                      className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 hover:bg-slate-100 border border-slate-200 hover:border-slate-300 rounded-full px-2 py-0.5 transition-all cursor-pointer"
-                                    >
-                                      Dịch AI
-                                    </button>
-                                  );
-                                }
-                              })()}
-                            </td>
-                            <td className="py-3.5 text-slate-400">{formatDate(file.createdAt)}</td>
-                            <td className="py-3.5 pr-2 text-right">
-                              {(user?.role === "ADMIN" || Number(file.uploaderId) === Number(user?.id)) ? (
-                                <div className="flex items-center justify-end gap-1.5 transition-all">
-                                  <button
-                                    onClick={() => openRenameModal(file)}
-                                    className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-700 rounded-lg transition-all cursor-pointer"
-                                    title="Đổi tên"
-                                  >
-                                    <Edit2 size={14} />
-                                  </button>
-                                  <button
-                                    onClick={() => handleDelete(file.id)}
-                                    className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-all cursor-pointer"
-                                    title="Xóa tệp"
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                </div>
-                              ) : (
-                                <span className="text-[10px] text-slate-400 italic font-medium pr-2">Đọc dữ liệu</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  Tiến độ tải lên ({uploadQueue.length})
+                </h4>
+                
+                <div className="space-y-3.5 max-h-60 overflow-y-auto pr-1">
+                  {uploadQueue.map((item) => (
+                    <div key={item.id} className="border border-slate-100 rounded-xl p-3.5 space-y-2 bg-slate-50/50 relative overflow-hidden">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-700 truncate">{item.name}</p>
+                          <p className="text-[10px] text-slate-400 font-bold mt-0.5">{formatBytes(item.size)}</p>
+                        </div>
+                        
+                        {/* Trạng thái Status badge */}
+                        {item.status === "initializing" && (
+                          <span className="text-[9px] bg-blue-50 text-blue-500 border border-blue-100 rounded-full px-1.5 py-0.5 font-bold animate-pulse">
+                            Khởi tạo...
+                          </span>
+                        )}
+                        {item.status === "uploading" && (
+                          <span className="text-[9px] bg-amber-50 text-amber-500 border border-amber-100 rounded-full px-1.5 py-0.5 font-bold">
+                            Đang tải lên
+                          </span>
+                        )}
+                        {item.status === "completing" && (
+                          <span className="text-[9px] bg-indigo-50 text-indigo-500 border border-indigo-100 rounded-full px-1.5 py-0.5 font-bold animate-pulse">
+                            Xử lý...
+                          </span>
+                        )}
+                        {item.status === "failed" && (
+                          <span className="text-[9px] bg-red-50 text-red-500 border border-red-100 rounded-full px-1.5 py-0.5 font-bold flex items-center gap-1">
+                            <AlertCircle size={10} /> Lỗi
+                          </span>
+                        )}
+                      </div>
 
-                {/* Phân trang Pagination */}
-                {totalElements > 0 && (
-                  <div className="flex items-center justify-between border-t border-slate-100 pt-4 mt-2">
-                    <p className="text-xs text-slate-500 font-bold">
-                      Hiển thị {files.length} trên tổng số {totalElements} tệp tin
-                    </p>
-                    
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => setPage(p => Math.max(0, p - 1))}
-                        disabled={page === 0}
-                        className="p-1.5 border border-slate-200 hover:border-slate-300 rounded-xl text-slate-600 disabled:opacity-40 disabled:hover:border-slate-200 transition-all cursor-pointer"
-                      >
-                        <ChevronLeft size={16} />
-                      </button>
-                      <span className="text-xs font-bold px-3">
-                        Trang {page + 1} / {totalPages}
-                      </span>
-                      <button
-                        onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-                        disabled={page === totalPages - 1}
-                        className="p-1.5 border border-slate-200 hover:border-slate-300 rounded-xl text-slate-600 disabled:opacity-40 disabled:hover:border-slate-200 transition-all cursor-pointer"
-                      >
-                        <ChevronRight size={16} />
-                      </button>
+                      {/* Thanh phần trăm tiến độ Progress bar */}
+                      {item.status === "uploading" && (
+                        <div className="space-y-1">
+                          <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                            <div
+                              className="bg-red-500 h-1.5 rounded-full transition-all duration-300"
+                              style={{ width: `${item.progress}%` }}
+                            />
+                          </div>
+                          <div className="flex justify-end">
+                            <span className="text-[9px] font-bold text-slate-400">{item.progress}%</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
+                  ))}
+                </div>
               </div>
             )}
           </div>
         </div>
-      </div>
+      )}
 
       {/* Premium Audio Player Widget (Sticky Bottom) */}
       {playingFile && (
@@ -799,6 +883,17 @@ export default function FileManagementPage() {
           </div>
         </div>
       )}
+      {/* Reusable Confirm Modal */}
+      <ConfirmModal
+        isOpen={confirmState.isOpen}
+        title={confirmState.title}
+        message={confirmState.message}
+        onConfirm={confirmState.onConfirm}
+        onCancel={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
+        isDanger={confirmState.isDanger}
+        isAlert={confirmState.isAlert}
+        type={confirmState.type}
+      />
     </div>
   );
 }

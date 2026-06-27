@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { rolesApi, permissionsApi } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
+import ConfirmModal from "@/components/confirm-modal";
 import { PermissionGuard } from "@/components/permission-guard";
 import {
   Plus, Edit2, Trash2, Shield, ShieldAlert, X, ShieldCheck, CheckSquare, Info, Lock
@@ -15,6 +16,54 @@ export default function RolesManagementPage() {
   const [roles, setRoles] = useState<any[]>([]);
   const [permissions, setPermissions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Reusable Confirm Modal State
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    isDanger?: boolean;
+    isAlert?: boolean;
+    type?: 'warning' | 'success' | 'info' | 'error';
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+    isDanger: false,
+    isAlert: false,
+    type: 'warning',
+  });
+
+  const triggerConfirm = (title: string, message: string, onConfirm: () => void, isDanger = false) => {
+    setConfirmState({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        onConfirm();
+        setConfirmState(prev => ({ ...prev, isOpen: false }));
+      },
+      isDanger,
+      isAlert: false,
+      type: isDanger ? 'error' : 'warning',
+    });
+  };
+
+  const triggerAlert = (title: string, message: string, type: 'success' | 'error' | 'info' | 'warning' = 'success') => {
+    setConfirmState({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        setConfirmState(prev => ({ ...prev, isOpen: false }));
+      },
+      isDanger: type === 'error',
+      isAlert: true,
+      type,
+    });
+  };
 
   // States for modals
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -65,12 +114,12 @@ export default function RolesManagementPage() {
       // Tên vai trò nên được lưu ở dạng chữ in hoa
       const normalizedName = roleName.trim().toUpperCase();
       await rolesApi.create(normalizedName);
-      alert("Tạo vai trò mới thành công!");
+      triggerAlert("Thành công", "Tạo vai trò mới thành công!", "success");
       setRoleName("");
       setIsCreateModalOpen(false);
       loadRoles();
     } catch (err: any) {
-      alert(err.response?.data?.message ?? "Không thể tạo vai trò mới.");
+      triggerAlert("Lỗi", err.response?.data?.message ?? "Không thể tạo vai trò mới.", "error");
     }
   };
 
@@ -82,32 +131,37 @@ export default function RolesManagementPage() {
     try {
       const normalizedName = roleName.trim().toUpperCase();
       await rolesApi.update(selectedRole.id, normalizedName);
-      alert("Cập nhật vai trò thành công!");
+      triggerAlert("Thành công", "Cập nhật vai trò thành công!", "success");
       setRoleName("");
       setIsEditModalOpen(false);
       loadRoles();
     } catch (err: any) {
-      alert(err.response?.data?.message ?? "Cập nhật vai trò thất bại.");
+      triggerAlert("Lỗi", err.response?.data?.message ?? "Cập nhật vai trò thất bại.", "error");
     }
   };
 
   // Xóa vai trò
-  const handleDeleteRole = async (role: any) => {
+  const handleDeleteRole = (role: any) => {
     // Không cho xóa ADMIN/USER mặc định để bảo mật hệ thống
     if (role.name === "ADMIN" || role.name === "USER") {
-      alert("Không thể xóa các vai trò hệ thống mặc định (ADMIN/USER).");
+      triggerAlert("Không hợp lệ", "Không thể xóa các vai trò hệ thống mặc định (ADMIN/USER).", "error");
       return;
     }
 
-    if (!confirm(`Bạn có chắc chắn muốn xóa vai trò "${role.name}" không?`)) return;
-
-    try {
-      await rolesApi.remove(role.id);
-      alert("Xóa vai trò thành công!");
-      loadRoles();
-    } catch {
-      alert("Không thể xóa vai trò này.");
-    }
+    triggerConfirm(
+      "Xóa vai trò",
+      `Bạn có chắc chắn muốn xóa vai trò "${role.name}" không?`,
+      async () => {
+        try {
+          await rolesApi.remove(role.id);
+          triggerAlert("Thành công", "Xóa vai trò thành công!", "success");
+          loadRoles();
+        } catch {
+          triggerAlert("Lỗi", "Không thể xóa vai trò này.", "error");
+        }
+      },
+      true
+    );
   };
 
   // Mở modal sửa vai trò
@@ -142,11 +196,11 @@ export default function RolesManagementPage() {
 
     try {
       await rolesApi.updatePermissions(selectedRole.id, selectedPermissionNames);
-      alert(`Đã cập nhật quyền hạn cho vai trò "${selectedRole.name}"!`);
+      triggerAlert("Thành công", `Đã cập nhật quyền hạn cho vai trò "${selectedRole.name}"!`, "success");
       setIsPermissionsModalOpen(false);
       loadRoles();
     } catch {
-      alert("Cập nhật quyền hạn thất bại.");
+      triggerAlert("Lỗi", "Cập nhật quyền hạn thất bại.", "error");
     }
   };
 
@@ -483,6 +537,17 @@ export default function RolesManagementPage() {
         </div>
       )}
 
+      {/* Reusable Confirm Modal */}
+      <ConfirmModal
+        isOpen={confirmState.isOpen}
+        title={confirmState.title}
+        message={confirmState.message}
+        onConfirm={confirmState.onConfirm}
+        onCancel={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
+        isDanger={confirmState.isDanger}
+        isAlert={confirmState.isAlert}
+        type={confirmState.type}
+      />
     </div>
   );
 }
