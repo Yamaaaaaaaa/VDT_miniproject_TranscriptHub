@@ -24,3 +24,18 @@ body {
   color: var(--foreground);
   font-family: var(--font-inter), sans-serif;
 }
+
+/* Collaborative Cursors Custom Style Overrides (Google Docs Style) */
+.ql-cursor .ql-cursor-flag {
+  opacity: 1 !important;
+  visibility: visible !important;
+  transition: opacity 0.2s ease, visibility 0.2s ease !important;
+  font-size: 8px !important;
+  font-weight: bold !important;
+  line-height: 1 !important;
+  padding: 1px 4px 2px 4px !important;
+}
+
+.ql-cursor .ql-cursor-flag .ql-cursor-name {
+  margin: 0 !important;
+}

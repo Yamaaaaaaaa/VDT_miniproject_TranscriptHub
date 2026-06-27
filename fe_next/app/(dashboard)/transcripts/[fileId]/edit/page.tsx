@@ -143,6 +143,8 @@ export default function TranscriptEditPage() {
     state: collabState,
     segments: collabSegments,
     getYText,
+    getAwareness,
+    setFocus,
     updateSpeaker,
     saveSnapshot,
     getVersions,
@@ -455,6 +457,10 @@ export default function TranscriptEditPage() {
                 editedContent={editedSegments[segment.id]}
                 canEdit={collabState.canEdit}
                 getYText={collabState.synced ? getYText : undefined}
+                getAwareness={collabState.synced ? getAwareness : undefined}
+                setFocus={collabState.synced ? setFocus : undefined}
+                collabUsers={collabState.users}
+                currentUserId={session?.user?.id}
                 onContentChange={(content) => handleContentChange(segment.id, content)}
                 onSpeakerChange={(segmentId, speaker) => updateSpeaker(segmentId, speaker)}
                 onSegmentClick={handleSegmentClick}

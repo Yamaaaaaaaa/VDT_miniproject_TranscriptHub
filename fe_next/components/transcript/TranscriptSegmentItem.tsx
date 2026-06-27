@@ -12,6 +12,10 @@ interface TranscriptSegmentItemProps {
   editedContent?: string;
   canEdit?: boolean;
   getYText?: (segmentId: string) => import("yjs").Text | undefined;
+  getAwareness?: () => any;
+  setFocus?: (segmentId: string | null, field: "speaker" | "content" | null) => void;
+  collabUsers?: any[];
+  currentUserId?: string | number | null;
   onContentChange?: (content: string) => void;
   onSpeakerChange?: (segmentId: string, speaker: string) => void;
   onSegmentClick?: (startTime: number) => void;
@@ -26,6 +30,10 @@ export const TranscriptSegmentItem = memo(function TranscriptSegmentItem({
   editedContent,
   canEdit = false,
   getYText,
+  getAwareness,
+  setFocus,
+  collabUsers = [],
+  currentUserId,
   onContentChange,
   onSpeakerChange,
   onSegmentClick,
@@ -34,6 +42,13 @@ export const TranscriptSegmentItem = memo(function TranscriptSegmentItem({
   const outerRef = useRef<HTMLDivElement>(null);
   const [localSpeaker, setLocalSpeaker] = useState(segment.speaker);
   const [isFocused, setIsFocused] = useState(false);
+
+  const otherEditorsOnSpeaker = collabUsers.filter(
+    (u) =>
+      String(u.id) !== String(currentUserId) &&
+      u.focus?.segmentId === segment.id &&
+      u.focus?.field === "speaker"
+  );
 
   useEffect(() => {
     if (!isFocused) {
@@ -98,13 +113,38 @@ export const TranscriptSegmentItem = memo(function TranscriptSegmentItem({
           {mode === "edit" && canEdit ? (
             <div className="relative group/speaker mb-2 inline-flex items-center gap-1.5 max-w-[130px] w-full">
               <span className="w-1.5 h-1.5 rounded-full bg-red-600 opacity-60 absolute left-2.5 z-10 pointer-events-none" />
+              {otherEditorsOnSpeaker.map((editor) => (
+                <div
+                  key={editor.id}
+                  className="absolute left-[20px] top-[5px] h-[14px] pointer-events-none z-20"
+                >
+                  <div className="relative h-full">
+                    {/* Bút trỏ (Caret line) */}
+                    <div
+                      className="w-[1.5px] h-full absolute left-0 top-0"
+                      style={{ backgroundColor: editor.color }}
+                    />
+                    {/* Lá cờ hiển thị tên (Flag label) */}
+                    <div
+                      className="absolute -top-[14px] left-0 px-1 py-0.5 rounded-r-[3px] text-[8px] font-bold text-white whitespace-nowrap leading-none"
+                      style={{ backgroundColor: editor.color }}
+                    >
+                      {editor.name}
+                    </div>
+                  </div>
+                </div>
+              ))}
               <input
                 type="text"
                 value={localSpeaker}
                 onClick={(e) => e.stopPropagation()}
-                onFocus={() => setIsFocused(true)}
+                onFocus={() => {
+                  setIsFocused(true);
+                  setFocus?.(segment.id, "speaker");
+                }}
                 onBlur={() => {
                   setIsFocused(false);
+                  setFocus?.(null, null);
                   const trimmed = localSpeaker.trim();
                   if (trimmed && trimmed !== segment.speaker) {
                     onSpeakerChange?.(segment.id, trimmed);
@@ -125,6 +165,15 @@ export const TranscriptSegmentItem = memo(function TranscriptSegmentItem({
                   }
                 }}
                 className="pl-5 pr-2 py-1 rounded-xl text-[10px] font-black bg-red-50 text-red-600 border border-transparent hover:border-red-200 focus:border-red-400 focus:bg-white focus:outline-none transition-all w-full shadow-sm focus:shadow"
+                style={
+                  otherEditorsOnSpeaker.length > 0
+                    ? {
+                        borderColor: otherEditorsOnSpeaker[0].color,
+                        boxShadow: `0 0 0 2px ${otherEditorsOnSpeaker[0].color}33`,
+                        borderWidth: "1.5px",
+                      }
+                    : undefined
+                }
                 placeholder="Người nói..."
               />
             </div>
@@ -153,6 +202,7 @@ export const TranscriptSegmentItem = memo(function TranscriptSegmentItem({
             <QuillEditor
               segmentId={segment.id}
               getYText={getYText}
+              getAwareness={getAwareness}
               canEdit={canEdit}
               initialContent={editedContent ?? segment.content}
               onContentChange={(content) => onContentChange?.(content)}

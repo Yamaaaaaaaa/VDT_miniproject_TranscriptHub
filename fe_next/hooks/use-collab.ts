@@ -17,6 +17,10 @@ export interface CollabUser {
   name: string;
   email: string;
   color: string;
+  focus?: {
+    segmentId: string;
+    field: 'speaker' | 'content';
+  } | null;
 }
 
 export interface CollabState {
@@ -324,7 +328,12 @@ export function useCollab({
       if (p) {
         const users: CollabUser[] = [];
         p.awareness.getStates().forEach((st) => {
-          if (st.user) users.push(st.user as CollabUser);
+          if (st.user) {
+            users.push({
+              ...(st.user as CollabUser),
+              focus: st.focus,
+            });
+          }
         });
         setState((s) => ({ ...s, users }));
       }
@@ -376,6 +385,24 @@ export function useCollab({
   const getYText = useCallback(
     (segmentId: string): Y.Text | undefined => {
       return collab?.doc.getText(`content-${segmentId}`);
+    },
+    [collab]
+  );
+
+  const getAwareness = useCallback(() => {
+    return collab?.provider?.awareness;
+  }, [collab]);
+
+  const setFocus = useCallback(
+    (segmentId: string | null, field: "speaker" | "content" | null) => {
+      if (!collab?.provider) return;
+      const localState = collab.provider.awareness.getLocalState();
+      if (!localState) return;
+
+      collab.provider.awareness.setLocalState({
+        ...localState,
+        focus: segmentId && field ? { segmentId, field } : null,
+      });
     },
     [collab]
   );
@@ -521,6 +548,8 @@ export function useCollab({
     state,
     segments,
     getYText,
+    getAwareness,
+    setFocus,
     addSegment,
     updateSpeaker,
     saveSnapshot,
