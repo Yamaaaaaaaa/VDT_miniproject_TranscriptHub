@@ -3,8 +3,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import api from "@/lib/api";
 import { TranscriptDetail, AudioFileMetadata, TranscriptSegment } from "@/types/transcript";
+import { useAuth } from "@/hooks/use-auth";
 
 export function useTranscriptDetail(fileId: string) {
+  const { token } = useAuth();
   const [transcript, setTranscript] = useState<TranscriptDetail | null>(null);
   const [audioFile, setAudioFile] = useState<AudioFileMetadata | null>(null);
   const [loading, setLoading] = useState(true);
@@ -111,14 +113,14 @@ export function useTranscriptDetail(fileId: string) {
   }, []);
 
   const initAudio = useCallback(() => {
-    if (!audioRef.current && audioFile) {
-      audioRef.current = new Audio(`/api/files/stream/${fileId}`);
+    if (!audioRef.current && audioFile && token) {
+      audioRef.current = new Audio(`/api/files/stream/${fileId}?token=${token}`);
       audioRef.current.volume = volume;
       audioRef.current.addEventListener("timeupdate", handleTimeUpdate);
       audioRef.current.addEventListener("loadedmetadata", handleLoadedMetadata);
       audioRef.current.addEventListener("ended", handleAudioEnded);
     }
-  }, [audioFile, fileId, volume, handleTimeUpdate, handleLoadedMetadata, handleAudioEnded]);
+  }, [audioFile, fileId, volume, token, handleTimeUpdate, handleLoadedMetadata, handleAudioEnded]);
 
   const togglePlay = useCallback(() => {
     initAudio();
@@ -153,12 +155,12 @@ export function useTranscriptDetail(fileId: string) {
     }
   }, []);
 
-  const formatDuration = (seconds: number) => {
+  const formatDuration = useCallback((seconds: number) => {
     if (!seconds || seconds <= 0) return "--:--";
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
-  };
+  }, []);
 
   // Cleanup
   useEffect(() => {

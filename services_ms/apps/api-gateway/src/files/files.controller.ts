@@ -166,6 +166,8 @@ export class FilesController {
   }
 
   @Get('stream/:fileId')
+  @UseGuards(JwtIdentityGuard)
+  @ApiBearerAuth()
   @ApiOperation({
     summary: 'Stream an audio file (Supports Seeking / Range Requests)',
   })
@@ -174,6 +176,18 @@ export class FilesController {
     @Req() req: express.Request,
     @Res() res: express.Response,
   ) {
+    const user = (req as any).user;
+    const permissions = user?.permissions || [];
+    const roles = user?.roles || [];
+    const hasPermission = permissions.includes('manage_file') || roles.includes('ADMIN');
+
+    if (!hasPermission) {
+      throw new HttpException(
+        'Forbidden: You do not have permission to access this file',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
     this.doProxy(req, res);
   }
 

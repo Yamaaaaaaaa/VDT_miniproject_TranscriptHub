@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 
 export default function FileManagementPage() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   
   // File metadata lists & state
   const [files, setFiles] = useState<any[]>([]);
@@ -756,7 +756,7 @@ export default function FileManagementPage() {
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] md:w-[70%] max-w-4xl bg-slate-900/95 backdrop-blur-md text-white rounded-3xl p-4 shadow-2xl z-50 flex flex-col md:flex-row items-center gap-4 border border-slate-800 animate-slide-up">
           <audio
             ref={audioRef}
-            src={`/api/files/stream/${playingFile.id}`}
+            src={token ? `/api/files/stream/${playingFile.id}?token=${token}` : ""}
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}
             onEnded={handleAudioEnded}

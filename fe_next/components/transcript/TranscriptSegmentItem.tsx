@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useCallback, useState, useEffect } from "react";
+import { useRef, useCallback, useState, useEffect, memo } from "react";
 import { TranscriptSegment } from "@/types/transcript";
 import { QuillEditor } from "./QuillEditor";
 
@@ -18,7 +18,7 @@ interface TranscriptSegmentItemProps {
   formatDuration: (seconds: number) => string;
 }
 
-export function TranscriptSegmentItem({
+export const TranscriptSegmentItem = memo(function TranscriptSegmentItem({
   segment,
   index,
   isActive = false,
@@ -41,22 +41,18 @@ export function TranscriptSegmentItem({
     }
   }, [segment.speaker, isFocused]);
 
-  const handleOuterClick = useCallback(
-    (e: React.MouseEvent) => {
-      if (mode === "view" && onSegmentClick) {
-        onSegmentClick(segment.startTime);
-      }
-    },
-    [mode, onSegmentClick, segment.startTime]
-  );
-
   const handleContainerClick = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (
+      if (mode === "view") {
+        if (onSegmentClick) {
+          onSegmentClick(segment.startTime);
+        }
+      } else if (
         mode === "edit" &&
         !target.closest(".quill-editor-wrapper") &&
-        target.tagName !== "TEXTAREA"
+        target.tagName !== "TEXTAREA" &&
+        !target.closest("input")
       ) {
         if (onSegmentClick) {
           onSegmentClick(segment.startTime);
@@ -149,7 +145,6 @@ export function TranscriptSegmentItem({
         <div className="flex-1 min-w-0">
           {mode === "view" ? (
             <p
-              onClick={handleOuterClick}
               className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap break-words cursor-pointer hover:text-red-600 transition-colors"
             >
               {segment.content}
@@ -180,4 +175,4 @@ export function TranscriptSegmentItem({
       )}
     </div>
   );
-}
+});

@@ -50,11 +50,22 @@ export default function TranscriptViewPage() {
 
   // Scroll active segment into view
   useEffect(() => {
-    if (activeSegmentIndex === null || !segmentRefs.current[activeSegmentIndex]) return;
-    segmentRefs.current[activeSegmentIndex]?.scrollIntoView({
-      behavior: "smooth",
-      block: "center",
-    });
+    if (activeSegmentIndex === null) return;
+    const element = segmentRefs.current[activeSegmentIndex];
+    if (!element) return;
+
+    // Check if the active segment is already visible in the viewport to avoid layout thrashing
+    const rect = element.getBoundingClientRect();
+    const isInViewport =
+      rect.top >= 0 &&
+      rect.bottom <= (window.innerHeight || document.documentElement.clientHeight);
+
+    if (!isInViewport) {
+      element.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+    }
   }, [activeSegmentIndex]);
 
   const handleSegmentClick = useCallback(

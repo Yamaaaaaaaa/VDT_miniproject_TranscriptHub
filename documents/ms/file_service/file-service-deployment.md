@@ -304,7 +304,7 @@ identity.accounts (id: INT)
 http://localhost:3000/api/files
 ```
 
-> Tất cả các endpoint (trừ `stream`) yêu cầu header `Authorization: Bearer <JWT_TOKEN>`
+> Tất cả các endpoint yêu cầu xác thực JWT qua header `Authorization: Bearer <JWT_TOKEN>`. Riêng endpoint `stream` hỗ trợ xác thực qua cả query parameter `?token=<JWT_TOKEN>` và yêu cầu người dùng có quyền `manage_file` hoặc vai trò `ADMIN`.
 
 ---
 
@@ -367,7 +367,7 @@ Upload file nhỏ qua `multipart/form-data`. Toàn bộ file đi qua API Gateway
 
 ### `GET /stream/:fileId` — Stream audio
 
-Không yêu cầu xác thực. Hỗ trợ **HTTP Range Requests** (tua đi/tua lại trên trình phát).
+Yêu cầu xác thực JWT qua header `Authorization: Bearer <JWT_TOKEN>` hoặc query parameter `?token=<JWT_TOKEN>`. Người dùng phải có quyền `manage_file` hoặc vai trò `ADMIN`. Hỗ trợ **HTTP Range Requests** (tua đi/tua lại trên trình phát).
 
 | Trường hợp | Response |
 |-----------|---------|

@@ -358,3 +358,25 @@ Dù Next.js giúp giải quyết vấn đề CORS, bạn vẫn cần bật cấu
    * Nếu API Gateway của bạn còn phục vụ cho ứng dụng Mobile App (iOS/Android) hoặc các đối tác tích hợp (Third-party integrations) gọi trực tiếp.
 3. **Môi trường Phát triển (Local Development) linh hoạt**:
    * Khi dev cục bộ, đôi khi bạn muốn dùng Postman hoặc trực tiếp mã nguồn Frontend gọi thẳng tới `http://localhost:3000` (Backend) mà không muốn đi vòng qua cổng proxy `http://localhost:3333` (Next.js).
+
+---
+
+## 8. Cơ chế Đồng bộ Phát Âm thanh (Audio-Text Sync) & Tối ưu hóa Hiệu năng Cuộn (Scroll)
+
+Trong màn hình xem bản dịch cuộc họp (View/Edit Transcript), ứng dụng TranscriptHub thực hiện cơ chế đồng bộ dòng chữ đang phát theo giây của trình phát nhạc (Audio Player). Các tối ưu hóa cốt lõi về hiệu năng và trải nghiệm người dùng bao gồm:
+
+### 8.1. Tránh Re-render Toàn bộ Danh sách (O(1) Rendering)
+* **Thách thức**: Trình phát nhạc phát ra sự kiện `timeupdate` liên tục 4 lần mỗi giây để cập nhật thời gian phát hiện tại (`currentTime`). Nếu không tối ưu hóa, việc thay đổi state `currentTime` ở Component cha sẽ ép toàn bộ hàng trăm component con `TranscriptSegmentItem` phải re-render lại liên tục, gây ra hiện tượng đơ lag nghiêm trọng và làm trễ các thao tác click của người dùng.
+* **Giải pháp tối ưu**:
+  1. Sử dụng **`React.memo`** bao bọc component `TranscriptSegmentItem` để nó chỉ re-render khi các props truyền vào thực sự thay đổi (như trạng thái `isActive`).
+  2. Cache hàm trợ định dạng `formatDuration` bằng **`useCallback`** để giữ nguyên tham chiếu qua các lần render, tránh làm mất tác dụng của `React.memo`.
+  * **Kết quả**: Số lượng segment bị dựng lại giảm từ $O(N)$ (toàn bộ file thoại) về mức tối thiểu $O(1)$ (chỉ re-render đúng segment vừa kích hoạt phát và segment trước đó).
+
+### 8.2. Click Phát Nhạc Toàn Diện (Full Card Clickable)
+* Ở chế độ xem (`view`), toàn bộ vùng chứa thẻ segment (`TranscriptSegmentItem`) đều lắng nghe sự kiện click. Nhấp chuột vào bất cứ vị trí nào (tên người phát, vòng số thứ tự, vùng đệm trống) đều kích hoạt trình phát nhạc tự động nhảy (`seekTo`) tới mốc thời gian `startTime` tương ứng của câu thoại, thay vì giới hạn chỉ khi bấm vào dòng chữ nội dung như trước.
+* Ở chế độ sửa (`edit`), sự kiện click được tự động bỏ qua nếu người dùng nhấp chọn ô nhập văn bản `input` của người nói, giúp việc chỉnh sửa không làm gián đoạn bài nghe.
+
+### 8.3. Cuộn Tự động Cực tiểu (Nearest Viewport Auto Scroll)
+* Thay vì liên tục gọi cưỡng bức `scrollIntoView({ block: "center" })` đẩy câu thoại đang phát vào chính giữa màn hình (gây xung đột dữ dội khi người dùng cuộn chuột thủ công và tạo cảm giác giật cục):
+  * Hệ thống sử dụng hàm `getBoundingClientRect()` để kiểm tra xem phân đoạn thoại tiếp theo có đang nằm trong khung hình (viewport) của người dùng hay không.
+  * Chỉ khi phân đoạn đó bị trôi ra ngoài màn hình, lệnh cuộn mới được kích hoạt với cấu hình `block: "nearest"`. Màn hình sẽ chỉ dịch chuyển khoảng cách nhỏ nhất vừa đủ để người dùng đọc tiếp câu thoại, mang lại cảm giác cuộn êm ái và không bị gián đoạn.

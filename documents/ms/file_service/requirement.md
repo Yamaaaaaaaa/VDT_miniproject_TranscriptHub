@@ -127,6 +127,7 @@ Dùng cho luồng tải lên tệp trực tiếp nhanh gọn (Single upload).
 API truyền tải dữ liệu âm thanh trực tiếp hỗ trợ thanh tua (seek/scrub) trên trình duyệt bằng cách trả về một phần dữ liệu (Partial Content).
 
 * **Endpoint**: `GET /api/v1/files/stream/{fileId}`
+* **Xác thực**: Yêu cầu xác thực JWT qua header `Authorization: Bearer <JWT_TOKEN>` hoặc query parameter `?token=<JWT_TOKEN>`. Người dùng phải có quyền `manage_file` hoặc vai trò `ADMIN`.
 * **Headers**: 
   * `Range: bytes=0-1023` (tùy chọn từ client/trình duyệt)
 * **Response**:

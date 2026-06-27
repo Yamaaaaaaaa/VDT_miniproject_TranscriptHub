@@ -71,7 +71,7 @@ services:
       /bin/sh -c "
       mc alias set myminio http://minio:9000 minioadmin minioadmin;
       mc mb myminio/transcripthub-bucket || true;
-      mc anonymous set public myminio/transcripthub-bucket || true;
+      mc anonymous set none myminio/transcripthub-bucket || true;
       exit 0;
       "
     networks:

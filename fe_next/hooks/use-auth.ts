@@ -6,6 +6,7 @@ export function useAuth() {
     const user = session?.user;
     const role = user?.role;
     const permissions = user?.permissions ?? [];
+    const token = session?.accessToken;
 
     // ADMIN có toàn quyền trong hệ thống
     const hasRole = (targetRole: string) => role === targetRole;
@@ -16,6 +17,7 @@ export function useAuth() {
         user,
         role,
         permissions,
+        token,
         status,
         hasRole,
         hasPermission,

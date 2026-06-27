@@ -13,13 +13,23 @@ export class JwtIdentityGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    const authHeader = request.headers.authorization;
-    if (!authHeader)
-      throw new UnauthorizedException('Authorization header is missing');
+    let token: string | null = null;
 
-    const [type, token] = authHeader.split(' ');
-    if (type !== 'Bearer' || !token)
-      throw new UnauthorizedException('Invalid authorization header format');
+    const authHeader = request.headers.authorization;
+    if (authHeader) {
+      const [type, t] = authHeader.split(' ');
+      if (type === 'Bearer' && t) {
+        token = t;
+      }
+    }
+
+    if (!token && request.query && request.query.token) {
+      token = request.query.token as string;
+    }
+
+    if (!token) {
+      throw new UnauthorizedException('Authorization token is missing');
+    }
 
     try {
       // Gọi microservice Identity giải mã token qua TCP
