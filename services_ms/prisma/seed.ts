@@ -34,6 +34,12 @@ async function main() {
     'delete_roles',
     'read_permissions',
     'update_role_permissions',
+    // New page-level check permissions
+    'manage_user',
+    'manage_role',
+    'manage_meeting',
+    'manage_file',
+    'manage_transcription',
   ];
 
   console.log('Permissions seeding...');
@@ -86,8 +92,8 @@ async function main() {
     });
   }
 
-  // USER role gets edit_profile and read_transcripts
-  const userRolePermissions = ['edit_profile', 'read_transcripts'];
+  // USER role gets edit_profile, read_transcripts, manage_meeting and manage_file
+  const userRolePermissions = ['edit_profile', 'read_transcripts', 'manage_meeting', 'manage_file'];
   for (const permName of userRolePermissions) {
     const roleId = rolesMap['USER'];
     const permissionId = permissionsMap[permName];

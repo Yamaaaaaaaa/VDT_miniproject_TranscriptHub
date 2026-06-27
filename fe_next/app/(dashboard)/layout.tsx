@@ -42,30 +42,37 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       name: "Quản lý thành viên",
       href: "/users",
       icon: Users,
-      permission: "read_users",
+      permission: "manage_user",
     },
     {
       name: "Vai trò & Quyền",
       href: "/roles",
       icon: Shield,
-      permission: "manage_roles",
+      permission: "manage_role",
     },
     {
       name: "Quản lý Cuộc họp",
       href: "/meetings",
       icon: Video,
+      permission: "manage_meeting",
     },
     {
       name: "Quản lý File",
       href: "/files",
       icon: FileAudio,
+      permission: "manage_file",
     },
     {
       name: "Quản lý Bản Dịch",
       href: "/transcripts",
       icon: FileText,
+      permission: "manage_transcription",
     },
   ];
+
+  // Find if current route has page-level permission check
+  const currentMenuItem = menuItems.find((item) => pathname.startsWith(item.href));
+  const showNoPermission = mounted && currentMenuItem && currentMenuItem.permission && !hasPermission(currentMenuItem.permission);
 
   return (
     <div className="min-h-screen flex bg-slate-50 text-slate-800">
@@ -196,7 +203,29 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* Content body */}
         <main className="flex-1 p-10 overflow-y-auto" data-transcript-content>
-          {children}
+          {showNoPermission ? (
+            <div className="flex items-center justify-center min-h-[60vh] p-4">
+              <div className="bg-white rounded-3xl p-8 max-w-md w-full border border-slate-100 shadow-2xl text-center space-y-6 animate-scale-up">
+                <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto">
+                  <Shield size={32} className="animate-pulse" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-lg font-black text-slate-800 tracking-tight">Không có quyền truy cập</h3>
+                  <p className="text-xs text-slate-400 font-bold leading-relaxed">
+                    Tài khoản của bạn không có quyền hạn truy cập màn hình này.
+                  </p>
+                </div>
+                <Link
+                  href="/home"
+                  className="block w-full py-3.5 text-xs font-bold bg-slate-800 hover:bg-slate-900 text-white rounded-2xl transition-all shadow-md shadow-slate-800/25 cursor-pointer text-center"
+                >
+                  Quay lại Trang chủ
+                </Link>
+              </div>
+            </div>
+          ) : (
+            children
+          )}
         </main>
       </div>
     </div>
