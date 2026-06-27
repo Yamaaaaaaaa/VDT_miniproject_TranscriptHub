@@ -396,6 +396,19 @@ export function useCollab({
     [collab]
   );
 
+  const updateSpeaker = useCallback(
+    (segmentId: string, speaker: string) => {
+      if (!collab) return;
+      collab.doc.transact(() => {
+        const yMap = collab.ySegmentsArray.toArray().find((m) => m.get("id") === segmentId);
+        if (yMap) {
+          yMap.set("speaker", speaker);
+        }
+      });
+    },
+    [collab]
+  );
+
   const saveSnapshot = useCallback(async () => {
     if (!collab || !meetingId) return false;
 
@@ -509,6 +522,7 @@ export function useCollab({
     segments,
     getYText,
     addSegment,
+    updateSpeaker,
     saveSnapshot,
     getVersions,
     getVersionDetail,

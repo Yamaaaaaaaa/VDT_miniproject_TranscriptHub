@@ -10,6 +10,7 @@ interface TranscriptHistoryModalProps {
   getVersionDetail: (versionId: number) => Promise<any>;
   restoreVersion: (versionId: number) => Promise<boolean>;
   formatDuration: (seconds: number) => string;
+  canEdit?: boolean;
 }
 
 export function TranscriptHistoryModal({
@@ -19,6 +20,7 @@ export function TranscriptHistoryModal({
   getVersionDetail,
   restoreVersion,
   formatDuration,
+  canEdit = false,
 }: TranscriptHistoryModalProps) {
   const [versions, setVersions] = useState<any[]>([]);
   const [loadingVersions, setLoadingVersions] = useState<boolean>(false);
@@ -181,12 +183,14 @@ export function TranscriptHistoryModal({
                         Được tạo lúc {new Date(selectedVersion.createdAt).toLocaleString("vi-VN")}
                       </div>
                     </div>
-                    <button
-                      onClick={() => setShowConfirmRestore(true)}
-                      className="px-4 py-2 text-[10px] font-bold bg-red-500 hover:bg-red-600 text-white rounded-xl transition-all shadow-sm shadow-red-500/10 cursor-pointer"
-                    >
-                      Khôi phục phiên bản này
-                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={() => setShowConfirmRestore(true)}
+                        className="px-4 py-2 text-[10px] font-bold bg-red-500 hover:bg-red-600 text-white rounded-xl transition-all shadow-sm shadow-red-500/10 cursor-pointer"
+                      >
+                        Khôi phục phiên bản này
+                      </button>
+                    )}
                   </div>
 
                   {/* Scrollable Text View */}

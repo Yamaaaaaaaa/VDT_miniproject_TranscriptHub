@@ -143,6 +143,7 @@ export default function TranscriptEditPage() {
     state: collabState,
     segments: collabSegments,
     getYText,
+    updateSpeaker,
     saveSnapshot,
     getVersions,
     getVersionDetail,
@@ -193,10 +194,18 @@ export default function TranscriptEditPage() {
     });
   }, [collabSegments]);
 
-  // Track unsaved changes
+  // Track unsaved changes (compared to DB snapshot)
   useEffect(() => {
-    if (!transcript) return;
-    const changed = collabSegments.some((s) => editedSegments[s.id] !== s.content);
+    if (!transcript?.segments) return;
+    const isDifferentLength = collabSegments.length !== transcript.segments.length;
+    const changed =
+      isDifferentLength ||
+      collabSegments.some((s) => {
+        const orig = transcript.segments.find((t) => t.id === s.id);
+        if (!orig) return true;
+        const currentContent = editedSegments[s.id] ?? s.content;
+        return currentContent !== orig.content || s.speaker !== orig.speaker;
+      });
     setHasChanges(changed);
   }, [editedSegments, collabSegments, transcript]);
 
@@ -402,31 +411,24 @@ export default function TranscriptEditPage() {
             <Clock size={11} className="text-slate-500" />
             <span>Lịch sử</span>
           </button>
-          {hasChanges && (
+          {collabState.canEdit && (
             <button
-              onClick={handleReset}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold text-slate-500 bg-white border border-slate-200 hover:border-slate-300 rounded-xl transition-all cursor-pointer"
+              onClick={handleSave}
+              disabled={!hasChanges || isSaving}
+              className="flex items-center gap-1.5 px-4 py-2 text-[10px] font-bold bg-red-500 hover:bg-red-600 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed"
             >
-              <RotateCcw size={11} />
-              <span>Hoàn tác</span>
+              {isSaving ? (
+                <span className="animate-spin inline-block">
+                  <RotateCcw size={11} />
+                </span>
+              ) : saveSuccess ? (
+                <CheckCircle2 size={11} />
+              ) : (
+                <Save size={11} />
+              )}
+              <span>{isSaving ? "Đang lưu..." : saveSuccess ? "Đã lưu!" : "Lưu thay đổi"}</span>
             </button>
           )}
-          <button
-            onClick={handleSave}
-            disabled={!hasChanges || isSaving}
-            className="flex items-center gap-1.5 px-4 py-2 text-[10px] font-bold bg-red-500 hover:bg-red-600 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed"
-          >
-            {isSaving ? (
-              <span className="animate-spin inline-block">
-                <RotateCcw size={11} />
-              </span>
-            ) : saveSuccess ? (
-              <CheckCircle2 size={11} />
-            ) : (
-              <Save size={11} />
-            )}
-            <span>{isSaving ? "Đang lưu..." : saveSuccess ? "Đã lưu!" : "Lưu thay đổi"}</span>
-          </button>
         </div>
       </div>
 
@@ -454,6 +456,7 @@ export default function TranscriptEditPage() {
                 canEdit={collabState.canEdit}
                 getYText={getYText}
                 onContentChange={(content) => handleContentChange(segment.id, content)}
+                onSpeakerChange={(segmentId, speaker) => updateSpeaker(segmentId, speaker)}
                 onSegmentClick={handleSegmentClick}
                 formatDuration={formatDuration}
               />
@@ -507,6 +510,7 @@ export default function TranscriptEditPage() {
           getVersionDetail={getVersionDetail}
           restoreVersion={restoreVersion}
           formatDuration={formatDuration}
+          canEdit={collabState.canEdit}
         />
       )}
       {/* Reusable Confirm Modal */}
