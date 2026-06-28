@@ -12,6 +12,7 @@ export class SaveTranscriptDto {
   @IsString()
   meetingId: string;
 
+
   @ApiProperty({ example: 'Speaker 1: Hello...' })
   @IsString()
   rawText: string;
