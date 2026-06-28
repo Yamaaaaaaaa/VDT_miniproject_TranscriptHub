@@ -18,7 +18,7 @@ data:
   MINIO_PORT: "9000"
   MINIO_BUCKET: "transcripthub-bucket"
   MINIO_PUBLIC_ENDPOINT: "p-bookland.io.vn"
-  MINIO_PUBLIC_PORT: "9000"
+  MINIO_PUBLIC_PORT: "80"
 
   # Kafka Configuration
   KAFKA_BOOTSTRAP_SERVERS: "kafka-service:9092"

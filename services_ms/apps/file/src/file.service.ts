@@ -48,7 +48,7 @@ export class FileService implements OnModuleInit {
       this.configService.get<string>('MINIO_PUBLIC_PORT') ||
       this.configService.get<string>('MINIO_PORT') ||
       '9000';
-    const host = `${publicHost}:${publicPort}`;
+    const host = (publicPort === '80' || publicPort === '443') ? publicHost : `${publicHost}:${publicPort}`;
     const accessKey = this.configService.get<string>('MINIO_ACCESS_KEY', 'minioadmin');
     const secretKey = this.configService.get<string>('MINIO_SECRET_KEY', 'minioadmin');
     const region = 'us-east-1'; // MinIO luôn dùng region mặc định này
