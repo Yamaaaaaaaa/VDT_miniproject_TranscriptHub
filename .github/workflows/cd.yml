@@ -3,6 +3,10 @@ name: Continuous Delivery (CD)
 on:
   push:
     branches: [ dev_js ]
+    paths-ignore:
+      - '**.md'
+      - 'documents/**'
+      - '.gitignore'
 
 jobs:
   # ─── RUN QUALITY CHECKS FIRST ────────────────────────────────────────────
