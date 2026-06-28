@@ -1,0 +1,33 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: transcripthub-ingress
+  namespace: transcripthub
+  annotations:
+    nginx.ingress.kubernetes.io/websocket-services: "collab-gateway-service"
+spec:
+  rules:
+  - host: transcripthub.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend-service
+            port:
+              number: 3000
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway-service
+            port:
+              number: 3000
+      - path: /socket.io
+        pathType: Prefix
+        backend:
+          service:
+            name: collab-gateway-service
+            port:
+              number: 3008

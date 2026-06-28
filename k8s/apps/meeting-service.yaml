@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: meeting-service
+  namespace: transcripthub
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: meeting-service
+  template:
+    metadata:
+      labels:
+        app: meeting-service
+    spec:
+      containers:
+      - name: meeting-service
+        image: yourusername/transcripthub-meeting:latest
+        ports:
+        - containerPort: 3006
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "300m"
+        env:
+        - name: DATABASE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: DATABASE_HOST
+        - name: database-password
+          valueFrom:
+            secretKeyRef:
+              name: transcripthub-secrets
+              key: database-password
+        - name: DATABASE_URL
+          value: "postgresql://postgres:$(database-password)@$(DATABASE_HOST):5432/transcripthub"
+        - name: MEETING_SERVICE_TCP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: MEETING_SERVICE_TCP_PORT
+        - name: USERS_SERVICE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: USERS_SERVICE_HOST
+        - name: USERS_SERVICE_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: USERS_SERVICE_PORT
+        - name: FILE_SERVICE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: FILE_SERVICE_HOST
+        - name: FILE_SERVICE_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: FILE_SERVICE_PORT
+        - name: FILE_SERVICE_TCP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: FILE_SERVICE_TCP_PORT
+        - name: TRANSCRIPT_SERVICE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: TRANSCRIPT_SERVICE_HOST
+        - name: TRANSCRIPT_SERVICE_TCP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: TRANSCRIPT_SERVICE_TCP_PORT
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: meeting-service
+  namespace: transcripthub
+spec:
+  ports:
+  - port: 3006
+    targetPort: 3006
+  selector:
+    app: meeting-service
+  type: ClusterIP

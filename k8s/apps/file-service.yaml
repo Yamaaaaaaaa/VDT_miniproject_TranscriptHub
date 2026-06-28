@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: file-service
+  namespace: transcripthub
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: file-service
+  template:
+    metadata:
+      labels:
+        app: file-service
+    spec:
+      containers:
+      - name: file-service
+        image: yourusername/transcripthub-file:latest
+        ports:
+        - name: http-port
+          containerPort: 3003
+        - name: tcp-port
+          containerPort: 3004
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "300m"
+        env:
+        - name: DATABASE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: DATABASE_HOST
+        - name: database-password
+          valueFrom:
+            secretKeyRef:
+              name: transcripthub-secrets
+              key: database-password
+        - name: DATABASE_URL
+          value: "postgresql://postgres:$(database-password)@$(DATABASE_HOST):5432/transcripthub"
+        - name: FILE_SERVICE_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: FILE_SERVICE_PORT
+        - name: FILE_SERVICE_TCP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: FILE_SERVICE_TCP_PORT
+        - name: MINIO_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: MINIO_ENDPOINT
+        - name: MINIO_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: MINIO_PORT
+        - name: MINIO_ACCESS_KEY
+          value: "minioadmin"
+        - name: MINIO_SECRET_KEY
+          value: "minioadmin"
+        - name: MINIO_BUCKET
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: MINIO_BUCKET
+        - name: MINIO_PUBLIC_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: MINIO_PUBLIC_ENDPOINT
+        - name: MINIO_PUBLIC_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: MINIO_PUBLIC_PORT
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: KAFKA_BOOTSTRAP_SERVERS
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: file-service
+  namespace: transcripthub
+spec:
+  ports:
+  - name: http-port
+    port: 3003
+    targetPort: 3003
+  - name: tcp-port
+    port: 3004
+    targetPort: 3004
+  selector:
+    app: file-service
+  type: ClusterIP
