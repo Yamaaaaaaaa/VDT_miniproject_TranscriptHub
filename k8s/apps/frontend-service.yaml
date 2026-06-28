@@ -33,6 +33,10 @@ spec:
               key: nextauth-secret
         - name: NEXTAUTH_URL
           value: "http://p-bookland.io.vn"
+        - name: AUTH_TRUST_HOST
+          value: "true"
+        - name: NEXTAUTH_TRUST_HOST
+          value: "true"
         - name: API_GATEWAY_URL
           value: "http://api-gateway-service:3000"
         - name: NEXT_PUBLIC_COLLAB_WS_URL
