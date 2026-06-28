@@ -13,6 +13,7 @@ spec:
         - /bin/sh
         - -c
         - |
+          set -e
           echo "Pushing database schema..."
           until npx prisma db push --accept-data-loss; do
             echo "Retrying database schema push in 5 seconds..."
@@ -21,7 +22,7 @@ spec:
           echo "Database schema push completed successfully."
           
           echo "Seeding database..."
-          npx prisma db seed
+          TS_NODE_TRANSPILE_ONLY=true npx prisma db seed
           echo "Database seeding completed."
         env:
         - name: DATABASE_HOST
