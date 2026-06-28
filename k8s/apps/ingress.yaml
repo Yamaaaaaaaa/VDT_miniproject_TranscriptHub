@@ -5,6 +5,7 @@ metadata:
   namespace: transcripthub
   annotations:
     nginx.ingress.kubernetes.io/websocket-services: "collab-gateway-service"
+    nginx.ingress.kubernetes.io/proxy-body-size: "500m"
 spec:
   ingressClassName: nginx
   rules:
