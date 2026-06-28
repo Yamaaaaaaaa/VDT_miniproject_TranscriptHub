@@ -17,7 +17,7 @@ data:
   MINIO_ENDPOINT: "minio-service"
   MINIO_PORT: "9000"
   MINIO_BUCKET: "transcripthub-bucket"
-  MINIO_PUBLIC_ENDPOINT: "transcripthub.local"
+  MINIO_PUBLIC_ENDPOINT: "p-bookland.io.vn"
   MINIO_PUBLIC_PORT: "9000"
 
   # Kafka Configuration

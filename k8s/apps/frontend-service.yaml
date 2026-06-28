@@ -32,13 +32,13 @@ spec:
               name: transcripthub-secrets
               key: nextauth-secret
         - name: NEXTAUTH_URL
-          value: "http://transcripthub.local"
+          value: "http://p-bookland.io.vn"
         - name: API_GATEWAY_URL
           value: "http://api-gateway-service:3000"
         - name: NEXT_PUBLIC_COLLAB_WS_URL
-          value: "ws://transcripthub.local"
+          value: "ws://p-bookland.io.vn"
         - name: NEXT_PUBLIC_COLLAB_SERVICE_URL
-          value: "http://transcripthub.local"
+          value: "http://p-bookland.io.vn"
 ---
 apiVersion: v1
 kind: Service

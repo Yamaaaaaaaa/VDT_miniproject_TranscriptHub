@@ -244,3 +244,28 @@ Dự án sử dụng Ingress để điều phối các yêu cầu từ tên mi�
 
 ### 9.2. Sử dụng ứng dụng:
 * Mở trình duyệt web cá nhân và truy cập: `http://transcripthub.local` để bắt đầu trải nghiệm toàn bộ hệ thống TranscriptHub chạy trên K8s Production!
+
+### 9.3. Cấu hình tên miền thật (Public Domain) qua Cloudflare hoặc Google Cloud DNS:
+Nếu bạn muốn cấu hình tên miền thật của riêng mình (ví dụ: `yourdomain.com`) thay vì tên miền giả lập `transcripthub.local` để bất cứ ai cũng có thể truy cập qua Internet:
+
+#### 1. Đăng ký IP Tĩnh (Static IP) cho máy ảo GCP:
+Theo mặc định, IP ngoại vi của máy ảo là IP động (Ephemeral) và sẽ đổi mỗi lần khởi động lại máy ảo. Bạn nên chuyển nó sang IP tĩnh:
+- Truy cập **GCP Console** $\rightarrow$ **VPC Network** $\rightarrow$ **IP Addresses**.
+- Tìm dòng IP ngoại vi đang gắn với máy ảo của bạn.
+- Nhấp vào biểu tượng ba dấu chấm `⋮` ở cột Actions $\rightarrow$ chọn **Promote to static IP address** và đặt tên cho IP này để chuyển từ *Ephemeral* sang *Static*.
+
+#### 2. Cấu hình DNS trỏ về máy ảo qua Cloudflare (Khuyên dùng và hoàn toàn miễn phí):
+- Thêm tên miền của bạn vào tài khoản Cloudflare và trỏ Name Servers của tên miền từ nhà đăng ký (Namecheap, GoDaddy...) về Cloudflare.
+- Tại giao diện quản lý DNS của Cloudflare, thêm 2 bản ghi `A Record`:
+  * **Bản ghi thứ 1 (Trỏ domain chính)**: Type: `A`, Name: `@` (hoặc tên miền chính), IPv4 address: `34.21.188.53`, Proxy status: **DNS Only** (Hoặc bật Proxy nếu muốn sử dụng CDN).
+  * **Bản ghi thứ 2 (Trỏ wildcard cho các dịch vụ con)**: Type: `A`, Name: `*`, IPv4 address: `34.21.188.53`, Proxy status: **DNS Only**.
+
+#### 3. Cập nhật cấu hình trong mã nguồn:
+Khi chuyển sang tên miền thật, bạn cần sửa lại tất cả các chỗ cấu hình tên miền `transcripthub.local` thành tên miền thật của bạn:
+- **Tệp [ingress.yaml](file:///d:/VDT_Tucode/VDT_miniproject_TranscriptHub/k8s/apps/ingress.yaml)**: Sửa tất cả các dòng `host: transcripthub.local` thành `host: yourdomain.com`.
+- **Tệp [configmap.yaml](file:///d:/VDT_Tucode/VDT_miniproject_TranscriptHub/k8s/configmap.yaml)**: Sửa các biến Endpoint/URL sau sang tên miền mới:
+  * `NEXTAUTH_URL` $\rightarrow$ `http://yourdomain.com`
+  * `NEXT_PUBLIC_COLLAB_WS_URL` $\rightarrow$ `ws://yourdomain.com`
+  * `NEXT_PUBLIC_COLLAB_SERVICE_URL` $\rightarrow$ `http://yourdomain.com`
+  * `MINIO_PUBLIC_ENDPOINT` $\rightarrow$ `http://yourdomain.com`
+- Thực hiện **Commit và Push** các thay đổi này lên GitHub (`git push origin dev_js`). Luồng CI/CD sẽ tự động deploy bản cập nhật mới lên máy ảo và bạn có thể mở trình duyệt truy cập thẳng qua tên miền thật của mình!
