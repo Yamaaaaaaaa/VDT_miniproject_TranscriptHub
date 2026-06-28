@@ -142,6 +142,8 @@ jobs:
       - name: Execute Deployment & Rolling Update on VM
         run: |
           ssh ${{ secrets.GCP_VM_USER }}@${{ secrets.GCP_VM_HOST }} '
+            export KUBECONFIG=$HOME/.kube/config
+
             # 1. Áp dụng Config & Secrets ban đầu
             kubectl apply -f ~/transcripthub/k8s/configmap.yaml -n transcripthub
             
