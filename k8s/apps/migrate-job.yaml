@@ -13,12 +13,16 @@ spec:
         - /bin/sh
         - -c
         - |
-          echo "Running Database Migrations..."
-          until npx prisma migrate deploy; do
-            echo "Retrying migration in 5 seconds..."
+          echo "Pushing database schema..."
+          until npx prisma db push --accept-data-loss; do
+            echo "Retrying database schema push in 5 seconds..."
             sleep 5
           done
-          echo "Migration completed successfully."
+          echo "Database schema push completed successfully."
+          
+          echo "Seeding database..."
+          npx prisma db seed
+          echo "Database seeding completed."
         env:
         - name: DATABASE_HOST
           valueFrom:
