@@ -22,7 +22,7 @@ spec:
           echo "Database schema push completed successfully."
           
           echo "Seeding database..."
-          TS_NODE_TRANSPILE_ONLY=true npx prisma db seed
+          npx prisma db seed
           echo "Database seeding completed."
         env:
         - name: DATABASE_HOST
