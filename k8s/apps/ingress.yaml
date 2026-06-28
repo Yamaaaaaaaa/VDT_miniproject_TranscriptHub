@@ -6,6 +6,7 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/websocket-services: "collab-gateway-service"
 spec:
+  ingressClassName: nginx
   rules:
   - host: p-bookland.io.vn
     http:

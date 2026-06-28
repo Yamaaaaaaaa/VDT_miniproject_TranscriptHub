@@ -150,7 +150,11 @@ jobs:
             # 2. Áp dụng các StatefulSet hạ tầng (Postgres, Redis, MinIO, Kafka)
             kubectl apply -f ~/transcripthub/k8s/infrastructure/ -n transcripthub
             
-            # 3. Áp dụng toàn bộ Stateless Apps và Ingress định tuyến
+            # 3. Thay thế placeholder image trong migrate-job.yaml và xóa job cũ (nếu có) để tạo mới
+            sed -i "s|yourusername/transcripthub-users:latest|${{ secrets.DOCKER_USERNAME }}/transcripthub-users:${{ github.sha }}|g" ~/transcripthub/k8s/apps/migrate-job.yaml
+            kubectl delete job db-migrate -n transcripthub --ignore-not-found=true
+
+            # 4. Áp dụng toàn bộ Stateless Apps và Ingress định tuyến
             kubectl apply -f ~/transcripthub/k8s/apps/ -n transcripthub
             
             # 4. Thực hiện Rolling Update cập nhật tag ảnh Docker mới nhất (Git Commit SHA)
