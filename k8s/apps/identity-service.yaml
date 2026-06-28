@@ -81,6 +81,16 @@ spec:
             secretKeyRef:
               name: transcripthub-secrets
               key: jwt-refresh-secret
+        - name: JWT_EXPIRES_IN
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: JWT_EXPIRES_IN
+        - name: JWT_REFRESH_EXPIRES_IN
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: JWT_REFRESH_EXPIRES_IN
 ---
 apiVersion: v1
 kind: Service

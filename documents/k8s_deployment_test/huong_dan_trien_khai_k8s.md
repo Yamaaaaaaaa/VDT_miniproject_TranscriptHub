@@ -65,22 +65,72 @@ Mở cổng `6443` (Kubernetes API server) nếu muốn GitHub Actions runner k�
 * Thiết lập: Name: `allow-k8s-api`, Target tags: `transcripthub-ports`, Source IPv4 range: `0.0.0.0/0`, TCP: `6443`.
 * Nhấp **Create** và thêm tag `transcripthub-ports` vào VM instance.
 
-#### 1.3. Cài đặt k3s trên máy ảo (qua SSH):
-Nhấp **SSH** để kết nối vào terminal của GCP VM, sau đó chạy lệnh cài đặt k3s (với cờ `--disable traefik` để sử dụng Ingress Nginx đồng nhất với local):
+#### 1.3. Kết nối SSH vào máy ảo GCP:
+* **Qua GCP Web Console**: Nhấp vào nút **SSH** ở danh sách VM instance trên GCP Console.
+* **Qua terminal cục bộ**: Sử dụng SSH key để kết nối trực tiếp:
+  ```bash
+  ssh -i <path-to-private-key> <username>@<external-ip-gcp-vm>
+  ```
+
+#### 1.4. Cài đặt k3s trên máy ảo:
+Chạy lệnh cài đặt k3s (với cờ `--disable traefik` để sử dụng Ingress Nginx đồng nhất với local):
 ```bash
 # Cài đặt k3s không dùng Traefik (để dùng Nginx Ingress)
 curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik" sh -
 ```
 
-#### 1.4. Cài đặt Nginx Ingress Controller trên k3s:
+#### 1.5. Cấu hình phân quyền `kubectl` không cần `sudo`:
+Mặc định k3s lưu trữ kubeconfig với quyền của root. Để thuận tiện sử dụng `kubectl` trực tiếp bằng tài khoản user hiện tại:
+```bash
+# Tạo thư mục lưu cấu hình cục bộ
+mkdir -p ~/.kube
+
+# Sao chép tệp cấu hình k3s
+sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+
+# Cấp quyền sở hữu tệp cho user hiện tại
+sudo chown $USER:$USER ~/.kube/config
+
+# Thiết lập biến môi trường trỏ tới tệp cấu hình
+export KUBECONFIG=~/.kube/config
+echo "export KUBECONFIG=~/.kube/config" >> ~/.bashrc
+```
+
+**Xác minh trạng thái cụm K8s**:
+```bash
+kubectl get nodes
+```
+*(Nếu cụm phản hồi trạng thái máy ảo của bạn là `Ready` tức là cụm K8s đã hoạt động bình thường)*.
+
+#### 1.6. Cài đặt Nginx Ingress Controller trên k3s:
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/cloud/deploy.yaml
 ```
+*Kiểm tra trạng thái Ingress hoạt động:*
+```bash
+kubectl get pods -n ingress-nginx
+```
 
-#### 1.5. Cài đặt Helm CLI trên máy ảo GCP:
+#### 1.7. Cài đặt Helm CLI trên máy ảo GCP:
 ```bash
 curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 ```
+
+#### 1.8. Cài đặt Git & Clone mã nguồn dự án trên máy ảo:
+Để lấy toàn bộ mã nguồn và các tệp cấu hình Kubernetes manifests (`k8s/`) về máy ảo, bạn thực hiện cài đặt Git và clone dự án:
+
+```bash
+# Cập nhật danh sách gói hệ thống và cài đặt Git
+sudo apt-get update
+sudo apt-get install -y git
+
+# Clone nhánh dev_js của dự án về máy ảo (thay link GitHub của bạn)
+git clone -b dev_js <YOUR_GITHUB_REPOSITORY_URL>
+
+# Di chuyển vào thư mục dự án vừa clone
+cd VDT_miniproject_TranscriptHub
+```
+*(Sau bước này, bạn sẽ đứng ở thư mục gốc của dự án trên máy ảo. Thư mục cấu hình `k8s/` đã sẵn sàng để áp dụng cho các bước tiếp theo).*
 
 ---
 
@@ -94,29 +144,9 @@ Tạo namespace riêng biệt có tên là `transcripthub`:
 kubectl create namespace transcripthub
 ```
 
-### 2.2. Tạo tệp ConfigMap chứa thông số chung (`k8s/configmap.yaml`)
-Tạo file cấu hình chung của hệ thống:
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: transcripthub-config
-  namespace: transcripthub
-data:
-  DATABASE_HOST: "postgres-db-service"
-  DATABASE_PORT: "5432"
-  DATABASE_NAME: "transcripthub"
-  REDIS_HOST: "redis-service"
-  REDIS_PORT: "6379"
-  MINIO_ENDPOINT: "minio-service"
-  MINIO_PORT: "9000"
-  KAFKA_BOOTSTRAP_SERVERS: "kafka-service:9092"
-  USERS_SERVICE_HOST: "users-service"
-  USERS_SERVICE_PORT: "3001"
-  IDENTITY_SERVICE_HOST: "identity-service"
-  IDENTITY_SERVICE_PORT: "3002"
-```
-Apply file ConfigMap lên cụm:
+### 2.2. Triển khai ConfigMap chứa thông số chung (`k8s/configmap.yaml`)
+Tệp cấu hình chung của hệ thống đã được tạo sẵn tại đường dẫn `k8s/configmap.yaml` trong project. Bạn chỉ cần thực thi lệnh sau để áp dụng nó lên cụm:
+
 ```bash
 kubectl apply -f k8s/configmap.yaml
 ```
@@ -127,94 +157,67 @@ kubectl apply -f k8s/configmap.yaml
 
 ```bash
 kubectl create secret generic transcripthub-secrets \
-  --from-literal=database-password="postgres" \
-  --from-literal=jwt-secret="th_jwt_s3cr3t_k3y_x9mK2pL8qR4nW6vY1bZ5cE0aF7gH3jN" \
-  --from-literal=jwt-refresh-secret="th_very_s3cr3t_gemini_next" \
+  --from-literal=database-password="YOUR_DATABASE_PASSWORD" \
+  --from-literal=jwt-secret="YOUR_JWT_SECRET_KEY" \
+  --from-literal=jwt-refresh-secret="YOUR_JWT_REFRESH_SECRET_KEY" \
+  --from-literal=gemini-api-key="YOUR_GEMINI_API_KEY" \
+  --from-literal=nextauth-secret="YOUR_NEXTAUTH_SECRET_KEY" \
   -n transcripthub
 ```
+
+#### 2.3.1. Hướng dẫn cập nhật hoặc sửa đổi Secrets:
+
+Khi hệ thống đang vận hành, nếu bạn muốn thay đổi hoặc cập nhật giá trị của các khóa bí mật (ví dụ: đổi mật khẩu DB, cập nhật Gemini API Key mới), hãy thực hiện theo các cách sau:
+
+##### **Cách 1: Ghi đè toàn bộ Secret bằng câu lệnh mới (Khuyên dùng)**
+Để cập nhật lại toàn bộ giá trị mà không cần xóa đi tạo lại làm gián đoạn hệ thống, bạn sử dụng cơ chế `--dry-run` kết hợp `apply`:
+```bash
+kubectl create secret generic transcripthub-secrets \
+  --from-literal=database-password="NEW_DATABASE_PASSWORD" \
+  --from-literal=jwt-secret="NEW_JWT_SECRET_KEY" \
+  --from-literal=jwt-refresh-secret="NEW_JWT_REFRESH_SECRET_KEY" \
+  --from-literal=gemini-api-key="NEW_GEMINI_API_KEY" \
+  --from-literal=nextauth-secret="NEW_NEXTAUTH_SECRET_KEY" \
+  -n transcripthub \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+##### **Cách 2: Cập nhật duy nhất một khóa cụ thể (Patch)**
+If you only want to change a specific key (e.g., updating `gemini-api-key`) while keeping the others:
+1. **Base64 encode the new value** on your machine:
+   ```bash
+   echo -n "YOUR_NEW_KEY" | base64
+   ```
+2. **Run the Patch command** to overwrite the encoded value in K8s:
+   ```bash
+   kubectl patch secret transcripthub-secrets -n transcripthub -p '{"data":{"gemini-api-key":"ENCODED_VALUE"}}'
+   ```
+
+> [!IMPORTANT]
+> **Yêu cầu khởi động lại ứng dụng (Restart Rollout):**
+> Sau khi cập nhật ConfigMap hoặc Secret, các container đang chạy **sẽ không tự động nhận cấu hình mới** vì biến môi trường chỉ được nạp một lần duy nhất lúc khởi động container.
+> Bạn bắt buộc phải yêu cầu Kubernetes khởi động lại (restart) các Pod stateless để chúng đọc cấu hình mới:
+> ```bash
+> # Khởi động lại toàn bộ ứng dụng stateless để nhận key mới
+> kubectl rollout restart deployment -n transcripthub
+> ```
 
 ---
 
 ## 3. Bước 3: Triển khai Cơ sở dữ liệu & Message Broker (StatefulSets)
 
 Các dịch vụ lưu trữ cần chạy dưới dạng **StatefulSet** kết hợp với **PersistentVolumeClaim (PVC)** để bảo toàn dữ liệu khi Pod bị tắt hoặc lỗi.
-
-Tạo thư mục lưu trữ manifests: `k8s/infrastructure/` và lần lượt deploy các tệp:
+Các tệp tin cấu hình cho lớp hạ tầng đã được tạo sẵn trong project bao gồm:
 1. **PostgreSQL** (`k8s/infrastructure/postgres.yaml`)
 2. **Redis** (`k8s/infrastructure/redis.yaml`)
-3. **MinIO** (`k8s/infrastructure/minio.yaml`)
+3. **MinIO** (`k8s/infrastructure/minio.yaml`) - Đi kèm với Job tự động tạo bucket.
 4. **Kafka & Zookeeper** (`k8s/infrastructure/kafka.yaml`)
 
-#### Cấu hình PostgreSQL StatefulSet mẫu (`k8s/infrastructure/postgres.yaml`):
-```yaml
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: postgres-db
-  namespace: transcripthub
-spec:
-  serviceName: postgres-db-service
-  replicas: 1
-  selector:
-    matchLabels:
-      app: postgres-db
-  template:
-    metadata:
-      labels:
-        app: postgres-db
-    spec:
-      containers:
-      - name: postgres
-        image: postgres:15-alpine
-        ports:
-        - containerPort: 5432
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "100m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
-        env:
-        - name: POSTGRES_DB
-          valueFrom:
-            configMapKeyRef:
-              name: transcripthub-config
-              key: DATABASE_NAME
-        - name: POSTGRES_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: transcripthub-secrets
-              key: database-password
-        volumeMounts:
-        - name: postgres-data
-          mountPath: /var/lib/postgresql/data
-  volumeClaimTemplates:
-  - metadata:
-      name: postgres-data
-    spec:
-      accessModes: [ "ReadWriteOnce" ]
-      resources:
-        requests:
-          storage: 10Gi
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: postgres-db-service
-  namespace: transcripthub
-spec:
-  ports:
-  - port: 5432
-  selector:
-    app: postgres-db
-```
+Để triển khai toàn bộ lớp hạ tầng cơ sở dữ liệu và hàng đợi tin nhắn lên cụm, bạn chạy duy nhất một lệnh sau:
 
-Áp dụng toàn bộ hạ tầng cơ sở dữ liệu:
 ```bash
 kubectl apply -f k8s/infrastructure/
 ```
-
 ---
 
 ## 4. Bước 4: Thiết lập CI/CD Pipeline với GitHub Actions
@@ -511,104 +514,14 @@ jobs:
 
 ## 5. Bước 5: Triển khai Ứng dụng & Định tuyến Ingress (Stateless)
 
-### 5.1. Ví dụ File Deployment của Microservice (`k8s/apps/users-service.yaml`)
-Cấu hình chi tiết giới hạn tài nguyên và biến môi trường:
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: users-service
-  namespace: transcripthub
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: users-service
-  template:
-    metadata:
-      labels:
-        app: users-service
-    spec:
-      containers:
-      - name: users-service
-        image: yourusername/transcripthub-users:latest
-        ports:
-        - containerPort: 3001
-        resources:
-          requests:
-            memory: "128Mi"
-            cpu: "100m"
-          limits:
-            memory: "256Mi"
-            cpu: "300m"
-        env:
-        - name: DATABASE_HOST
-          valueFrom:
-            configMapKeyRef:
-              name: transcripthub-config
-              key: DATABASE_HOST
-        - name: DATABASE_URL
-          value: "postgresql://postgres:$(database-password)@$(DATABASE_HOST):5432/transcripthub"
-        - name: database-password
-          valueFrom:
-            secretKeyRef:
-              name: transcripthub-secrets
-              key: database-password
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: users-service
-  namespace: transcripthub
-spec:
-  ports:
-  - port: 3001
-    targetPort: 3001
-  selector:
-    app: users-service
-  type: ClusterIP
-```
+Toàn bộ các tệp tin cấu hình triển khai microservices, API Gateway, Next.js Frontend và Ingress đã được định nghĩa sẵn trong thư mục `k8s/apps/` của project.
 
-### 5.2. Cấu hình Ingress định tuyến lưu lượng (`k8s/apps/ingress.yaml`)
 > [!IMPORTANT]
+> **Quy tắc cấu hình Ingress:**
 > **Không sử dụng** annotation `nginx.ingress.kubernetes.io/rewrite-target: /` cho API Gateway vì API Gateway của bạn đã được cấu hình hậu tố mặc định là `/api` (qua `setGlobalPrefix('api')`). Việc dùng rewrite target sẽ xóa bỏ thông tin routing dẫn tới lỗi 404.
 
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: transcripthub-ingress
-  namespace: transcripthub
-  annotations:
-    nginx.ingress.kubernetes.io/websocket-services: "collab-gateway-service"
-spec:
-  rules:
-  - host: transcripthub.local
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: frontend-service
-            port:
-              number: 3000
-      - path: /api
-        pathType: Prefix
-        backend:
-          service:
-            name: api-gateway-service
-            port:
-              number: 3000
-      - path: /socket.io
-        pathType: Prefix
-        backend:
-          service:
-            name: collab-gateway-service
-            port:
-              number: 3008
-```
-Thực thi lệnh apply toàn bộ ứng dụng:
+Để triển khai toàn bộ các ứng dụng không trạng thái (stateless) và thiết lập định tuyến Ingress, bạn chạy duy nhất một lệnh sau:
+
 ```bash
 kubectl apply -f k8s/apps/
 ```

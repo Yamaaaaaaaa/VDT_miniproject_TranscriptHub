@@ -53,3 +53,10 @@ data:
 
   # API Gateway & Web UI Port
   PORT: "3000"
+
+  # JWT Expiration configurations
+  JWT_EXPIRES_IN: "15m"
+  JWT_REFRESH_EXPIRES_IN: "7d"
+
+  # Gemini Configuration
+  GEMINI_MODEL: "gemini-2.5-flash"

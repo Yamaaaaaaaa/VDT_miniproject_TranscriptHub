@@ -30,7 +30,7 @@ spec:
           valueFrom:
             secretKeyRef:
               name: transcripthub-secrets
-              key: jwt-secret
+              key: nextauth-secret
         - name: NEXTAUTH_URL
           value: "http://transcripthub.local"
         - name: API_GATEWAY_URL

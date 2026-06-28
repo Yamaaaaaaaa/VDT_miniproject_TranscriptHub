@@ -63,6 +63,16 @@ spec:
             configMapKeyRef:
               name: transcripthub-config
               key: KAFKA_BOOTSTRAP_SERVERS
+        - name: GEMINI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: transcripthub-secrets
+              key: gemini-api-key
+        - name: GEMINI_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: GEMINI_MODEL
 ---
 apiVersion: v1
 kind: Service
