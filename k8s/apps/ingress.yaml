@@ -6,6 +6,7 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/websocket-services: "collab-gateway-service"
     nginx.ingress.kubernetes.io/proxy-body-size: "500m"
+    nginx.ingress.kubernetes.io/upstream-vhost: "p-bookland.io.vn"
 spec:
   ingressClassName: nginx
   rules:
