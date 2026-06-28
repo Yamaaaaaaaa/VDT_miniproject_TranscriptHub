@@ -28,6 +28,8 @@ spec:
           value: "minioadmin"
         - name: MINIO_ROOT_PASSWORD
           value: "minioadmin"
+        - name: MINIO_SERVER_URL
+          value: "http://p-bookland.io.vn"
         resources:
           requests:
             memory: "128Mi"
