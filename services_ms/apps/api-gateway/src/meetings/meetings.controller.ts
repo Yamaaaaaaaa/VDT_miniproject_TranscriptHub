@@ -28,7 +28,7 @@ import { UpdateMemberDto } from './dto/update-member.dto';
 @ApiTags('Meetings')
 @ApiBearerAuth()
 @UseGuards(JwtIdentityGuard)
-@Controller('v1/meetings')
+@Controller('meetings')
 export class MeetingsController {
   constructor(private readonly meetingsService: MeetingsService) {}
 
