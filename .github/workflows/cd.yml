@@ -154,7 +154,7 @@ jobs:
             kubectl apply -f ~/transcripthub/k8s/apps/ -n transcripthub
             
             # 4. Thực hiện Rolling Update cập nhật tag ảnh Docker mới nhất (Git Commit SHA)
-            kubectl set image deployment/api-gateway-service api-gateway-service=${{ secrets.DOCKER_USERNAME }}/transcripthub-api-gateway:${{ github.sha }} -n transcripthub
+            kubectl set image deployment/api-gateway api-gateway=${{ secrets.DOCKER_USERNAME }}/transcripthub-api-gateway:${{ github.sha }} -n transcripthub
             kubectl set image deployment/collab-service collab-service=${{ secrets.DOCKER_USERNAME }}/transcripthub-collab:${{ github.sha }} -n transcripthub
             kubectl set image deployment/collab-gateway collab-gateway=${{ secrets.DOCKER_USERNAME }}/transcripthub-collab-gateway:${{ github.sha }} -n transcripthub
             kubectl set image deployment/file-service file-service=${{ secrets.DOCKER_USERNAME }}/transcripthub-file:${{ github.sha }} -n transcripthub
@@ -162,10 +162,10 @@ jobs:
             kubectl set image deployment/meeting-service meeting-service=${{ secrets.DOCKER_USERNAME }}/transcripthub-meeting:${{ github.sha }} -n transcripthub
             kubectl set image deployment/transcript-service transcript-service=${{ secrets.DOCKER_USERNAME }}/transcripthub-transcript:${{ github.sha }} -n transcripthub
             kubectl set image deployment/users-service users-service=${{ secrets.DOCKER_USERNAME }}/transcripthub-users:${{ github.sha }} -n transcripthub
-            kubectl set image deployment/frontend-service frontend-service=${{ secrets.DOCKER_USERNAME }}/transcripthub-frontend:${{ github.sha }} -n transcripthub
+            kubectl set image deployment/frontend frontend=${{ secrets.DOCKER_USERNAME }}/transcripthub-frontend:${{ github.sha }} -n transcripthub
             
             # 5. Đợi rollout hoàn thành thành công (Zero-downtime Verification)
-            kubectl rollout status deployment/api-gateway-service -n transcripthub
+            kubectl rollout status deployment/api-gateway -n transcripthub
             kubectl rollout status deployment/collab-service -n transcripthub
             kubectl rollout status deployment/collab-gateway -n transcripthub
             kubectl rollout status deployment/file-service -n transcripthub
@@ -173,5 +173,5 @@ jobs:
             kubectl rollout status deployment/meeting-service -n transcripthub
             kubectl rollout status deployment/transcript-service -n transcripthub
             kubectl rollout status deployment/users-service -n transcripthub
-            kubectl rollout status deployment/frontend-service -n transcripthub
+            kubectl rollout status deployment/frontend -n transcripthub
           '
