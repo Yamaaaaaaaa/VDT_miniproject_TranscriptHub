@@ -29,7 +29,7 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: api-gateway-service
+            name: frontend-service
             port:
               number: 3000
       - path: /socket.io
