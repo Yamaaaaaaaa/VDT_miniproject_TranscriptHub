@@ -26,7 +26,7 @@ import {
 @ApiTags('Collab')
 @ApiBearerAuth()
 @UseGuards(JwtIdentityGuard)
-@Controller('v1/collab')
+@Controller('collab')
 export class CollabController {
   constructor(private readonly collabService: CollabService) {}
 
