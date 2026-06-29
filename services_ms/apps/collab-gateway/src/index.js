@@ -144,7 +144,7 @@ wss.on('connection', async (conn, req) => {
   // y-websocket sends room name as URL path: ws://host/{meetingId}?token=xxx
   const url = new URL(req.url, `http://${req.headers.host}`);
   const token = url.searchParams.get('token');
-  const meetingId = url.pathname.replace(/^\//, ''); // e.g. "/{uuid}" → "{uuid}"
+  const meetingId = url.pathname.replace(/^\//, '').replace(/^socket\.io\//, ''); // e.g. "/{uuid}" or "/socket.io/{uuid}" → "{uuid}"
 
   if (!token || !meetingId) {
     conn.close(4001, 'Missing token or meetingId');

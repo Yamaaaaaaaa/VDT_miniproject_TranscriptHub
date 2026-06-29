@@ -9,7 +9,8 @@ import { collabApi } from "@/lib/api";
 
 const WS_URL =
   typeof window !== "undefined"
-    ? process.env.NEXT_PUBLIC_COLLAB_WS_URL ?? "ws://localhost:3008"
+    ? process.env.NEXT_PUBLIC_COLLAB_WS_URL ??
+      ((window.location.protocol === "https:" ? "wss://" : "ws://") + window.location.host + "/socket.io")
     : "";
 
 export interface CollabUser {
