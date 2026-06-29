@@ -101,6 +101,12 @@ export function QuillEditor({
         if (yText) {
           if (bindingRef.current) return; // Đã được liên kết (bound) rồi
           bindingRef.current = new QB(yText, quill, awareness);
+          // Auto-focus when binding completes
+          setTimeout(() => {
+            if (!destroyed) {
+              quill.focus();
+            }
+          }, 50);
         } else {
           // Y.Text chưa sẵn sàng (doc đang đồng bộ) — seed tạm văn bản thô ban đầu và chạy polling
           if (initialContentRef.current && quill.getLength() <= 1) {
@@ -114,6 +120,11 @@ export function QuillEditor({
               clearInterval(checkInterval);
               if (!bindingRef.current) {
                 bindingRef.current = new QB(yt, quill, aw);
+                setTimeout(() => {
+                  if (!destroyed) {
+                    quill.focus();
+                  }
+                }, 50);
               }
             }
           }, 200);

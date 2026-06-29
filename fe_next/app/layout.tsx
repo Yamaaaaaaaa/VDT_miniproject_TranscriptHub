@@ -34,7 +34,7 @@ export default function RootLayout({
         className="min-h-full flex flex-col bg-slate-50 text-slate-800"
         suppressHydrationWarning
       >
-        <SessionProvider>
+        <SessionProvider refetchOnWindowFocus={false}>
           {children}
         </SessionProvider>
       </body>

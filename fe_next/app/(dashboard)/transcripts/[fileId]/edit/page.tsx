@@ -5,11 +5,11 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useTranscriptDetail } from "@/hooks/use-transcript-detail";
 import { useCollab } from "@/hooks/use-collab";
+import { PlaybackProvider, usePlayback } from "@/context/PlaybackContext";
 import { TranscriptEditHeader } from "@/components/transcript/TranscriptEditHeader";
 import { TranscriptMiniPlayer } from "@/components/transcript/TranscriptMiniPlayer";
 import { TranscriptEditSegmentItem } from "@/components/transcript/TranscriptEditSegmentItem";
 import { TranscriptHistoryModal } from "@/components/transcript/TranscriptHistoryModal";
-import { TranscriptSegment } from "@/types/transcript";
 import { meetingsApi } from "@/lib/api";
 import ConfirmModal from "@/components/confirm-modal";
 import {
@@ -19,17 +19,43 @@ import {
   RotateCcw,
   FileAudio,
   CheckCircle2,
-  Users,
   Wifi,
   WifiOff,
   ShieldAlert,
   Clock,
 } from "lucide-react";
 
+const EMPTY_ARRAY: any[] = [];
+
 export default function TranscriptEditPage() {
   const params = useParams();
-  const router = useRouter();
   const fileId = params.fileId as string;
+  const { data: session } = useSession();
+  const token = session?.accessToken as string;
+
+  if (!token) {
+    return (
+      <div className="space-y-6" suppressHydrationWarning>
+        <div className="h-28 bg-white border border-slate-100 rounded-3xl shadow-sm animate-pulse" />
+        <div className="space-y-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-28 bg-white border border-slate-100 rounded-2xl animate-pulse" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <PlaybackProvider fileId={fileId} token={token}>
+      <TranscriptEditPageContent fileId={fileId} session={session} />
+    </PlaybackProvider>
+  );
+}
+
+function TranscriptEditPageContent({ fileId, session }: { fileId: string; session: any }) {
+  const router = useRouter();
+  const playback = usePlayback();
 
   // Reusable Confirm Modal State
   const [confirmState, setConfirmState] = useState<{
@@ -37,6 +63,9 @@ export default function TranscriptEditPage() {
     title: string;
     message: string;
     onConfirm: () => void;
+    onCancel?: () => void;
+    confirmText?: string;
+    cancelText?: string;
     isDanger?: boolean;
     isAlert?: boolean;
     type?: 'warning' | 'success' | 'info' | 'error';
@@ -69,22 +98,12 @@ export default function TranscriptEditPage() {
     audioFile,
     loading,
     error,
-    isPlaying,
-    currentTime,
-    duration,
-    volume,
-    togglePlay,
-    seekTo,
-    handleVolumeChange,
     formatDuration,
     reload,
-  } = useTranscriptDetail(fileId);
-
-  const { data: session } = useSession();
+  } = useTranscriptDetail(fileId, { skipAudio: true });
 
   // Resolve meetingId thực (UUID của Meeting) từ audioFileId trong URL.
   // Đồng thời lấy meeting role (HOST/EDITOR/VIEWER) của user hiện tại trong meeting đó.
-  // Lưu ý: session.user.role là system role (ADMIN/USER) — KHÔNG phải meeting role.
   const [meetingId, setMeetingId] = useState<string>("");
   const [meetingRole, setMeetingRole] = useState<string>("VIEWER");
   const [showNoPermissionModal, setShowNoPermissionModal] = useState<boolean>(false);
@@ -110,7 +129,7 @@ export default function TranscriptEditPage() {
           const myMember = members.find((m: any) => m.userId === currentUserId);
           if (myMember?.role) setMeetingRole(myMember.role);
         } catch {
-          // fallback VIEWER nếu không lấy được
+          // fallback VIEWER
         }
       })
       .catch((err: any) => {
@@ -157,124 +176,87 @@ export default function TranscriptEditPage() {
     initialSegments: transcript?.segments,
   });
 
-  // Local edited segments — kept in sync with collabSegments
-  const [editedSegments, setEditedSegments] = useState<Record<string, string>>({});
-  const [activeSegmentIndex, setActiveSegmentIndex] = useState<number | null>(null); // Theo dõi Segment đang phát
+  // Đồng bộ danh sách segment sang PlaybackManager để tính toán active segment
+  useEffect(() => {
+    if (playback && transcript) {
+      playback.setSegments(collabSegments.length > 0 ? collabSegments : (transcript.segments ?? []));
+    }
+  }, [playback, collabSegments, transcript]);
+
+  const [activeEditSegmentId, setActiveEditSegmentId] = useState<string | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const segmentRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const isUserSeekingRef = useRef(false);
+
+  const localEditsRef = useRef<Record<string, string>>({});
 
   // State quản lý lịch sử phiên bản
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
 
-  // Seed local edits from transcript (only when collab hasn't synced yet)
+  // Clear activeEditSegmentId when clicking outside segments
   useEffect(() => {
-    if (transcript && Object.keys(editedSegments).length === 0) {
-      const initial: Record<string, string> = {};
-      transcript.segments?.forEach((s) => {
-        initial[s.id] = s.content;
-      });
-      setEditedSegments(initial);
-    }
-  }, [transcript, editedSegments]);
-
-  // Sync collabSegments into editedSegments — this fires on every remote Y.Doc change
-  useEffect(() => {
-    if (!collabSegments.length) return;
-    setEditedSegments((prev) => {
-      const next = { ...prev };
-      let changed = false;
-      collabSegments.forEach((s) => {
-        if (next[s.id] !== s.content) {
-          next[s.id] = s.content;
-          changed = true;
+    const handleDocumentClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest("[data-segment-card]")) {
+        if (!target.closest(".quill-editor-wrapper") && !target.closest("input") && !target.closest("button") && !target.closest(".ql-snow") && !target.closest(".ql-toolbar")) {
+          setActiveEditSegmentId(null);
         }
-      });
-      return changed ? next : prev;
-    });
-  }, [collabSegments]);
+      }
+    };
+    document.addEventListener("click", handleDocumentClick);
+    return () => document.removeEventListener("click", handleDocumentClick);
+  }, []);
 
-  // Track unsaved changes (compared to DB snapshot)
+  // Warning when leaving with unsaved changes
   useEffect(() => {
-    if (!transcript?.segments) return;
-    const isDifferentLength = collabSegments.length !== transcript.segments.length;
-    const changed =
-      isDifferentLength ||
-      collabSegments.some((s) => {
-        const orig = transcript.segments.find((t) => t.id === s.id);
-        if (!orig) return true;
-        const currentContent = editedSegments[s.id] ?? s.content;
-        return currentContent !== orig.content || s.speaker !== orig.speaker;
-      });
-    setHasChanges(changed);
-  }, [editedSegments, collabSegments, transcript]);
-
-  // Update active segment based on audio currentTime
-  const updateActiveSegment = useCallback(() => {
-    if (isUserSeekingRef.current) return;
-    const segs = collabSegments.length > 0 ? collabSegments : (transcript?.segments ?? []);
-    const idx = segs.findIndex(
-      (s, i) =>
-        currentTime >= s.startTime &&
-        (i === segs.length - 1 || currentTime < segs[i + 1].startTime)
-    );
-    setActiveSegmentIndex(idx);
-  }, [collabSegments, transcript, currentTime]);
-
-  useEffect(() => {
-    updateActiveSegment();
-  }, [updateActiveSegment]);
-
-  // Scroll active segment into view is disabled for the Edit page as requested.
-  // We only show which segment is active/highlighted, but do not force scroll the page.
-  /*
-  useEffect(() => {
-    if (activeSegmentIndex === null || !segmentRefs.current[activeSegmentIndex]) return;
-    segmentRefs.current[activeSegmentIndex]?.scrollIntoView({
-      behavior: "smooth",
-      block: "center",
-    });
-  }, [activeSegmentIndex]);
-  */
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasChanges) {
+        e.preventDefault();
+        e.returnValue = "Bạn có thay đổi chưa lưu. Bạn có chắc chắn muốn rời đi?";
+        return e.returnValue;
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasChanges]);
 
   const handleSegmentClick = useCallback(
     (startTime: number) => {
-      isUserSeekingRef.current = true;
-      seekTo(startTime);
-      setTimeout(() => {
-        isUserSeekingRef.current = false;
-      }, 1500);
+      playback?.seekTo(startTime);
     },
-    [seekTo]
+    [playback]
   );
 
   const handleContentChange = useCallback(
     (segmentId: string, content: string) => {
-      setEditedSegments((prev) => ({ ...prev, [segmentId]: content }));
+      localEditsRef.current[segmentId] = content;
+      setHasChanges(true);
     },
     []
   );
 
+  const handleSpeakerChange = useCallback(
+    (segmentId: string, speaker: string) => {
+      updateSpeaker(segmentId, speaker);
+      setHasChanges(true);
+    },
+    [updateSpeaker]
+  );
+
   const handleReset = useCallback(() => {
-    const source = collabSegments.length > 0 ? collabSegments : (transcript?.segments ?? []);
-    const initial: Record<string, string> = {};
-    source.forEach((s) => {
-      initial[s.id] = s.content;
-    });
-    setEditedSegments(initial);
+    localEditsRef.current = {};
     setHasChanges(false);
-  }, [transcript, collabSegments]);
+  }, []);
 
   const handleSave = useCallback(async () => {
     if (!transcript) return;
     setIsSaving(true);
     try {
-      // Persist via collab gateway snapshot API
       if (collabState.connected) {
         await saveSnapshot();
       }
+      localEditsRef.current = {};
       setHasChanges(false);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
@@ -331,6 +313,8 @@ export default function TranscriptEditPage() {
     );
   }
 
+  const currentUserId = session?.user?.id;
+
   return (
     <div className="space-y-4" suppressHydrationWarning>
       {/* Sticky Header */}
@@ -359,17 +343,43 @@ export default function TranscriptEditPage() {
           {/* Collab status */}
           <span className="w-1 h-1 bg-slate-300 rounded-full" />
           {collabState.connected ? (
-            <span className="flex items-center gap-1 text-green-500">
-              <Wifi size={10} />
-              <span>Live</span>
-              {collabState.users.length > 1 && (
-                <span className="flex items-center gap-0.5 ml-0.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                  <Users size={10} />
-                  <span>{collabState.users.length}</span>
-                </span>
+            <div className="flex items-center gap-2">
+              <span className="flex items-center gap-1 text-green-500">
+                <Wifi size={10} />
+                <span>Live</span>
+              </span>
+              {collabState.users.length > 0 && (
+                <div className="flex items-center -space-x-1.5 overflow-hidden ml-1">
+                  {collabState.users.map((user) => {
+                    const initials = user.name
+                      .split(" ")
+                      .map((n) => n[0])
+                      .join("")
+                      .slice(0, 2)
+                      .toUpperCase();
+                    const isSelf = String(user.id) === String(currentUserId);
+                    return (
+                      <div
+                        key={user.id}
+                        className="relative group cursor-pointer"
+                        title={`${user.name} (${user.email})${isSelf ? " - Bạn" : ""}`}
+                      >
+                        <div
+                          className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-black text-white border-2 border-white transition-all hover:scale-110 hover:z-30 relative shadow-sm"
+                          style={{ backgroundColor: user.color }}
+                        >
+                          {initials || "?"}
+                        </div>
+                        {/* Tooltip */}
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block bg-slate-900 text-white text-[8px] px-1.5 py-0.5 rounded shadow whitespace-nowrap z-50 pointer-events-none">
+                          {user.name} {isSelf && "(Bạn)"}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
-            </span>
+            </div>
           ) : (
             <span className="flex items-center gap-1 text-slate-400">
               <WifiOff size={10} />
@@ -441,44 +451,55 @@ export default function TranscriptEditPage() {
         </div>
       ) : (
         <div className="space-y-3 pb-28">
-          {(collabSegments.length > 0 ? collabSegments : transcript!.segments ?? []).map((segment, index) => (
-            <div
-              key={segment.id}
-              ref={(el) => {
-                segmentRefs.current[index] = el;
-              }}
-            >
-              <TranscriptEditSegmentItem
-                segment={segment}
-                index={index}
-                isActive={activeSegmentIndex === index}
-                editedContent={editedSegments[segment.id]}
-                canEdit={collabState.canEdit}
-                getYText={collabState.synced ? getYText : undefined}
-                getAwareness={collabState.synced ? getAwareness : undefined}
-                setFocus={collabState.synced ? setFocus : undefined}
-                collabUsers={collabState.users}
-                currentUserId={session?.user?.id}
-                onContentChange={(content) => handleContentChange(segment.id, content)}
-                onSpeakerChange={(segmentId, speaker) => updateSpeaker(segmentId, speaker)}
-                onSegmentClick={handleSegmentClick}
-                formatDuration={formatDuration}
-              />
-            </div>
-          ))}
+          {(collabSegments.length > 0 ? collabSegments : transcript.segments ?? []).map((segment, index) => {
+            const segmentId = segment.id;
+            const otherEditorsOnSpeaker = collabState.users.filter(
+              (u) =>
+                String(u.id) !== String(currentUserId) &&
+                u.focus?.segmentId === segmentId &&
+                u.focus?.field === "speaker"
+            );
+            const otherEditorsOnContent = collabState.users.filter(
+              (u) =>
+                String(u.id) !== String(currentUserId) &&
+                u.focus?.segmentId === segmentId &&
+                u.focus?.field === "content"
+            );
+
+            return (
+              <div
+                key={segmentId}
+                data-segment-card
+                ref={(el) => {
+                  segmentRefs.current[index] = el;
+                }}
+              >
+                <TranscriptEditSegmentItem
+                  segment={segment}
+                  index={index}
+                  isActiveEditor={activeEditSegmentId === segmentId}
+                  onActivateEditor={setActiveEditSegmentId}
+                  canEdit={collabState.canEdit}
+                  getYText={getYText}
+                  getAwareness={getAwareness}
+                  setFocus={setFocus}
+                  otherEditorsOnSpeaker={otherEditorsOnSpeaker.length > 0 ? otherEditorsOnSpeaker : EMPTY_ARRAY}
+                  otherEditorsOnContent={otherEditorsOnContent.length > 0 ? otherEditorsOnContent : EMPTY_ARRAY}
+                  currentUserId={currentUserId}
+                  onContentChange={handleContentChange}
+                  onSpeakerChange={handleSpeakerChange}
+                  onSegmentClick={handleSegmentClick}
+                  formatDuration={formatDuration}
+                />
+              </div>
+            );
+          })}
         </div>
       )}
 
       {/* Mini player (sticky bottom) */}
       <TranscriptMiniPlayer
         audioFile={audioFile}
-        isPlaying={isPlaying}
-        currentTime={currentTime}
-        duration={duration}
-        volume={volume}
-        onTogglePlay={togglePlay}
-        onSeek={seekTo}
-        onVolumeChange={handleVolumeChange}
         formatDuration={formatDuration}
       />
 
@@ -523,7 +544,9 @@ export default function TranscriptEditPage() {
         title={confirmState.title}
         message={confirmState.message}
         onConfirm={confirmState.onConfirm}
-        onCancel={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
+        onCancel={confirmState.onCancel ?? (() => setConfirmState(prev => ({ ...prev, isOpen: false })))}
+        confirmText={confirmState.confirmText}
+        cancelText={confirmState.cancelText}
         isDanger={confirmState.isDanger}
         isAlert={confirmState.isAlert}
         type={confirmState.type}

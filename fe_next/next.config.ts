@@ -27,11 +27,11 @@ const nextConfig: NextConfig = {
       },
       {
         source: "/api/meetings/:path*",
-        destination: `${gatewayUrl}/api/v1/meetings/:path*`,
+        destination: `${gatewayUrl}/api/meetings/:path*`,
       },
       {
         source: "/api/collab/:path*",
-        destination: `${gatewayUrl}/api/v1/collab/:path*`,
+        destination: `${gatewayUrl}/api/collab/:path*`,
       },
     ];
   },

@@ -5,7 +5,8 @@ import api from "@/lib/api";
 import { TranscriptDetail, AudioFileMetadata, TranscriptSegment } from "@/types/transcript";
 import { useAuth } from "@/hooks/use-auth";
 
-export function useTranscriptDetail(fileId: string) {
+export function useTranscriptDetail(fileId: string, options?: { skipAudio?: boolean }) {
+  const skipAudio = options?.skipAudio ?? false;
   const { token } = useAuth();
   const [transcript, setTranscript] = useState<TranscriptDetail | null>(null);
   const [audioFile, setAudioFile] = useState<AudioFileMetadata | null>(null);
@@ -113,6 +114,7 @@ export function useTranscriptDetail(fileId: string) {
   }, []);
 
   const initAudio = useCallback(() => {
+    if (skipAudio) return;
     if (!audioRef.current && audioFile && token) {
       audioRef.current = new Audio(`/api/files/stream/${fileId}?token=${token}`);
       audioRef.current.volume = volume;
@@ -120,9 +122,10 @@ export function useTranscriptDetail(fileId: string) {
       audioRef.current.addEventListener("loadedmetadata", handleLoadedMetadata);
       audioRef.current.addEventListener("ended", handleAudioEnded);
     }
-  }, [audioFile, fileId, volume, token, handleTimeUpdate, handleLoadedMetadata, handleAudioEnded]);
+  }, [skipAudio, audioFile, fileId, volume, token, handleTimeUpdate, handleLoadedMetadata, handleAudioEnded]);
 
   const togglePlay = useCallback(() => {
+    if (skipAudio) return;
     initAudio();
     if (!audioRef.current) return;
     if (isPlaying) {
@@ -132,10 +135,11 @@ export function useTranscriptDetail(fileId: string) {
       audioRef.current.play().catch((e) => console.error(e));
       setIsPlaying(true);
     }
-  }, [isPlaying, initAudio]);
+  }, [skipAudio, isPlaying, initAudio]);
 
   const seekTo = useCallback(
     (time: number) => {
+      if (skipAudio) return;
       initAudio();
       if (!audioRef.current) return;
       audioRef.current.currentTime = time;
@@ -145,15 +149,16 @@ export function useTranscriptDetail(fileId: string) {
         setIsPlaying(true);
       }
     },
-    [isPlaying, initAudio]
+    [skipAudio, isPlaying, initAudio]
   );
 
   const handleVolumeChange = useCallback((v: number) => {
+    if (skipAudio) return;
     setVolume(v);
     if (audioRef.current) {
       audioRef.current.volume = v;
     }
-  }, []);
+  }, [skipAudio]);
 
   const formatDuration = useCallback((seconds: number) => {
     if (!seconds || seconds <= 0) return "--:--";
@@ -164,6 +169,7 @@ export function useTranscriptDetail(fileId: string) {
 
   // Cleanup
   useEffect(() => {
+    if (skipAudio) return;
     return () => {
       if (audioRef.current) {
         audioRef.current.pause();
@@ -173,7 +179,7 @@ export function useTranscriptDetail(fileId: string) {
         audioRef.current = null;
       }
     };
-  }, [handleTimeUpdate, handleLoadedMetadata, handleAudioEnded]);
+  }, [skipAudio, handleTimeUpdate, handleLoadedMetadata, handleAudioEnded]);
 
   return {
     transcript,

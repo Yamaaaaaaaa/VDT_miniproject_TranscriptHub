@@ -3,19 +3,21 @@
 import { useRef, useCallback, useState, useEffect, memo } from "react";
 import { TranscriptSegment } from "@/types/transcript";
 import { QuillEditor } from "./QuillEditor";
+import { usePlayback } from "@/context/PlaybackContext";
 
 interface TranscriptEditSegmentItemProps {
   segment: TranscriptSegment;
   index: number;
-  isActive?: boolean;
-  editedContent?: string;
+  isActiveEditor: boolean;
+  onActivateEditor: (segmentId: string) => void;
   canEdit?: boolean;
   getYText?: (segmentId: string) => import("yjs").Text | undefined;
   getAwareness?: () => any;
   setFocus?: (segmentId: string | null, field: "speaker" | "content" | null) => void;
-  collabUsers?: any[];
+  otherEditorsOnSpeaker?: any[];
+  otherEditorsOnContent?: any[];
   currentUserId?: string | number | null;
-  onContentChange?: (content: string) => void;
+  onContentChange?: (segmentId: string, content: string) => void;
   onSpeakerChange?: (segmentId: string, speaker: string) => void;
   onSegmentClick?: (startTime: number) => void;
   formatDuration: (seconds: number) => string;
@@ -24,35 +26,73 @@ interface TranscriptEditSegmentItemProps {
 export const TranscriptEditSegmentItem = memo(function TranscriptEditSegmentItem({
   segment,
   index,
-  isActive = false,
-  editedContent,
+  isActiveEditor = false,
+  onActivateEditor,
   canEdit = false,
   getYText,
   getAwareness,
   setFocus,
-  collabUsers = [],
+  otherEditorsOnSpeaker = [],
+  otherEditorsOnContent = [],
   currentUserId,
   onContentChange,
   onSpeakerChange,
   onSegmentClick,
   formatDuration,
 }: TranscriptEditSegmentItemProps) {
+  const playback = usePlayback();
   const outerRef = useRef<HTMLDivElement>(null);
+  
+  const [isActive, setIsActive] = useState(false);
   const [localSpeaker, setLocalSpeaker] = useState(segment.speaker);
   const [isFocused, setIsFocused] = useState(false);
+  const [localContent, setLocalContent] = useState(segment.content);
 
-  const otherEditorsOnSpeaker = collabUsers.filter(
-    (u) =>
-      String(u.id) !== String(currentUserId) &&
-      u.focus?.segmentId === segment.id &&
-      u.focus?.field === "speaker"
-  );
+  // Subscribe to audio player index updates via PlaybackManager (Pub-Sub)
+  useEffect(() => {
+    if (!playback) return;
+    return playback.subscribeToActiveSegment((activeIndex) => {
+      setIsActive(activeIndex === index);
+    });
+  }, [playback, index]);
 
   useEffect(() => {
     if (!isFocused) {
       setLocalSpeaker(segment.speaker);
     }
   }, [segment.speaker, isFocused]);
+
+  // Real-time listener for text changes on the Y.Text object when not in active edit mode
+  useEffect(() => {
+    if (isActiveEditor || !getYText) return;
+    const yText = getYText(segment.id);
+    if (!yText) return;
+
+    const handler = () => {
+      setLocalContent(yText.toString());
+    };
+
+    yText.observe(handler);
+    
+    // Đồng bộ tức thì nội dung hiện tại của Y.Text khi mount/chuyển chế độ
+    setLocalContent(yText.toString());
+
+    return () => {
+      yText.unobserve(handler);
+    };
+  }, [segment.id, getYText, isActiveEditor]);
+
+  // Auto set focus state in awareness when editor is activated
+  useEffect(() => {
+    if (isActiveEditor && setFocus) {
+      setFocus(segment.id, "content");
+    }
+    return () => {
+      if (isActiveEditor && setFocus) {
+        setFocus(null, null);
+      }
+    };
+  }, [isActiveEditor, segment.id, setFocus]);
 
   const handleContainerClick = useCallback(
     (e: React.MouseEvent) => {
@@ -184,24 +224,57 @@ export const TranscriptEditSegmentItem = memo(function TranscriptEditSegmentItem
         </div>
 
         {/* Content */}
-        <div className="flex-1 min-w-0">
-          {getYText ? (
-            <QuillEditor
-              segmentId={segment.id}
-              getYText={getYText}
-              getAwareness={getAwareness}
-              canEdit={canEdit}
-              initialContent={editedContent ?? segment.content}
-              onContentChange={(content) => onContentChange?.(content)}
-            />
+        <div className="flex-1 min-w-0 relative">
+          {canEdit && getYText && isActiveEditor ? (
+            <div className="border border-red-200 rounded-xl bg-white overflow-hidden shadow-sm">
+              <QuillEditor
+                segmentId={segment.id}
+                getYText={getYText}
+                getAwareness={getAwareness}
+                canEdit={canEdit}
+                initialContent={localContent}
+                onContentChange={(content) => {
+                  setLocalContent(content);
+                  onContentChange?.(segment.id, content);
+                }}
+              />
+            </div>
           ) : (
-            <textarea
-              value={editedContent ?? segment.content}
-              readOnly
-              onClick={(e) => e.stopPropagation()}
-              className="w-full text-xs text-slate-500 leading-relaxed whitespace-pre-wrap break-words bg-transparent border border-transparent p-2 resize-none outline-none transition-all cursor-default"
-              rows={Math.max(2, Math.ceil((editedContent ?? segment.content).length / 80))}
-            />
+            <div
+              onClick={(e) => {
+                if (canEdit && onActivateEditor) {
+                  e.stopPropagation();
+                  onActivateEditor(segment.id);
+                }
+              }}
+              className={`w-full text-xs leading-relaxed p-3 bg-transparent border rounded-xl transition-all select-text whitespace-pre-wrap break-words min-h-[64px] ${
+                canEdit 
+                  ? "hover:bg-slate-50/50 hover:border-slate-200 border-transparent cursor-text text-slate-700" 
+                  : "border-transparent cursor-default text-slate-500"
+              }`}
+              style={
+                otherEditorsOnContent.length > 0
+                  ? {
+                      borderColor: otherEditorsOnContent[0].color,
+                      boxShadow: `0 0 0 2px ${otherEditorsOnContent[0].color}22`,
+                      borderWidth: "1.5px",
+                    }
+                  : undefined
+              }
+            >
+              {localContent || <span className="text-slate-300 italic">Nhấp vào đây để thêm nội dung...</span>}
+              
+              {/* Other users presence indicator */}
+              {otherEditorsOnContent.length > 0 && (
+                <div
+                  className="absolute right-2 bottom-2 flex items-center gap-1 text-[8px] font-bold text-white px-1.5 py-0.5 rounded-full shadow-sm select-none"
+                  style={{ backgroundColor: otherEditorsOnContent[0].color }}
+                >
+                  <span className="w-1 h-1 bg-white rounded-full animate-ping" />
+                  <span>{otherEditorsOnContent[0].name} đang sửa</span>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

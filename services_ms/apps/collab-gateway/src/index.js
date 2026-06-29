@@ -33,6 +33,7 @@ function getOrCreateDoc(meetingId) {
       doc,
       awareness: new awarenessProtocol.Awareness(doc),
       connections: new Set(),
+      cleanupTimeout: null,
     });
     logger.info(`[WS] Created doc for meeting ${meetingId}`);
   }
@@ -103,8 +104,8 @@ function handleMessage(conn, docEntry, message) {
       decoding.readVarUint(syncDecoder); // consume messageSync (type 0)
       const syncType = decoding.readVarUint(syncDecoder);
 
-      if (conn.isReadOnly && syncType !== 0) {
-        logger.warn(`[WS] Read-only user ${conn.userId} blocked from sending sync update type ${syncType}`);
+      if (conn.isReadOnly && syncType === 2) {
+        logger.warn(`[WS] Read-only user ${conn.userId} blocked from sending sync update (syncType 2)`);
         break;
       }
 
@@ -163,6 +164,14 @@ wss.on('connection', async (conn, req) => {
 
     const docEntry = getOrCreateDoc(meetingId);
     docEntry.connections.add(conn);
+    
+    // Clear lazy cleanup timeout if active
+    if (docEntry.cleanupTimeout) {
+      clearTimeout(docEntry.cleanupTimeout);
+      docEntry.cleanupTimeout = null;
+      logger.info(`[WS] Cancelled lazy cleanup timeout for room ${meetingId}`);
+    }
+
     conn.userId = user.id;
     conn.role = role;
     conn.meetingId = meetingId;
@@ -211,6 +220,20 @@ wss.on('connection', async (conn, req) => {
       docEntry.awareness.off('change', awarenessHandler);
       docEntry.doc.off('update', updateHandler);
       logger.info(`[WS] User ${user.id} left meeting ${meetingId}`);
+
+      // Schedule lazy room cleanup if zero connections are left
+      if (docEntry.connections.size === 0) {
+        logger.info(`[WS] Room ${meetingId} has 0 connections. Scheduling lazy cleanup in 2 minutes...`);
+        if (docEntry.cleanupTimeout) {
+          clearTimeout(docEntry.cleanupTimeout);
+        }
+        docEntry.cleanupTimeout = setTimeout(() => {
+          if (docEntry.connections.size === 0) {
+            docs.delete(meetingId);
+            logger.info(`[WS] Room ${meetingId} evicted from memory due to inactivity.`);
+          }
+        }, 120000); // 2 minutes
+      }
     });
 
     // Send current doc state to new client (sync step 1)

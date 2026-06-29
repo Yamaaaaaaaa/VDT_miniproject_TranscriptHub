@@ -76,6 +76,7 @@ interface CollabInstance {
   disconnect: () => void;
   buildSegments: () => CollabSegment[];
   addSubscriber: (fn: () => void) => () => void;
+  addSegmentSubscriber: (fn: () => void) => () => void;
   provider: WebsocketProvider | null;
   /** Vai trò được xác định sau khi kết nối (lấy từ JWT) */
   role: string;
@@ -105,6 +106,7 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
     const doc = new Y.Doc();
     const ySegmentsArray = doc.getArray<Y.Map<any>>("segments");
     const subscribers = new Set<() => void>();
+    const segmentSubscribers = new Set<() => void>();
     let provider: WebsocketProvider | null = null;
 
     const buildSegments = (): CollabSegment[] => {
@@ -124,6 +126,10 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
 
     const notifySubscribers = () => {
       subscribers.forEach((fn) => fn());
+    };
+
+    const notifySegmentSubscribers = () => {
+      segmentSubscribers.forEach((fn) => fn());
     };
 
     const connect = (session: any) => {
@@ -177,6 +183,7 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
           });
         }
         notifySubscribers();
+        notifySegmentSubscribers();
       });
 
       // Đăng ký lắng nghe sự kiện thay đổi trạng thái kết nối mạng của WebSocket Provider (Online/Offline, Reconnecting...)
@@ -184,13 +191,17 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
         notifySubscribers();
       });
 
-      ySegmentsArray.observeDeep(() => notifySubscribers());
+      ySegmentsArray.observeDeep(() => {
+        notifySubscribers();
+        notifySegmentSubscribers();
+      });
 
       instance.provider = provider;
       instance._connectDone = true;
 
       // Thông báo ngay lập tức để UI phản ánh trạng thái đã kết nối
       notifySubscribers();
+      notifySegmentSubscribers();
     };
 
     const disconnect = () => {
@@ -213,6 +224,10 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
       addSubscriber: (fn) => {
         subscribers.add(fn);
         return () => { subscribers.delete(fn); };
+      },
+      addSegmentSubscriber: (fn) => {
+        segmentSubscribers.add(fn);
+        return () => { segmentSubscribers.delete(fn); };
       },
       provider: null,
       role: "VIEWER",
@@ -307,41 +322,54 @@ export function useCollab({
     collab._pendingSeeds = initialSegments;
   }, [collab, initialSegments]);
 
-  // Đăng ký theo dõi collab state (thay đổi awareness, sync, cập nhật segment)
+  // Đăng ký theo dõi collab state (thay đổi awareness, sync, status)
   useEffect(() => {
     if (!collab) return;
 
     const updateState = () => {
       const p = collab.provider;
-      // FIX #3: xác định canEdit đúng từ role đã resolve
       const role = collab.role;
       const canEdit = role !== "VIEWER";
 
-      setState((s) => ({
-        ...s,
-        connected: p?.wsconnected ?? false,
-        synced: p?.synced ?? false,
-        segmentCount: collab.ySegmentsArray.length,
-        role,
-        canEdit,
-      }));
+      setState((s) => {
+        const nextConnected = p?.wsconnected ?? false;
+        const nextSynced = p?.synced ?? false;
+        const nextSegmentCount = collab.ySegmentsArray.length;
 
-      if (p) {
         const users: CollabUser[] = [];
-        p.awareness.getStates().forEach((st) => {
-          if (st.user) {
-            users.push({
-              ...(st.user as CollabUser),
-              focus: st.focus,
-            });
-          }
-        });
-        setState((s) => ({ ...s, users }));
-      }
+        if (p) {
+          p.awareness.getStates().forEach((st) => {
+            if (st.user) {
+              users.push({
+                ...(st.user as CollabUser),
+                focus: st.focus,
+              });
+            }
+          });
+        }
 
-      const segs = collab.buildSegments();
-      setSegments(segs);
-      onContentsChangeRef.current?.(segs);
+        // So sánh sâu mảng users để tránh cập nhật state khi không có gì đổi
+        const usersChanged = JSON.stringify(s.users) !== JSON.stringify(users);
+        if (
+          s.connected === nextConnected &&
+          s.synced === nextSynced &&
+          s.segmentCount === nextSegmentCount &&
+          s.role === role &&
+          s.canEdit === canEdit &&
+          !usersChanged
+        ) {
+          return s;
+        }
+
+        return {
+          connected: nextConnected,
+          synced: nextSynced,
+          segmentCount: nextSegmentCount,
+          role,
+          canEdit,
+          users,
+        };
+      });
     };
 
     const unsub = collab.addSubscriber(updateState);
@@ -349,11 +377,41 @@ export function useCollab({
     return unsub;
   }, [collab, meetingRole]);
 
-  // Mount/unmount: kết nối khi mount lần đầu, ngắt kết nối khi unmount lần cuối.
-  // FIX #4: dùng timer 150ms để hấp thụ double-mount/unmount của React StrictMode,
-  // ngăn việc tạo thêm kết nối WebSocket thứ hai.
+  // Đăng ký theo dõi danh sách segments (chỉ cập nhật khi cấu trúc YJS hoặc speaker thay đổi)
   useEffect(() => {
-    if (!collab || !session?.accessToken) return;
+    if (!collab) return;
+
+    const updateSegments = () => {
+      const segs = collab.buildSegments();
+      setSegments((prev) => {
+        // Kiểm tra xem thực tế có thay đổi cấu trúc không (độ dài mảng hoặc speaker, id của từng segment)
+        if (prev.length === segs.length) {
+          const hasDiff = prev.some((s, i) => {
+            const ns = segs[i];
+            return (
+              s.id !== ns.id ||
+              s.speaker !== ns.speaker ||
+              s.startTime !== ns.startTime ||
+              s.endTime !== ns.endTime
+            );
+          });
+          if (!hasDiff) return prev;
+        }
+        return segs;
+      });
+      onContentsChangeRef.current?.(segs);
+    };
+
+    const unsub = collab.addSegmentSubscriber(updateSegments);
+    updateSegments();
+    return unsub;
+  }, [collab]);
+
+  // Quản lý Lifecycle (mount/unmount): tăng giảm đếm số lượng component gắn kết.
+  // Chỉ phụ thuộc vào collab và meetingId để đảm bảo tính ổn định của vòng đời,
+  // không bị kích hoạt ngắt kết nối khi session token tạm thời tải lại (refresh).
+  useEffect(() => {
+    if (!collab) return;
 
     // Hủy pending disconnect từ lần cleanup StrictMode trước
     if (collab._disconnectTimer) {
@@ -362,7 +420,6 @@ export function useCollab({
     }
 
     collab._mountedCount++;
-    collab.connect(session);
 
     return () => {
       collab._mountedCount--;
@@ -377,7 +434,14 @@ export function useCollab({
         }, 150);
       }
     };
-  }, [collab, meetingId, session?.accessToken]);
+  }, [collab, meetingId]);
+
+  // Thực hiện kết nối WebSocket khi có đầy đủ collab instance và session token.
+  // Khi token thay đổi hoặc cập nhật, connect() đã được bảo vệ bằng guard (nếu đã kết nối thì bỏ qua).
+  useEffect(() => {
+    if (!collab || !session?.accessToken) return;
+    collab.connect(session);
+  }, [collab, session?.accessToken]);
 
   // ---------------------------------------------------------------------------
   // Public API
@@ -467,11 +531,22 @@ export function useCollab({
     }
   }, [collab, meetingId]);
 
-  // Cơ chế tự động lưu khi người dùng hiện tại thực hiện 10 thay đổi bất kỳ
+  // Cơ chế tự động lưu (Debounce 5s sau khi dừng gõ, Interval 30s khi gõ liên tục)
   useEffect(() => {
     if (!collab || !meetingId) return;
 
-    let changeCount = 0;
+    let debounceTimeout: ReturnType<typeof setTimeout> | null = null;
+    let throttleTimeout: ReturnType<typeof setTimeout> | null = null;
+    let hasLocalChanges = false;
+
+    const triggerSave = async () => {
+      if (!hasLocalChanges) return;
+      console.log("[Collab] Tự động lưu phiên bản (debounce/interval)...");
+      const success = await saveSnapshot();
+      if (success) {
+        hasLocalChanges = false;
+      }
+    };
 
     const handleUpdate = (update: Uint8Array, origin: any) => {
       // Bỏ qua các update nhận về từ WebSocket (thay đổi của người dùng khác)
@@ -479,17 +554,36 @@ export function useCollab({
         return;
       }
 
-      changeCount++;
-      if (changeCount >= 10) {
-        changeCount = 0;
-        console.log("[Collab] Đạt mốc 10 thay đổi nội bộ, tự động lưu phiên bản...");
-        saveSnapshot();
+      hasLocalChanges = true;
+
+      // Debounce: hẹn giờ lưu sau 5 giây ngừng gõ
+      if (debounceTimeout) clearTimeout(debounceTimeout);
+      debounceTimeout = setTimeout(() => {
+        triggerSave();
+        if (throttleTimeout) {
+          clearTimeout(throttleTimeout);
+          throttleTimeout = null;
+        }
+      }, 5000);
+
+      // Interval: đảm bảo lưu sau mỗi 30 giây gõ liên tục
+      if (!throttleTimeout) {
+        throttleTimeout = setTimeout(() => {
+          triggerSave();
+          if (debounceTimeout) {
+            clearTimeout(debounceTimeout);
+            debounceTimeout = null;
+          }
+          throttleTimeout = null;
+        }, 30000);
       }
     };
 
     collab.doc.on("update", handleUpdate);
     return () => {
       collab.doc.off("update", handleUpdate);
+      if (debounceTimeout) clearTimeout(debounceTimeout);
+      if (throttleTimeout) clearTimeout(throttleTimeout);
     };
   }, [collab, meetingId, saveSnapshot]);
 
