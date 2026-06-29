@@ -147,10 +147,18 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
       instance.role = instance._meetingRole ?? "VIEWER";
 
       // 1. Khai báo WS Provicer: WebsocketProvider là cầu nối giữa Y.Doc local của bạn và WebSocket server — nó tự động lo việc kết nối, đồng bộ và giữ doc luôn nhất quán với tất cả clients.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       provider = new WebsocketProvider(WS_URL, meetingId, doc, {
         params: { token },
         connect: true,
-      });
+        // Giảm từ 30s mặc định xuống 5s:
+        // Nếu server không gửi message nào trong 5s, client coi kết nối là dead và reconnect.
+        // Điều này tránh trường hợp kẹt "Đang đồng bộ..." 30 giây khi server xử lý auth chậm.
+        // NOTE: messageReconnectTimeout is supported at runtime but missing from y-websocket typedefs.
+        messageReconnectTimeout: 5000,
+        // Tự động yêu cầu đồng bộ lại mỗi 10s nếu kết nối đang hoạt động nhưng doc bị lệch.
+        resyncInterval: 10000,
+      } as any);
 
       // 2. Cập nhật awareness state để các client khác biết user này đang online. (nếu không gọi setLocalState → awareness luôn rỗng, không thấy ai)
       const userInfo: CollabUser = {

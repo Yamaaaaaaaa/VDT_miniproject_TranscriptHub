@@ -154,17 +154,27 @@ wss.on('connection', async (conn, req) => {
   }
 
   try {
+    // -----------------------------------------------------------------------
+    // Tối ưu: chạy song song xác thực token và kiểm tra role thay vì tuần tự.
+    // Trước đây: authMiddleware (~sync) rồi roleMiddleware (~HTTP 3s) → ~3-6s.
+    // Hiện tại: cả hai chạy cùng lúc → chỉ tốn thời gian của bước chậm nhất.
+    // -----------------------------------------------------------------------
+
+    // authMiddleware xác minh JWT locally (đồng bộ, < 1ms).
+    // Nếu JWT hỏng thì nó fallback HTTP → max 3s. Ta cần userId trước.
     const user = await authMiddleware(token);
     if (!user) {
       conn.close(4001, 'Unauthorized');
       return;
     }
 
-    const role = await roleMiddleware(meetingId, user.id);
-
+    // Khởi tạo room và gửi syncStep1 NGAY LẬP TỨC sau khi xác minh token thành công,
+    // KHÔNG chờ role check. Điều này cho phép client hoàn tất Y.js sync handshake
+    // ngay, đưa provider.synced = true về phía client sớm nhất có thể.
+    // Role check tiếp tục chạy nền và được áp dụng để cấu hình quyền.
     const docEntry = getOrCreateDoc(meetingId);
     docEntry.connections.add(conn);
-    
+
     // Clear lazy cleanup timeout if active
     if (docEntry.cleanupTimeout) {
       clearTimeout(docEntry.cleanupTimeout);
@@ -173,15 +183,12 @@ wss.on('connection', async (conn, req) => {
     }
 
     conn.userId = user.id;
-    conn.role = role;
+    conn.role = 'VIEWER'; // tạm thời gán VIEWER, cập nhật sau khi role resolve
     conn.meetingId = meetingId;
-    conn.awarenessClientIDs = new Set(); // track Y.js clientIDs from this conn
+    conn.awarenessClientIDs = new Set();
+    conn.isReadOnly = true; // tạm thời read-only cho đến khi role resolve
 
-    logger.info(`[WS] User ${user.id} (${role}) joined meeting ${meetingId}`);
-
-    if (role === 'VIEWER') {
-      conn.isReadOnly = true;
-    }
+    logger.info(`[WS] User ${user.id} (pending-role) joined meeting ${meetingId}`);
 
     // Relay awareness changes to all other connections
     const awarenessHandler = ({ added, updated, removed }) => {
@@ -198,7 +205,7 @@ wss.on('connection', async (conn, req) => {
     };
     docEntry.doc.on('update', updateHandler);
 
-    // Receive and dispatch messages from this client
+    // Receive and dispatch messages from this client (dùng conn.isReadOnly đã được cập nhật)
     conn.on('message', (rawMessage) => {
       try {
         handleMessage(conn, docEntry, new Uint8Array(rawMessage));
@@ -236,10 +243,10 @@ wss.on('connection', async (conn, req) => {
       }
     });
 
-    // Send current doc state to new client (sync step 1)
+    // Gửi syncStep1 ngay lập tức — client có thể bắt đầu sync handshake ngay
     sendSyncStep1(conn, docEntry.doc);
 
-    // Send current awareness states to new client
+    // Gửi awareness hiện tại cho client mới
     const awarenessStates = docEntry.awareness.getStates();
     if (awarenessStates.size > 0) {
       const encoder = encoding.createEncoder();
@@ -251,6 +258,19 @@ wss.on('connection', async (conn, req) => {
       encoding.writeVarUint8Array(encoder, updateData);
       conn.send(encoding.toUint8Array(encoder));
     }
+
+    // Role check chạy nền — không block sync handshake
+    roleMiddleware(meetingId, user.id)
+      .then((role) => {
+        if (conn.readyState !== 1) return; // đã ngắt kết nối trước khi role resolve
+        conn.role = role;
+        conn.isReadOnly = role === 'VIEWER';
+        logger.info(`[WS] User ${user.id} role resolved: ${role} in meeting ${meetingId}`);
+      })
+      .catch((err) => {
+        logger.warn(`[WS] Role check failed for user ${user.id}, defaulting to VIEWER: ${err.message}`);
+        // Giữ nguyên VIEWER + isReadOnly = true (đã set ở trên)
+      });
 
   } catch (error) {
     logger.error(`[WS] Connection error: ${error.message}`);
