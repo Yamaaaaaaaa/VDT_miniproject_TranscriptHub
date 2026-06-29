@@ -8,6 +8,7 @@ const inter = Inter({
   subsets: ["latin", "vietnamese"],
 });
 
+
 const jetbrainsMono = JetBrains_Mono({
   variable: "--font-mono",
   subsets: ["latin"],
