@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: transcripthub
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: frontend
+        image: yourusername/transcripthub-frontend:latest
+        ports:
+        - containerPort: 3000
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "300m"
+        env:
+        - name: NEXTAUTH_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: transcripthub-secrets
+              key: nextauth-secret
+        - name: NEXTAUTH_URL
+          value: "http://p-bookland.io.vn"
+        - name: AUTH_TRUST_HOST
+          value: "true"
+        - name: NEXTAUTH_TRUST_HOST
+          value: "true"
+        - name: API_GATEWAY_URL
+          value: "http://api-gateway-service:3000"
+        - name: NEXT_PUBLIC_COLLAB_WS_URL
+          value: "ws://p-bookland.io.vn"
+        - name: NEXT_PUBLIC_COLLAB_SERVICE_URL
+          value: "http://p-bookland.io.vn"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  namespace: transcripthub
+spec:
+  ports:
+  - port: 3000
+    targetPort: 3000
+  selector:
+    app: frontend
+  type: ClusterIP

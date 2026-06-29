@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "apps/api-gateway/src",
+  "monorepo": true,
+  "root": "apps/api-gateway",
+  "compilerOptions": {
+    "webpack": true,
+    "tsConfigPath": "apps/api-gateway/tsconfig.app.json"
+  },
+  "projects": {
+    "api-gateway": {
+      "type": "application",
+      "root": "apps/api-gateway",
+      "entryFile": "main",
+      "sourceRoot": "apps/api-gateway/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/api-gateway/tsconfig.app.json"
+      }
+    },
+    "file": {
+      "type": "application",
+      "root": "apps/file",
+      "entryFile": "main",
+      "sourceRoot": "apps/file/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/file/tsconfig.app.json"
+      }
+    },
+    "identity": {
+      "type": "application",
+      "root": "apps/identity",
+      "entryFile": "main",
+      "sourceRoot": "apps/identity/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/identity/tsconfig.app.json"
+      }
+    },
+    "users": {
+      "type": "application",
+      "root": "apps/users",
+      "entryFile": "main",
+      "sourceRoot": "apps/users/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/users/tsconfig.app.json"
+      }
+    },
+    "transcript": {
+      "type": "application",
+      "root": "apps/transcript",
+      "entryFile": "main",
+      "sourceRoot": "apps/transcript/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/transcript/tsconfig.app.json"
+      }
+    },
+    "meeting": {
+      "type": "application",
+      "root": "apps/meeting",
+      "entryFile": "main",
+      "sourceRoot": "apps/meeting/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/meeting/tsconfig.app.json"
+      }
+    },
+    "collab": {
+      "type": "application",
+      "root": "apps/collab",
+      "entryFile": "main",
+      "sourceRoot": "apps/collab/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/collab/tsconfig.app.json"
+      }
+    },
+    "collab-gateway": {
+      "type": "application",
+      "root": "apps/collab-gateway",
+      "entryFile": "main",
+      "sourceRoot": "apps/collab-gateway/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/collab-gateway/tsconfig.app.json"
+      }
+    }
+  }
+}

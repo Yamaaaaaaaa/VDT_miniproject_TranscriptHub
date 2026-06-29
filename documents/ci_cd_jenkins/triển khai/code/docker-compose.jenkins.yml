@@ -1,0 +1,27 @@
+services:
+  jenkins:
+    build:
+      context: ./jenkins
+      dockerfile: Dockerfile
+    container_name: transcripthub-jenkins
+    restart: always
+    user: root # Override to run as root to guarantee access to the mounted docker.sock
+    ports:
+      - "8085:8080"     # Jenkins Web UI
+      - "50000:50000"   # Jenkins Agent Port (for JNLP agents)
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+    volumes:
+      - jenkins_data:/var/jenkins_home
+      # Mount the host Docker socket for Docker-out-of-Docker image building
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - jenkins_net
+
+volumes:
+  jenkins_data:
+    driver: local
+
+networks:
+  jenkins_net:
+    driver: bridge

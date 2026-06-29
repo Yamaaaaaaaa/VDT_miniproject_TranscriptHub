@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="4" failures="0" errors="0" time="9.322">
+  <testsuite name="UsersController (e2e)" errors="0" failures="0" skipped="0" timestamp="2026-06-23T09:59:29" time="4.987" tests="1">
+    <testcase classname="UsersController (e2e) should compile and initialize" name="UsersController (e2e) should compile and initialize" time="0.731">
+    </testcase>
+  </testsuite>
+  <testsuite name="IdentityController (e2e)" errors="0" failures="0" skipped="0" timestamp="2026-06-23T09:59:29" time="5.477" tests="1">
+    <testcase classname="IdentityController (e2e) /health (GET)" name="IdentityController (e2e) /health (GET)" time="0.622">
+    </testcase>
+  </testsuite>
+  <testsuite name="AppController (e2e)" errors="0" failures="0" skipped="0" timestamp="2026-06-23T09:59:29" time="5.965" tests="1">
+    <testcase classname="AppController (e2e) / (GET)" name="AppController (e2e) / (GET)" time="0.224">
+    </testcase>
+  </testsuite>
+  <testsuite name="FileController (e2e)" errors="0" failures="0" skipped="0" timestamp="2026-06-23T09:59:29" time="8.098" tests="1">
+    <testcase classname="FileController (e2e) should compile and initialize" name="FileController (e2e) should compile and initialize" time="2.971">
+    </testcase>
+  </testsuite>
+</testsuites>

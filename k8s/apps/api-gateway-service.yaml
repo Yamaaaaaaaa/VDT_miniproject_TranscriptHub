@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: transcripthub
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+      - name: api-gateway
+        image: yourusername/transcripthub-api-gateway:latest
+        ports:
+        - containerPort: 3000
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "300m"
+        env:
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: PORT
+        - name: USERS_SERVICE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: USERS_SERVICE_HOST
+        - name: USERS_SERVICE_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: USERS_SERVICE_PORT
+        - name: IDENTITY_SERVICE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: IDENTITY_SERVICE_HOST
+        - name: IDENTITY_SERVICE_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: IDENTITY_SERVICE_PORT
+        - name: FILE_SERVICE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: FILE_SERVICE_HOST
+        - name: FILE_SERVICE_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: FILE_SERVICE_PORT
+        - name: FILE_SERVICE_TCP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: FILE_SERVICE_TCP_PORT
+        - name: TRANSCRIPT_SERVICE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: TRANSCRIPT_SERVICE_HOST
+        - name: TRANSCRIPT_SERVICE_TCP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: TRANSCRIPT_SERVICE_TCP_PORT
+        - name: MEETING_SERVICE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: MEETING_SERVICE_HOST
+        - name: MEETING_SERVICE_TCP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: MEETING_SERVICE_TCP_PORT
+        - name: COLLAB_SERVICE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: COLLAB_SERVICE_HOST
+        - name: COLLAB_SERVICE_TCP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: COLLAB_SERVICE_TCP_PORT
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway-service
+  namespace: transcripthub
+spec:
+  ports:
+  - port: 3000
+    targetPort: 3000
+  selector:
+    app: api-gateway
+  type: ClusterIP

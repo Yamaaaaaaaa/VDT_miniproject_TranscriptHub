@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="3" failures="0" errors="0" time="5.49">
+  <testsuite name="AppController" errors="0" failures="0" skipped="0" timestamp="2026-06-23T09:59:02" time="2.802" tests="1">
+    <testcase classname="AppController root should return &quot;Hello World!&quot;" name="AppController root should return &quot;Hello World!&quot;" time="0.028">
+    </testcase>
+  </testsuite>
+  <testsuite name="UsersController" errors="0" failures="0" skipped="0" timestamp="2026-06-23T09:59:02" time="3.878" tests="1">
+    <testcase classname="UsersController findAll should return all profiles" name="UsersController findAll should return all profiles" time="0.019">
+    </testcase>
+  </testsuite>
+  <testsuite name="FileController" errors="0" failures="0" skipped="0" timestamp="2026-06-23T09:59:02" time="4.387" tests="1">
+    <testcase classname="FileController should be defined" name="FileController should be defined" time="0.018">
+    </testcase>
+  </testsuite>
+</testsuites>

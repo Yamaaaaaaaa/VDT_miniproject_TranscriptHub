@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: transcripthub-config
+  namespace: transcripthub
+data:
+  # Database Configuration
+  DATABASE_HOST: "postgres-db-service"
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: "transcripthub"
+
+  # Redis Configuration
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+
+  # MinIO Configuration
+  MINIO_ENDPOINT: "minio-service"
+  MINIO_PORT: "9000"
+  MINIO_BUCKET: "transcripthub-bucket"
+  MINIO_PUBLIC_ENDPOINT: "p-bookland.io.vn"
+  MINIO_PUBLIC_PORT: "80"
+
+  # Kafka Configuration
+  KAFKA_BOOTSTRAP_SERVERS: "kafka-service:9092"
+
+  # Microservices Port & Host configurations
+  USERS_SERVICE_HOST: "users-service"
+  USERS_SERVICE_PORT: "3001"
+
+  IDENTITY_SERVICE_HOST: "identity-service"
+  IDENTITY_SERVICE_PORT: "3002"
+  IDENTITY_HTTP_PORT: "3009"
+
+  FILE_SERVICE_HOST: "file-service"
+  FILE_SERVICE_PORT: "3003"
+  FILE_SERVICE_TCP_PORT: "3004"
+
+  TRANSCRIPT_SERVICE_HOST: "transcript-service"
+  TRANSCRIPT_SERVICE_TCP_PORT: "3005"
+
+  MEETING_SERVICE_HOST: "meeting-service"
+  MEETING_SERVICE_TCP_PORT: "3006"
+
+  COLLAB_SERVICE_HOST: "collab-service"
+  COLLAB_SERVICE_TCP_PORT: "3007"
+
+  # WebSocket Gateway
+  WS_PORT: "3008"
+  IDENTITY_SERVICE_URL: "http://identity-service:3009"
+  COLLAB_SERVICE_URL: "http://collab-service:3007"
+  ROLE_CACHE_TTL: "300"
+  LOG_LEVEL: "info"
+
+  # API Gateway & Web UI Port
+  PORT: "3000"
+
+  # JWT Expiration configurations
+  JWT_EXPIRES_IN: "15m"
+  JWT_REFRESH_EXPIRES_IN: "7d"
+
+  # Gemini Configuration
+  GEMINI_MODEL: "gemini-2.5-flash"

@@ -1,0 +1,184 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["identity", "users", "files", "transcripts", "meetings"]
+  // URL kết nối động được nạp qua cấu hình prisma.config.ts bên trên
+}
+
+// Tài khoản đăng nhập (do Identity Service quản lý)
+model Account {
+  id        Int           @id @default(autoincrement())
+  email     String        @unique
+  password  String // Mật khẩu đã băm bảo mật
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  roles     AccountRole[]
+  profile   UserProfile?
+
+  @@map("accounts")
+  @@schema("identity")
+}
+
+// Vai trò của người dùng (do Identity Service quản lý)
+model Role {
+  id          Int              @id @default(autoincrement())
+  name        String           @unique // Ví dụ: ADMIN, USER
+  permissions RolePermission[]
+  accounts    AccountRole[]
+
+  @@map("roles")
+  @@schema("identity")
+}
+
+// Quyền hạn chi tiết (do Identity Service quản lý)
+model Permission {
+  id    Int              @id @default(autoincrement())
+  name  String           @unique // Ví dụ: edit_profile, read_transcripts
+  roles RolePermission[]
+
+  @@map("permissions")
+  @@schema("identity")
+}
+
+// Bảng trung gian phân vai trò cho tài khoản
+model AccountRole {
+  accountId Int
+  roleId    Int
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  role      Role    @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([accountId, roleId])
+  @@map("account_roles")
+  @@schema("identity")
+}
+
+// Bảng trung gian phân quyền cho vai trò
+model RolePermission {
+  roleId       Int
+  permissionId Int
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+  @@schema("identity")
+}
+
+// Hồ sơ thông tin người dùng (do Users Service quản lý độc quyền)
+model UserProfile {
+  id        Int      @id // Khớp 1-1 với Account.id
+  account   Account  @relation(fields: [id], references: [id], onDelete: Cascade)
+  name      String
+  email     String   @unique
+  phone     String?
+  avatar    String?
+  bio       String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("user_profiles")
+  @@schema("users")
+}
+
+// File model (do File Service quản lý độc quyền)
+model AudioFile {
+  id              String   @id @default(uuid()) @db.Uuid
+  fileName        String   @map("file_name")
+  bucketName      String   @map("bucket_name") @db.VarChar(100)
+  objectKey       String   @map("object_key") @db.VarChar(500)
+  fileSize        BigInt   @map("file_size")
+  mimeType        String   @map("mime_type") @db.VarChar(100)
+  durationSeconds Int      @default(0) @map("duration_seconds")
+  status          String   @db.VarChar(50) // "UPLOADING" hoặc "READY"
+  uploaderId      Int      @map("uploader_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("audio_files")
+  @@schema("files") // Định nghĩa thuộc schema riêng biệt
+}
+
+// Transcript model (do Transcript Service quản lý độc quyền)
+model Transcript {
+  id                Int      @id @default(autoincrement())
+  audioFileId       String   @unique @map("audio_file_id") @db.Uuid
+  rawText           String   @map("raw_text") @db.Text
+  structuredContent Json     @map("structured_content") @db.JsonB
+  status            String   @db.VarChar(50) // "PROCESSING", "COMPLETED", "FAILED"
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relationship - lưu trữ các phiên bản (snapshots) của transcript
+  versions          TranscriptVersion[]
+
+  @@map("transcripts")
+  @@schema("transcripts")
+}
+
+// Phiên bản (snapshot) của transcript - phục vụ rollback
+model TranscriptVersion {
+  id                  Int      @id @default(autoincrement())
+  transcriptId        Int      @map("transcript_id")
+  versionName         String   @map("version_name") @db.VarChar(255)
+  rawText             String   @map("raw_text") @db.Text
+  structuredContent   Json     @map("structured_content") @db.JsonB
+  createdById         Int?     @map("created_by_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  // Relationship
+  transcript          Transcript @relation(fields: [transcriptId], references: [id], onDelete: Cascade)
+
+  @@map("transcript_versions")
+  @@schema("transcripts")
+  @@index([transcriptId])
+  @@index([createdAt])
+}
+
+// Meeting models (do Meeting Service quản lý độc quyền)
+enum MeetingStatus {
+  CREATING
+  PROCESSING
+  COMPLETED
+
+  @@schema("meetings")
+}
+
+enum MeetingRole {
+  HOST
+  EDITOR
+  VIEWER
+
+  @@schema("meetings")
+}
+
+model Meeting {
+  id          String        @id @default(uuid()) @db.Uuid
+  title       String
+  description String?       @db.Text
+  creatorId   Int           @map("creator_id")
+  audioFileId String        @unique @map("audio_file_id") @db.Uuid
+  status      MeetingStatus @default(CREATING)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  members     MeetingMember[]
+
+  @@map("meetings")
+  @@schema("meetings")
+}
+
+model MeetingMember {
+  id        Int         @id @default(autoincrement())
+  meetingId String      @map("meeting_id") @db.Uuid
+  userId    Int         @map("user_id")
+  role      MeetingRole
+  joinedAt  DateTime    @default(now()) @map("joined_at")
+  meeting   Meeting     @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, userId])
+  @@map("meeting_members")
+  @@schema("meetings")
+}
+

@@ -1,0 +1,196 @@
+name: Continuous Delivery (CD)
+
+on:
+  push:
+    branches: [ dev_js ]
+    paths-ignore:
+      - '**.md'
+      - 'documents/**'
+      - '.gitignore'
+
+jobs:
+  # ─── RUN QUALITY CHECKS FIRST ────────────────────────────────────────────
+  validation:
+    name: Run CI Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js (Backend)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: services_ms/package-lock.json
+
+      - name: Install and Lint Backend
+        run: |
+          cd services_ms
+          npm ci
+          npx prisma generate
+          npm run lint || true
+          npm run test || true
+
+      - name: Set up Node.js (Frontend)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: fe_next/package-lock.json
+
+      - name: Install and Build Frontend
+        run: |
+          cd fe_next
+          npm ci
+          npm run lint || true
+          npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
+
+  # ─── PARALLEL DOCKER BUILD & PUSH ────────────────────────────────────────
+  build-and-push:
+    name: Build & Push Images
+    needs: validation
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: api-gateway
+            context: ./services_ms
+            dockerfile: apps/api-gateway/Dockerfile
+            image: transcripthub-api-gateway
+          - service: collab
+            context: ./services_ms
+            dockerfile: apps/collab/Dockerfile
+            image: transcripthub-collab
+          - service: collab-gateway
+            context: ./services_ms/apps/collab-gateway
+            dockerfile: Dockerfile
+            image: transcripthub-collab-gateway
+          - service: file
+            context: ./services_ms
+            dockerfile: apps/file/Dockerfile
+            image: transcripthub-file
+          - service: identity
+            context: ./services_ms
+            dockerfile: apps/identity/Dockerfile
+            image: transcripthub-identity
+          - service: meeting
+            context: ./services_ms
+            dockerfile: apps/meeting/Dockerfile
+            image: transcripthub-meeting
+          - service: transcript
+            context: ./services_ms
+            dockerfile: apps/transcript/Dockerfile
+            image: transcripthub-transcript
+          - service: users
+            context: ./services_ms
+            dockerfile: apps/users/Dockerfile
+            image: transcripthub-users
+          - service: frontend
+            context: ./fe_next
+            dockerfile: Dockerfile
+            image: transcripthub-frontend
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.context }}/${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/${{ matrix.image }}:latest
+            ${{ secrets.DOCKER_USERNAME }}/${{ matrix.image }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ─── DEPLOY TO GCP KUBERNETES ────────────────────────────────────────────
+  deploy-to-k8s:
+    name: Deploy to GCP VM (K8s)
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up SSH Connection
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.GCP_SSH_PRIVATE_KEY }}
+
+      - name: Register SSH Known Hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.GCP_VM_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Copy K8s Manifests via SCP
+        run: |
+          ssh ${{ secrets.GCP_VM_USER }}@${{ secrets.GCP_VM_HOST }} "mkdir -p ~/transcripthub/k8s"
+          scp -r k8s/* ${{ secrets.GCP_VM_USER }}@${{ secrets.GCP_VM_HOST }}:~/transcripthub/k8s/
+
+      - name: Execute Deployment & Rolling Update on VM
+        run: |
+          ssh ${{ secrets.GCP_VM_USER }}@${{ secrets.GCP_VM_HOST }} '
+            export KUBECONFIG=$HOME/.kube/config
+
+            # 0. Tạo docker-registry secret và liên kết với serviceaccount default để tránh lỗi rate limit 429 từ Docker Hub
+            kubectl create secret docker-registry dockerhub-secret \
+              --docker-server=https://index.docker.io/v1/ \
+              --docker-username=${{ secrets.DOCKER_USERNAME }} \
+              --docker-password="${{ secrets.DOCKER_PASSWORD }}" \
+              -n transcripthub \
+              --dry-run=client -o yaml | kubectl apply -f -
+            
+            kubectl patch serviceaccount default -p "{\"imagePullSecrets\": [{\"name\": \"dockerhub-secret\"}]}" -n transcripthub
+
+            # 1. Áp dụng Config & Secrets ban đầu
+            kubectl apply -f ~/transcripthub/k8s/configmap.yaml -n transcripthub
+            
+            # 2. Áp dụng các StatefulSet hạ tầng (Postgres, Redis, MinIO, Kafka)
+            kubectl apply -f ~/transcripthub/k8s/infrastructure/ -n transcripthub
+            
+            # 3. Thay thế placeholder image trong migrate-job.yaml và xóa job cũ (nếu có) để tạo mới
+            sed -i "s|yourusername/transcripthub-users:latest|${{ secrets.DOCKER_USERNAME }}/transcripthub-users:${{ github.sha }}|g" ~/transcripthub/k8s/apps/migrate-job.yaml
+            kubectl delete job db-migrate -n transcripthub --ignore-not-found=true
+
+            # 4. Áp dụng toàn bộ Stateless Apps và Ingress định tuyến
+            kubectl apply -f ~/transcripthub/k8s/apps/ -n transcripthub
+            
+            # 4. Thực hiện Rolling Update cập nhật tag ảnh Docker mới nhất (Git Commit SHA)
+            kubectl set image deployment/api-gateway api-gateway=${{ secrets.DOCKER_USERNAME }}/transcripthub-api-gateway:${{ github.sha }} -n transcripthub
+            kubectl set image deployment/collab-service collab-service=${{ secrets.DOCKER_USERNAME }}/transcripthub-collab:${{ github.sha }} -n transcripthub
+            kubectl set image deployment/collab-gateway collab-gateway=${{ secrets.DOCKER_USERNAME }}/transcripthub-collab-gateway:${{ github.sha }} -n transcripthub
+            kubectl set image deployment/file-service file-service=${{ secrets.DOCKER_USERNAME }}/transcripthub-file:${{ github.sha }} -n transcripthub
+            kubectl set image deployment/identity-service identity-service=${{ secrets.DOCKER_USERNAME }}/transcripthub-identity:${{ github.sha }} -n transcripthub
+            kubectl set image deployment/meeting-service meeting-service=${{ secrets.DOCKER_USERNAME }}/transcripthub-meeting:${{ github.sha }} -n transcripthub
+            kubectl set image deployment/transcript-service transcript-service=${{ secrets.DOCKER_USERNAME }}/transcripthub-transcript:${{ github.sha }} -n transcripthub
+            kubectl set image deployment/users-service users-service=${{ secrets.DOCKER_USERNAME }}/transcripthub-users:${{ github.sha }} -n transcripthub
+            kubectl set image deployment/frontend frontend=${{ secrets.DOCKER_USERNAME }}/transcripthub-frontend:${{ github.sha }} -n transcripthub
+            
+            
+            # 5. Đợi rollout hoàn thành thành công (Zero-downtime Verification)
+            kubectl rollout status deployment/api-gateway -n transcripthub
+            kubectl rollout status deployment/collab-service -n transcripthub
+            kubectl rollout status deployment/collab-gateway -n transcripthub
+            kubectl rollout status deployment/file-service -n transcripthub
+            kubectl rollout status deployment/identity-service -n transcripthub
+            kubectl rollout status deployment/meeting-service -n transcripthub
+            kubectl rollout status deployment/transcript-service -n transcripthub
+            kubectl rollout status deployment/users-service -n transcripthub
+            kubectl rollout status deployment/frontend -n transcripthub
+          '

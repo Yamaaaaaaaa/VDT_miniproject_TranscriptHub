@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migrate
+  namespace: transcripthub
+spec:
+  template:
+    spec:
+      containers:
+      - name: migrate
+        image: yourusername/transcripthub-users:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          echo "Pushing database schema..."
+          until npx prisma db push --accept-data-loss; do
+            echo "Retrying database schema push in 5 seconds..."
+            sleep 5
+          done
+          echo "Database schema push completed successfully."
+          
+          echo "Seeding database..."
+          npx prisma db seed
+          echo "Database seeding completed."
+        env:
+        - name: DATABASE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: DATABASE_HOST
+        - name: database-password
+          valueFrom:
+            secretKeyRef:
+              name: transcripthub-secrets
+              key: database-password
+        - name: DATABASE_URL
+          value: "postgresql://postgres:$(database-password)@$(DATABASE_HOST):5432/transcripthub"
+      restartPolicy: OnFailure

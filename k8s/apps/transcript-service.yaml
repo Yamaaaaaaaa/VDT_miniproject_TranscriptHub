@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transcript-service
+  namespace: transcripthub
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: transcript-service
+  template:
+    metadata:
+      labels:
+        app: transcript-service
+    spec:
+      containers:
+      - name: transcript-service
+        image: yourusername/transcripthub-transcript:latest
+        ports:
+        - containerPort: 3005
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        env:
+        - name: DATABASE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: DATABASE_HOST
+        - name: database-password
+          valueFrom:
+            secretKeyRef:
+              name: transcripthub-secrets
+              key: database-password
+        - name: DATABASE_URL
+          value: "postgresql://postgres:$(database-password)@$(DATABASE_HOST):5432/transcripthub"
+        - name: TRANSCRIPT_SERVICE_TCP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: TRANSCRIPT_SERVICE_TCP_PORT
+        - name: FILE_SERVICE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: FILE_SERVICE_HOST
+        - name: FILE_SERVICE_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: FILE_SERVICE_PORT
+        - name: FILE_SERVICE_TCP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: FILE_SERVICE_TCP_PORT
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: KAFKA_BOOTSTRAP_SERVERS
+        - name: GEMINI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: transcripthub-secrets
+              key: gemini-api-key
+        - name: GEMINI_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: GEMINI_MODEL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transcript-service
+  namespace: transcripthub
+spec:
+  ports:
+  - port: 3005
+    targetPort: 3005
+  selector:
+    app: transcript-service
+  type: ClusterIP
