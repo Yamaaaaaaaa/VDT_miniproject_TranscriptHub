@@ -29,6 +29,11 @@ export class TranscriptController {
     return this.transcriptService.generateTranscriptManually(fileId);
   }
 
+  @MessagePattern('re_transcribe')
+  async reTranscribe(@Payload() fileId: string) {
+    return this.transcriptService.reTranscribe(fileId);
+  }
+
   @MessagePattern('delete_transcript')
   async deleteTranscript(@Payload() id: number) {
     return this.transcriptService.deleteTranscript(id);

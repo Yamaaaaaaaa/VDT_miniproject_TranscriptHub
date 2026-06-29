@@ -26,6 +26,12 @@ export class TranscriptsService {
       .pipe(catchError((err) => throwError(() => err)));
   }
 
+  reTranscript(fileId: string): Observable<any> {
+    return this.transcriptClient
+      .send('re_transcribe', fileId)
+      .pipe(catchError((err) => throwError(() => err)));
+  }
+
   deleteTranscript(id: number): Observable<any> {
     return this.transcriptClient
       .send('delete_transcript', id)

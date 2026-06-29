@@ -6,7 +6,7 @@ import Link from "next/link";
 import ConfirmModal from "@/components/confirm-modal";
 import {
   FileText, RefreshCw, Trash2, CheckCircle2, AlertCircle, Loader2, Sparkles, FolderOpen, Eye, Pencil,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, RotateCcw
 } from "lucide-react";
 
 export default function TranscriptsListPage() {
@@ -15,6 +15,7 @@ export default function TranscriptsListPage() {
   const [meetings, setMeetings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [reTranscribingId, setReTranscribingId] = useState<string | null>(null);
 
   const [confirmState, setConfirmState] = useState<{
     isOpen: boolean;
@@ -140,6 +141,27 @@ export default function TranscriptsListPage() {
         }
       },
       true
+    );
+  };
+
+  const handleReTranscribe = (audioFileId: string, fileName: string) => {
+    triggerConfirm(
+      "Chạy Dịch AI Lại",
+      `Bạn có chắc chắn muốn dịch lại "${fileName}"?\n\nHành động này sẽ xóa nội dung bản dịch hiện tại và chạy lại toàn bộ quá trình AI từ đầu.`,
+      async () => {
+        setReTranscribingId(audioFileId);
+        try {
+          await transcriptsApi.reTranscribe(audioFileId);
+          triggerAlert("Đã kích hoạt", "Yêu cầu dịch lại đã được gửi! Quá trình AI đang chạy lại.", "info");
+          loadData();
+        } catch (err: any) {
+          console.error(err);
+          triggerAlert("Lỗi", err?.response?.data?.message || "Không thể kích hoạt dịch lại.", "error");
+        } finally {
+          setReTranscribingId(null);
+        }
+      },
+      false
     );
   };
 
@@ -332,6 +354,18 @@ export default function TranscriptsListPage() {
                                 Chờ xử lý
                               </button>
                             )}
+                            {/* Nút Chạy Dịch AI Lại — xuất hiện cho mọi trạng thái */}
+                            <button
+                              onClick={() => handleReTranscribe(t.audioFileId, fileName)}
+                              disabled={t.status === "PROCESSING" || reTranscribingId === t.audioFileId}
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-600 hover:text-amber-700 border border-amber-200 rounded-xl transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                              title="Chạy dịch AI lại (thay thế nội dung hiện tại)"
+                            >
+                              {reTranscribingId === t.audioFileId
+                                ? <Loader2 size={12} className="animate-spin" />
+                                : <RotateCcw size={12} />}
+                              <span>Dịch lại</span>
+                            </button>
                             <button
                               onClick={() => handleDelete(t.id)}
                               className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-all cursor-pointer"

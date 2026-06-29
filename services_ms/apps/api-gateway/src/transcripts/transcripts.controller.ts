@@ -64,6 +64,28 @@ export class TranscriptsController {
     return this.transcriptsService.generateTranscriptManual(fileId);
   }
 
+  @Post('re-transcribe')
+  @ApiOperation({ summary: 'Force re-run AI transcription (reset & re-process even if COMPLETED)' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['fileId'],
+      properties: {
+        fileId: {
+          type: 'string',
+          format: 'uuid',
+          example: '123e4567-e89b-12d3-a456-426614174000',
+        },
+      },
+    },
+  })
+  reTranscribe(@Body('fileId') fileId: string) {
+    if (!fileId) {
+      throw new HttpException('fileId is required', HttpStatus.BAD_REQUEST);
+    }
+    return this.transcriptsService.reTranscript(fileId);
+  }
+
   @Delete(':id')
   @ApiOperation({ summary: 'Delete transcript by ID' })
   deleteTranscript(@Param('id', ParseIntPipe) id: number) {

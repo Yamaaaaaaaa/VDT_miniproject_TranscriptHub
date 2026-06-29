@@ -79,6 +79,7 @@ export const transcriptsApi = {
     getAll: (page = 0, size = 10) => api.get(`/transcripts?page=${page}&size=${size}`).then((res) => res.data.result ?? res.data),
     getByAudioFile: (audioFileId: string) => api.get(`/transcripts/file/${audioFileId}`).then((res) => res.data),
     generate: (fileId: string) => api.post("/transcripts/generate", { fileId }).then((res) => res.data.result ?? res.data),
+    reTranscribe: (fileId: string) => api.post("/transcripts/re-transcribe", { fileId }).then((res) => res.data.result ?? res.data),
     delete: (id: number) => api.delete(`/transcripts/${id}`).then((res) => res.data.result ?? res.data),
     exportAsText: (audioFileId: string) =>
         api.get(`/transcripts/file/${audioFileId}/export/text`, { responseType: "blob" }).then((res) => res.data),

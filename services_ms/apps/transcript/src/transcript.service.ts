@@ -119,6 +119,60 @@ export class TranscriptService implements OnModuleInit {
     await this.enqueueTranscriptionJob(fileId);
   }
 
+  /**
+   * Force re-run AI transcription từ đầu — kể cả khi đã COMPLETED.
+   * Reset nội dung cũ về rỗng, chuyển status về PROCESSING, rồi emit job mới.
+   */
+  async reTranscribe(fileId: string) {
+    console.log(`[Re-Transcribe] Force re-transcription requested for fileId: ${fileId}`);
+
+    // Verify file exists
+    try {
+      const exists = await this.fileGateway.checkFileExists(fileId);
+      if (!exists) {
+        throw new AppException(ErrorCodes.AUDIO_FILE_NOT_FOUND, 'Audio file not found in File Service');
+      }
+    } catch (error) {
+      if (error instanceof AppException) throw error;
+      throw new AppException(ErrorCodes.INVALID_KEY, 'Failed to verify audio file existence');
+    }
+
+    let transcript = await this.transcriptRepo.findByAudioFileId(fileId);
+
+    if (!transcript) {
+      // Chưa có → tạo mới và enqueue bình thường
+      transcript = await this.transcriptRepo.create(fileId);
+    } else if (transcript.status === 'PROCESSING') {
+      // Đang xử lý → tránh queue chồng
+      console.log(`[Re-Transcribe] Transcript for fileId ${fileId} is already PROCESSING. Skipping.`);
+      return { message: 'Transcript is already being processed', transcript };
+    } else {
+      // COMPLETED hoặc FAILED → force reset về PROCESSING, xóa nội dung cũ
+      console.log(`[Re-Transcribe] Resetting transcript ID ${transcript.id} from ${transcript.status} to PROCESSING.`);
+      transcript = await this.transcriptRepo.updateStatusAndContent(
+        transcript.id,
+        'PROCESSING',
+        '',
+        { segments: [] },
+      );
+    }
+
+    const jobPayload = {
+      fileId,
+      transcriptId: transcript.id,
+      attempt: 1,
+      forceReRun: true, // Flag để worker biết đây là re-run
+    };
+
+    console.log(`[Re-Transcribe][Kafka] Publishing re-run job for fileId: ${fileId}, transcriptId: ${transcript.id}`);
+    this.kafkaProducer.emit('transcription-jobs', {
+      key: String(transcript.id),
+      value: JSON.stringify(jobPayload),
+    });
+
+    return { message: 'Re-transcription job enqueued successfully', transcript };
+  }
+
   async generateTranscriptManually(fileId: string) {
     console.log(
       `Manually requesting transcript generation for fileId: ${fileId}`,
@@ -185,9 +239,15 @@ export class TranscriptService implements OnModuleInit {
     
     try {
       // 1. Double check current DB status to avoid redundant processing if already COMPLETED
+      //    Ngoại lệ: nếu forceReRun=true (từ re-transcribe endpoint), bỏ qua check COMPLETED
       const transcript = await this.transcriptRepo.findById(transcriptId);
-      if (!transcript || transcript.status === 'COMPLETED') {
-        console.log(`[Job Worker] Transcript ID ${transcriptId} is already completed or not found. Skipping.`);
+      const isForceReRun = (payload as any).forceReRun === true;
+      if (!transcript) {
+        console.log(`[Job Worker] Transcript ID ${transcriptId} not found. Skipping.`);
+        return;
+      }
+      if (transcript.status === 'COMPLETED' && !isForceReRun) {
+        console.log(`[Job Worker] Transcript ID ${transcriptId} is already completed. Skipping.`);
         return;
       }
 

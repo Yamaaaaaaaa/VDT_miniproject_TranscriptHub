@@ -10,7 +10,7 @@ import {
   UploadCloud, FileAudio, Trash2, Play, Pause, Edit2,
   Music, HardDrive, Clock, ChevronLeft, ChevronRight, X,
   CheckCircle2, AlertCircle, Loader2, Volume2, Sparkles, FolderOpen,
-  Plus, RefreshCw
+  Plus, RefreshCw, RotateCcw
 } from "lucide-react";
 
 export default function FileManagementPage() {
@@ -24,6 +24,7 @@ export default function FileManagementPage() {
   const [size] = useState(8);
   const [loading, setLoading] = useState(true);
   const [totalPages, setTotalPages] = useState(1);
+  const [reTranscribingId, setReTranscribingId] = useState<string | null>(null);
 
   // Upload progress & UI states
   const [uploadQueue, setUploadQueue] = useState<any[]>([]);
@@ -177,6 +178,33 @@ export default function FileManagementPage() {
       triggerAlert("Lỗi kích hoạt", "Kích hoạt dịch thuật thất bại.", "error");
       loadFiles();
     }
+  };
+
+  // Force re-run AI transcription (kể cả COMPLETED)
+  const handleReTranscribe = (fileId: string, fileName: string) => {
+    triggerConfirm(
+      "Chạy Dịch AI Lại",
+      `Bạn có chắc chắn muốn dịch lại "${fileName}"?\n\nHành động này sẽ xóa nội dung bản dịch hiện tại và chạy lại toàn bộ quá trình AI từ đầu.`,
+      async () => {
+        setReTranscribingId(fileId);
+        // Optimistically update UI
+        setTranscripts(prev => ({
+          ...prev,
+          [fileId]: { ...prev[fileId], status: 'PROCESSING', audioFileId: fileId }
+        }));
+        try {
+          await transcriptsApi.reTranscribe(fileId);
+          triggerAlert("Đã kích hoạt", "Yêu cầu dịch lại đã được gửi! Quá trình AI đang chạy lại.", "info");
+        } catch (error: any) {
+          console.error("Lỗi kích hoạt dịch lại:", error);
+          triggerAlert("Lỗi", error?.response?.data?.message || "Không thể kích hoạt dịch lại.", "error");
+          loadFiles();
+        } finally {
+          setReTranscribingId(null);
+        }
+      },
+      false
+    );
   };
 
   // Audio Player Event Listeners
@@ -539,7 +567,7 @@ export default function FileManagementPage() {
                           )}
                         </td>
                         <td className="py-3.5">
-                          {(() => {
+                            {(() => {
                             const transcript = transcripts[file.id];
                             const status = transcript ? transcript.status : "NO_TRANSCRIPT";
                             
@@ -551,12 +579,25 @@ export default function FileManagementPage() {
                               );
                             } else if (status === "COMPLETED") {
                               return (
-                                <Link
-                                  href={`/transcripts/${file.id}/view`}
-                                  className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 hover:bg-red-500 hover:text-white rounded-full px-2 py-0.5 transition-all"
-                                >
-                                  Xem bản dịch
-                                </Link>
+                                <div className="flex items-center gap-1.5">
+                                  <Link
+                                    href={`/transcripts/${file.id}/view`}
+                                    className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 hover:bg-red-500 hover:text-white rounded-full px-2 py-0.5 transition-all"
+                                  >
+                                    Xem bản dịch
+                                  </Link>
+                                  <button
+                                    onClick={() => handleReTranscribe(file.id, file.fileName)}
+                                    disabled={reTranscribingId === file.id}
+                                    className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-200 hover:bg-amber-100 rounded-full px-2 py-0.5 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title="Chạy dịch AI lại"
+                                  >
+                                    {reTranscribingId === file.id
+                                      ? <Loader2 size={9} className="animate-spin" />
+                                      : <RotateCcw size={9} />}
+                                    Dịch lại
+                                  </button>
+                                </div>
                               );
                             } else if (status === "FAILED") {
                               return (
