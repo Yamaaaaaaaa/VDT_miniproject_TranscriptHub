@@ -118,8 +118,8 @@ async function main() {
             },
         });
     }
-    // USER role gets edit_profile, read_transcripts, manage_meeting and manage_file
-    const userRolePermissions = ['edit_profile', 'read_transcripts', 'manage_meeting', 'manage_file'];
+    // USER role gets edit_profile, read_transcripts, manage_meeting, manage_file, and manage_transcription
+    const userRolePermissions = ['edit_profile', 'read_transcripts', 'manage_meeting', 'manage_file', 'manage_transcription'];
     for (const permName of userRolePermissions) {
         const roleId = rolesMap['USER'];
         const permissionId = permissionsMap[permName];
