@@ -5,9 +5,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useTranscriptDetail } from "@/hooks/use-transcript-detail";
 import { useCollab } from "@/hooks/use-collab";
-import { TranscriptHeader } from "@/components/transcript/TranscriptHeader";
+import { TranscriptEditHeader } from "@/components/transcript/TranscriptEditHeader";
 import { TranscriptMiniPlayer } from "@/components/transcript/TranscriptMiniPlayer";
-import { TranscriptSegmentItem } from "@/components/transcript/TranscriptSegmentItem";
+import { TranscriptEditSegmentItem } from "@/components/transcript/TranscriptEditSegmentItem";
 import { TranscriptHistoryModal } from "@/components/transcript/TranscriptHistoryModal";
 import { TranscriptSegment } from "@/types/transcript";
 import { meetingsApi } from "@/lib/api";
@@ -335,11 +335,10 @@ export default function TranscriptEditPage() {
     <div className="space-y-4" suppressHydrationWarning>
       {/* Sticky Header */}
       <div className="sticky top-0 z-40">
-        <TranscriptHeader
+        <TranscriptEditHeader
           transcript={transcript}
           audioFile={audioFile}
           formatDuration={formatDuration}
-          mode="edit"
         />
       </div>
 
@@ -449,11 +448,10 @@ export default function TranscriptEditPage() {
                 segmentRefs.current[index] = el;
               }}
             >
-              <TranscriptSegmentItem
+              <TranscriptEditSegmentItem
                 segment={segment}
                 index={index}
                 isActive={activeSegmentIndex === index}
-                mode="edit"
                 editedContent={editedSegments[segment.id]}
                 canEdit={collabState.canEdit}
                 getYText={collabState.synced ? getYText : undefined}

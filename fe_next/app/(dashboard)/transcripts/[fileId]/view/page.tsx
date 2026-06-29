@@ -3,9 +3,9 @@
 import { useParams } from "next/navigation";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranscriptDetail } from "@/hooks/use-transcript-detail";
-import { TranscriptHeader } from "@/components/transcript/TranscriptHeader";
+import { TranscriptViewHeader } from "@/components/transcript/TranscriptViewHeader";
 import { TranscriptMiniPlayer } from "@/components/transcript/TranscriptMiniPlayer";
-import { TranscriptSegmentItem } from "@/components/transcript/TranscriptSegmentItem";
+import { TranscriptViewSegmentItem } from "@/components/transcript/TranscriptViewSegmentItem";
 import { FileText, AlertCircle, Loader2, FileAudio } from "lucide-react";
 
 export default function TranscriptViewPage() {
@@ -128,11 +128,10 @@ export default function TranscriptViewPage() {
     <div className="space-y-4" suppressHydrationWarning>
       {/* Sticky Header with audio player */}
       <div className="sticky top-0 z-40">
-        <TranscriptHeader
+        <TranscriptViewHeader
           transcript={transcript}
           audioFile={audioFile}
           formatDuration={formatDuration}
-          mode="view"
         />
       </div>
 
@@ -165,11 +164,10 @@ export default function TranscriptViewPage() {
                 segmentRefs.current[index] = el;
               }}
             >
-              <TranscriptSegmentItem
+              <TranscriptViewSegmentItem
                 segment={segment}
                 index={index}
                 isActive={activeSegmentIndex === index}
-                mode="view"
                 onSegmentClick={handleSegmentClick}
                 formatDuration={formatDuration}
               />

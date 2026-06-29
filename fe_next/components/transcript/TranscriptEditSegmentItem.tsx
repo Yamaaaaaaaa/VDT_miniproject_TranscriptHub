@@ -4,11 +4,10 @@ import { useRef, useCallback, useState, useEffect, memo } from "react";
 import { TranscriptSegment } from "@/types/transcript";
 import { QuillEditor } from "./QuillEditor";
 
-interface TranscriptSegmentItemProps {
+interface TranscriptEditSegmentItemProps {
   segment: TranscriptSegment;
   index: number;
   isActive?: boolean;
-  mode: "view" | "edit";
   editedContent?: string;
   canEdit?: boolean;
   getYText?: (segmentId: string) => import("yjs").Text | undefined;
@@ -22,11 +21,10 @@ interface TranscriptSegmentItemProps {
   formatDuration: (seconds: number) => string;
 }
 
-export const TranscriptSegmentItem = memo(function TranscriptSegmentItem({
+export const TranscriptEditSegmentItem = memo(function TranscriptEditSegmentItem({
   segment,
   index,
   isActive = false,
-  mode,
   editedContent,
   canEdit = false,
   getYText,
@@ -38,7 +36,7 @@ export const TranscriptSegmentItem = memo(function TranscriptSegmentItem({
   onSpeakerChange,
   onSegmentClick,
   formatDuration,
-}: TranscriptSegmentItemProps) {
+}: TranscriptEditSegmentItemProps) {
   const outerRef = useRef<HTMLDivElement>(null);
   const [localSpeaker, setLocalSpeaker] = useState(segment.speaker);
   const [isFocused, setIsFocused] = useState(false);
@@ -59,12 +57,7 @@ export const TranscriptSegmentItem = memo(function TranscriptSegmentItem({
   const handleContainerClick = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (mode === "view") {
-        if (onSegmentClick) {
-          onSegmentClick(segment.startTime);
-        }
-      } else if (
-        mode === "edit" &&
+      if (
         !target.closest(".quill-editor-wrapper") &&
         target.tagName !== "TEXTAREA" &&
         !target.closest("input")
@@ -74,7 +67,7 @@ export const TranscriptSegmentItem = memo(function TranscriptSegmentItem({
         }
       }
     },
-    [mode, onSegmentClick, segment.startTime]
+    [onSegmentClick, segment.startTime]
   );
 
   return (
@@ -110,7 +103,7 @@ export const TranscriptSegmentItem = memo(function TranscriptSegmentItem({
 
         {/* Speaker & Time */}
         <div className="shrink-0 min-w-[140px]">
-          {mode === "edit" && canEdit ? (
+          {canEdit ? (
             <div className="relative group/speaker mb-2 inline-flex items-center gap-1.5 max-w-[130px] w-full">
               <span className="w-1.5 h-1.5 rounded-full bg-red-600 opacity-60 absolute left-2.5 z-10 pointer-events-none" />
               {otherEditorsOnSpeaker.map((editor) => (
@@ -192,13 +185,7 @@ export const TranscriptSegmentItem = memo(function TranscriptSegmentItem({
 
         {/* Content */}
         <div className="flex-1 min-w-0">
-          {mode === "view" ? (
-            <p
-              className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap break-words cursor-pointer hover:text-red-600 transition-colors"
-            >
-              {segment.content}
-            </p>
-          ) : getYText ? (
+          {getYText ? (
             <QuillEditor
               segmentId={segment.id}
               getYText={getYText}
