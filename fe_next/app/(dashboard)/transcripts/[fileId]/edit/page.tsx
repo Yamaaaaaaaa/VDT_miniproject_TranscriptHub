@@ -74,7 +74,7 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
     isOpen: false,
     title: "",
     message: "",
-    onConfirm: () => {},
+    onConfirm: () => { },
     isDanger: false,
     isAlert: false,
     type: 'warning',
@@ -170,6 +170,7 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
     getVersions,
     getVersionDetail,
     restoreVersion,
+    saveStatus,
   } = useCollab({
     meetingId,
     meetingRole,
@@ -192,6 +193,16 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
 
   const localEditsRef = useRef<Record<string, string>>({});
 
+  // Đồng bộ trạng thái lưu từuseCollab để dọn dẹp thay đổi cục bộ
+  useEffect(() => {
+    if (saveStatus === "saved") {
+      localEditsRef.current = {};
+      setHasChanges(false);
+    } else if (saveStatus === "saving") {
+      setHasChanges(true);
+    }
+  }, [saveStatus]);
+
   // State quản lý lịch sử phiên bản
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
 
@@ -212,7 +223,7 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
   // Warning when leaving with unsaved changes
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (hasChanges) {
+      if (saveStatus === "saving") {
         e.preventDefault();
         e.returnValue = "Bạn có thay đổi chưa lưu. Bạn có chắc chắn muốn rời đi?";
         return e.returnValue;
@@ -220,7 +231,7 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [hasChanges]);
+  }, [saveStatus]);
 
   const handleSegmentClick = useCallback(
     (startTime: number) => {
@@ -401,21 +412,21 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
             </>
           )}
 
-          {hasChanges && (
+          {saveStatus === "saving" && (
             <>
               <span className="w-1 h-1 bg-slate-300 rounded-full" />
-              <span className="text-amber-500 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" />
-                Có thay đổi chưa lưu
+              <span className="text-amber-500 flex items-center gap-1.5">
+                <Loader2 size={10} className="animate-spin" />
+                <span>Đang lưu phiên bản...</span>
               </span>
             </>
           )}
-          {!hasChanges && !isSaving && (
+          {saveStatus === "saved" && (
             <>
               <span className="w-1 h-1 bg-slate-300 rounded-full" />
-              <span className="text-green-500 flex items-center gap-1">
+              <span className="text-green-500 flex items-center gap-1.5">
                 <CheckCircle2 size={10} />
-                Đã lưu
+                <span>Đã lưu tất cả thay đổi</span>
               </span>
             </>
           )}
@@ -433,19 +444,19 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
           {collabState.canEdit && (
             <button
               onClick={handleSave}
-              disabled={!hasChanges || isSaving}
+              disabled={saveStatus === "saved" || isSaving}
               className="flex items-center gap-1.5 px-4 py-2 text-[10px] font-bold bg-red-500 hover:bg-red-600 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed"
             >
               {isSaving ? (
                 <span className="animate-spin inline-block">
                   <RotateCcw size={11} />
                 </span>
-              ) : saveSuccess ? (
+              ) : saveStatus === "saved" ? (
                 <CheckCircle2 size={11} />
               ) : (
                 <Save size={11} />
               )}
-              <span>{isSaving ? "Đang lưu..." : saveSuccess ? "Đã lưu!" : "Lưu thay đổi"}</span>
+              <span>{isSaving ? "Đang lưu..." : saveStatus === "saved" ? "Đã lưu!" : "Lưu thay đổi"}</span>
             </button>
           )}
         </div>

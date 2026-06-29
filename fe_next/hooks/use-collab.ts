@@ -522,8 +522,11 @@ export function useCollab({
     [collab]
   );
 
+  const [saveStatus, setSaveStatus] = useState<'saving' | 'saved'>('saved');
+
   const saveSnapshot = useCallback(async () => {
     if (!collab || !meetingId) return false;
+    setSaveStatus('saving');
 
     const segs = collab.buildSegments();
     const rawText = segs
@@ -546,8 +549,10 @@ export function useCollab({
       // port đó expose TCP microservice, không phải HTTP. axios instance tự đính
       // Bearer token qua request interceptor trong lib/api.ts.
       await collabApi.saveTranscript({ meetingId, rawText, structuredContent });
+      setSaveStatus('saved');
       return true;
     } catch {
+      setSaveStatus('saving');
       return false;
     }
   }, [collab, meetingId]);
@@ -562,10 +567,14 @@ export function useCollab({
 
     const triggerSave = async () => {
       if (!hasLocalChanges) return;
+      setSaveStatus('saving');
       console.log("[Collab] Tự động lưu phiên bản (debounce/interval)...");
       const success = await saveSnapshot();
       if (success) {
         hasLocalChanges = false;
+        setSaveStatus('saved');
+      } else {
+        setSaveStatus('saving');
       }
     };
 
@@ -576,6 +585,7 @@ export function useCollab({
       }
 
       hasLocalChanges = true;
+      setSaveStatus('saving');
 
       // Debounce: hẹn giờ lưu sau 5 giây ngừng gõ
       if (debounceTimeout) clearTimeout(debounceTimeout);
@@ -602,7 +612,7 @@ export function useCollab({
 
     collab.doc.on("update", handleUpdate);
     return () => {
-      collab.doc.off("update", handleUpdate);
+      collab.doc.on("update", handleUpdate);
       if (debounceTimeout) clearTimeout(debounceTimeout);
       if (throttleTimeout) clearTimeout(throttleTimeout);
     };
@@ -672,5 +682,6 @@ export function useCollab({
     getVersions,
     getVersionDetail,
     restoreVersion,
+    saveStatus,
   };
 }
