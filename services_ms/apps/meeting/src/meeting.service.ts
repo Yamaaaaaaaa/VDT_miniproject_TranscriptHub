@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { AppException, ErrorCodes } from '../../../libs/common/src/exceptions/error-code';
 import { MeetingRepository } from './repositories/meeting.repository';
 import { UserGateway } from './gateways/user.gateway';
@@ -9,15 +9,39 @@ import { UpdateMeetingDto } from './dto/update-meeting.dto';
 import { AddMemberDto } from './dto/add-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { MeetingRole } from '@prisma/client';
+import { ClientKafka } from '@nestjs/microservices';
+import { ConfigService } from '@nestjs/config';
+import Redis from 'ioredis';
 
 @Injectable()
-export class MeetingService {
+export class MeetingService implements OnModuleInit {
+  private redis: Redis;
+
   constructor(
     private readonly meetingRepo: MeetingRepository,
     private readonly userGateway: UserGateway,
     private readonly fileGateway: FileGateway,
     private readonly transcriptGateway: TranscriptGateway,
+    @Inject('MEETING_KAFKA_PRODUCER') private readonly kafkaProducer: ClientKafka,
+    private readonly configService: ConfigService,
   ) {}
+
+  async onModuleInit() {
+    try {
+      await this.kafkaProducer.connect();
+      console.log('📡 MeetingService connected to Kafka Producer client');
+    } catch (err) {
+      console.error('📡 MeetingService failed to connect to Kafka:', err.message);
+    }
+
+    this.redis = new Redis({
+      host: this.configService.get<string>('REDIS_HOST', 'localhost'),
+      port: this.configService.get<number>('REDIS_PORT', 6379),
+      maxRetriesPerRequest: 3,
+    });
+    this.redis.on('connect', () => console.log('📡 MeetingService connected to Redis client'));
+    this.redis.on('error', (err) => console.error('MeetingService Redis Error:', err.message));
+  }
 
   private async enrichMeeting(
     meeting: any,
@@ -292,7 +316,12 @@ export class MeetingService {
       throw new AppException(ErrorCodes.MEMBER_ALREADY_EXISTS);
     }
 
-    return this.meetingRepo.addMember(meetingId, targetUserId, dto.role);
+    const result = await this.meetingRepo.addMember(meetingId, targetUserId, dto.role);
+
+    // Bắn sự kiện cập nhật quyền thời gian thực và ghi nhận thông báo
+    await this.publishMemberUpdate(meetingId, targetUserId, dto.role, 'MEETING_ACCESS_GRANTED');
+
+    return result;
   }
 
   async updateMemberRole(
@@ -340,7 +369,12 @@ export class MeetingService {
       }
     }
 
-    return this.meetingRepo.updateMemberRole(meetingId, targetUserId, dto.role);
+    const result = await this.meetingRepo.updateMemberRole(meetingId, targetUserId, dto.role);
+
+    // Bắn sự kiện cập nhật quyền thời gian thực và ghi nhận thông báo
+    await this.publishMemberUpdate(meetingId, targetUserId, dto.role, 'MEETING_ROLE_UPDATED');
+
+    return result;
   }
 
   async removeMember(
@@ -393,7 +427,56 @@ export class MeetingService {
 
     await this.meetingRepo.removeMember(meetingId, targetUserId);
 
+    // Bắn sự kiện cập nhật quyền thời gian thực và ghi nhận thông báo
+    await this.publishMemberUpdate(meetingId, targetUserId, null, 'MEETING_ACCESS_REVOKED');
+
     return { message: 'Member removed from meeting successfully' };
+  }
+
+  private async publishMemberUpdate(
+    meetingId: string,
+    targetUserId: number,
+    role: MeetingRole | null,
+    eventType: 'MEETING_ACCESS_GRANTED' | 'MEETING_ACCESS_REVOKED' | 'MEETING_ROLE_UPDATED',
+  ) {
+    try {
+      const meeting = await this.meetingRepo.findById(meetingId);
+      if (!meeting) return;
+
+      const meetingTitle = meeting.title;
+      const url = `/transcripts/${meeting.audioFileId}/edit`;
+
+      // 1. Publish Kafka notification event
+      const kafkaPayload = {
+        recipientId: targetUserId,
+        senderId: meeting.creatorId,
+        type: eventType,
+        meetingId,
+        meetingTitle,
+        role: role || 'VIEWER',
+        url,
+        createdAt: new Date().toISOString(),
+      };
+
+      console.log(`[Meeting Service] Publishing Kafka event to 'notifications':`, JSON.stringify(kafkaPayload));
+      this.kafkaProducer.emit('notifications', {
+        key: `user-${targetUserId}`,
+        value: JSON.stringify(kafkaPayload),
+      });
+
+      // 2. Publish Redis Pub/Sub event for dynamic WS updates in collab-gateway
+      if (this.redis) {
+        const redisPayload = {
+          meetingId,
+          userId: targetUserId,
+          role: role, // null if access is revoked
+        };
+        console.log(`[Meeting Service] Publishing Redis message to 'meeting_member_updated':`, JSON.stringify(redisPayload));
+        await this.redis.publish('meeting_member_updated', JSON.stringify(redisPayload));
+      }
+    } catch (err) {
+      console.error('Failed to publish member update event:', err.message);
+    }
   }
 
   async getAudioFileId(meetingId: string) {

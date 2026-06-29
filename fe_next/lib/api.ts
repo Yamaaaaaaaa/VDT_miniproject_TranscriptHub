@@ -132,4 +132,11 @@ export const collabApi = {
         api.post("/collab/restore", data).then((res) => res.data.result ?? res.data),
 };
 
+export const notificationsApi = {
+    getAll: () => api.get("/users/notifications").then((res) => res.data.result ?? res.data),
+    read: (id: number) => api.patch(`/users/notifications/${id}/read`).then((res) => res.data.result ?? res.data),
+    readAll: () => api.patch("/users/notifications/read-all").then((res) => res.data.result ?? res.data),
+    delete: (id: number) => api.delete(`/users/notifications/${id}`).then((res) => res.data.result ?? res.data),
+};
+
 export default api;

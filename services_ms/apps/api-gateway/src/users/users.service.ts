@@ -44,4 +44,28 @@ export class UsersService {
       .send('delete_account', { id, requesterId })
       .pipe(catchError((err) => throwError(() => err)));
   }
+
+  getNotifications(userId: number): Observable<any> {
+    return this.usersClient
+      .send('get_notifications', { userId })
+      .pipe(catchError((err) => throwError(() => err)));
+  }
+
+  readNotification(id: number, userId: number): Observable<any> {
+    return this.usersClient
+      .send('read_notification', { id, userId })
+      .pipe(catchError((err) => throwError(() => err)));
+  }
+
+  readAllNotifications(userId: number): Observable<any> {
+    return this.usersClient
+      .send('read_all_notifications', { userId })
+      .pipe(catchError((err) => throwError(() => err)));
+  }
+
+  deleteNotification(id: number, userId: number): Observable<any> {
+    return this.usersClient
+      .send('delete_notification', { id, userId })
+      .pipe(catchError((err) => throwError(() => err)));
+  }
 }

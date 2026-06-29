@@ -196,7 +196,28 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
       });
 
       // Đăng ký lắng nghe sự kiện thay đổi trạng thái kết nối mạng của WebSocket Provider (Online/Offline, Reconnecting...)
-      provider.on("status", () => {
+      provider.on("status", (event: any) => {
+        if (event && event.status === "connected" && provider?.ws) {
+          const socket = provider.ws;
+          if (!(socket as any)._hasRoleListener) {
+            (socket as any)._hasRoleListener = true;
+            socket.addEventListener("message", (msgEvent) => {
+              try {
+                if (typeof msgEvent.data === "string") {
+                  const data = JSON.parse(msgEvent.data);
+                  if (data.type === "ROLE_UPDATED") {
+                    console.log("[Collab] Nhận được cập nhật vai trò mới từ WebSocket:", data.role);
+                    instance.role = data.role;
+                    if (provider) {
+                      (provider as any).isReadOnly = (data.role === "VIEWER" || data.role === "NONE");
+                    }
+                    instance.forceNotify();
+                  }
+                }
+              } catch (_) {}
+            });
+          }
+        }
         notifySubscribers();
       });
 

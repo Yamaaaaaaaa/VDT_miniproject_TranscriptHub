@@ -7,7 +7,7 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { authMiddleware } from './middleware/auth.js';
 import { roleMiddleware } from './middleware/role.js';
-import { redisService } from './services/redis.js';
+import { redisService, redis } from './services/redis.js';
 import { logger } from './utils/logger.js';
 
 const PORT = parseInt(process.env.WS_PORT || '3008', 10);
@@ -296,9 +296,42 @@ server.on('request', (req, res) => {
   }
 });
 
+// Subscribe to meeting member role updates via Redis Pub/Sub
+const subRedis = redis.duplicate();
+subRedis.subscribe('meeting_member_updated')
+  .then(() => logger.info('[WS] Subscribed to Redis channel: meeting_member_updated'))
+  .catch((err) => logger.error('[WS] Redis sub error:', err.message));
+
+subRedis.on('message', (channel, message) => {
+  if (channel === 'meeting_member_updated') {
+    try {
+      const { meetingId, userId, role } = JSON.parse(message);
+      logger.info(`[WS] Received role update via Pub/Sub: user ${userId} in meeting ${meetingId} -> role ${role}`);
+
+      wss.clients.forEach((conn) => {
+        if (conn.meetingId === meetingId && conn.userId === userId) {
+          // Cập nhật quyền trong RAM lập tức
+          conn.role = role || 'NONE';
+          conn.isReadOnly = (role === 'VIEWER' || !role);
+
+          // Gửi WebSocket text frame cho client để Next.js xử lý
+          conn.send(JSON.stringify({
+            type: 'ROLE_UPDATED',
+            role: role || 'NONE',
+          }));
+          logger.info(`[WS] Propagated role update to active client user ${userId} (isReadOnly: ${conn.isReadOnly})`);
+        }
+      });
+    } catch (err) {
+      logger.error(`[WS] Error parsing Redis Pub/Sub message: ${err.message}`);
+    }
+  }
+});
+
 // Graceful shutdown
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received, shutting down...');
+  try { subRedis.disconnect(); } catch (_) {}
   wss.close();
   server.close();
   process.exit(0);

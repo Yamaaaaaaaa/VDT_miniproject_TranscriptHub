@@ -182,3 +182,16 @@ model MeetingMember {
   @@schema("meetings")
 }
 
+model Notification {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @map("user_id")
+  title       String
+  content     String   @db.Text
+  url         String?
+  isRead      Boolean  @default(false) @map("is_read")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("notifications")
+  @@schema("users")
+}
+

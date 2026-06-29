@@ -32,6 +32,18 @@ export class MeetingEnv {
   @IsNumber()
   @IsOptional()
   TRANSCRIPT_SERVICE_TCP_PORT: number = 3005;
+
+  @IsString()
+  @IsOptional()
+  KAFKA_BOOTSTRAP_SERVERS: string = 'kafka:9092';
+
+  @IsString()
+  @IsOptional()
+  REDIS_HOST: string = 'redis';
+
+  @IsNumber()
+  @IsOptional()
+  REDIS_PORT: number = 6379;
 }
 
 export function validate(config: Record<string, any>) {

@@ -64,4 +64,49 @@ export class UsersRepository {
       where: { id },
     });
   }
+
+  // --- Notification Methods ---
+  async getNotifications(userId: number) {
+    return this.prisma.notification.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async findNotificationById(id: number) {
+    return this.prisma.notification.findUnique({
+      where: { id },
+    });
+  }
+
+  async createNotification(userId: number, title: string, content: string, url?: string) {
+    return this.prisma.notification.create({
+      data: {
+        userId,
+        title,
+        content,
+        url,
+      },
+    });
+  }
+
+  async readNotification(id: number, userId: number) {
+    return this.prisma.notification.updateMany({
+      where: { id, userId },
+      data: { isRead: true },
+    });
+  }
+
+  async readAllNotifications(userId: number) {
+    return this.prisma.notification.updateMany({
+      where: { userId, isRead: false },
+      data: { isRead: true },
+    });
+  }
+
+  async deleteNotification(id: number, userId: number) {
+    return this.prisma.notification.deleteMany({
+      where: { id, userId },
+    });
+  }
 }
