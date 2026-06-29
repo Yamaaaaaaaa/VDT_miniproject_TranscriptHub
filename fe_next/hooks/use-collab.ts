@@ -76,6 +76,7 @@ interface CollabInstance {
   disconnect: () => void;
   buildSegments: () => CollabSegment[];
   addSubscriber: (fn: () => void) => () => void;
+  forceNotify: () => void;
   addSegmentSubscriber: (fn: () => void) => () => void;
   provider: WebsocketProvider | null;
   /** Vai trò được xác định sau khi kết nối (lấy từ JWT) */
@@ -221,6 +222,10 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
       connect,
       disconnect,
       buildSegments,
+      forceNotify: () => {
+        notifySubscribers();
+        notifySegmentSubscribers();
+      },
       addSubscriber: (fn) => {
         subscribers.add(fn);
         return () => { subscribers.delete(fn); };
@@ -438,9 +443,17 @@ export function useCollab({
 
   // Thực hiện kết nối WebSocket khi có đầy đủ collab instance và session token.
   // Khi token thay đổi hoặc cập nhật, connect() đã được bảo vệ bằng guard (nếu đã kết nối thì bỏ qua).
+  // Quan trọng: Sau khi connect() return (dù có guard hay không), ta PHẢI gọi lại
+  // notifySubscribers() một lần tường minh để đảm bảo React state nhận được
+  // trạng thái synced=true hiện tại từ Singleton còn sống, tránh mãi kẹt "Đang đồng bộ...".
   useEffect(() => {
     if (!collab || !session?.accessToken) return;
     collab.connect(session);
+    // Sau khi connect() chạy (kể cả khi bị guard bỏ qua vì đã kết nối sẵn),
+    // cưỡng bức flush trạng thái thực tế của provider về React state.
+    // Chạy sau một RAF tick để đảm bảo subscriber đã được đăng ký xong.
+    const raf = requestAnimationFrame(() => collab.forceNotify());
+    return () => cancelAnimationFrame(raf);
   }, [collab, session?.accessToken]);
 
   // ---------------------------------------------------------------------------
