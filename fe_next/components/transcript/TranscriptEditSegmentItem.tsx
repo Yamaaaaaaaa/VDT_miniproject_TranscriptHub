@@ -16,6 +16,7 @@ interface TranscriptEditSegmentItemProps {
   setFocus?: (segmentId: string | null, field: "speaker" | "content" | null) => void;
   otherEditorsOnSpeaker?: any[];
   otherEditorsOnContent?: any[];
+  isSynced?: boolean;
   currentUserId?: string | number | null;
   onContentChange?: (segmentId: string, content: string) => void;
   onSpeakerChange?: (segmentId: string, speaker: string) => void;
@@ -34,6 +35,7 @@ export const TranscriptEditSegmentItem = memo(function TranscriptEditSegmentItem
   setFocus,
   otherEditorsOnSpeaker = [],
   otherEditorsOnContent = [],
+  isSynced = false,
   currentUserId,
   onContentChange,
   onSpeakerChange,
@@ -62,9 +64,16 @@ export const TranscriptEditSegmentItem = memo(function TranscriptEditSegmentItem
     }
   }, [segment.speaker, isFocused]);
 
-  // Real-time listener for text changes on the Y.Text object when not in active edit mode
+  // Đồng bộ nội dung database khi chưa đồng bộ xong YJS
   useEffect(() => {
-    if (isActiveEditor || !getYText) return;
+    if (!isSynced) {
+      setLocalContent(segment.content);
+    }
+  }, [segment.content, isSynced]);
+
+  // Real-time listener for text changes on the Y.Text object when YJS is fully synced
+  useEffect(() => {
+    if (isActiveEditor || !getYText || !isSynced) return;
     const yText = getYText(segment.id);
     if (!yText) return;
 
@@ -74,13 +83,13 @@ export const TranscriptEditSegmentItem = memo(function TranscriptEditSegmentItem
 
     yText.observe(handler);
     
-    // Đồng bộ tức thì nội dung hiện tại của Y.Text khi mount/chuyển chế độ
+    // Đồng bộ tức thì nội dung hiện tại của Y.Text khi sync hoàn tất
     setLocalContent(yText.toString());
 
     return () => {
       yText.unobserve(handler);
     };
-  }, [segment.id, getYText, isActiveEditor]);
+  }, [segment.id, getYText, isActiveEditor, isSynced]);
 
   // Auto set focus state in awareness when editor is activated
   useEffect(() => {

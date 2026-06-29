@@ -23,6 +23,7 @@ import {
   WifiOff,
   ShieldAlert,
   Clock,
+  Loader2,
 } from "lucide-react";
 
 const EMPTY_ARRAY: any[] = [];
@@ -344,10 +345,17 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
           <span className="w-1 h-1 bg-slate-300 rounded-full" />
           {collabState.connected ? (
             <div className="flex items-center gap-2">
-              <span className="flex items-center gap-1 text-green-500">
-                <Wifi size={10} />
-                <span>Live</span>
-              </span>
+              {collabState.synced ? (
+                <span className="flex items-center gap-1 text-green-500">
+                  <Wifi size={10} />
+                  <span>Live</span>
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-amber-500">
+                  <Loader2 size={10} className="animate-spin" />
+                  <span>Đang đồng bộ...</span>
+                </span>
+              )}
               {collabState.users.length > 0 && (
                 <div className="flex items-center -space-x-1.5 overflow-hidden ml-1">
                   {collabState.users.map((user) => {
@@ -479,12 +487,13 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
                   index={index}
                   isActiveEditor={activeEditSegmentId === segmentId}
                   onActivateEditor={setActiveEditSegmentId}
-                  canEdit={collabState.canEdit}
+                  canEdit={collabState.canEdit && collabState.synced}
                   getYText={getYText}
                   getAwareness={getAwareness}
                   setFocus={setFocus}
                   otherEditorsOnSpeaker={otherEditorsOnSpeaker.length > 0 ? otherEditorsOnSpeaker : EMPTY_ARRAY}
                   otherEditorsOnContent={otherEditorsOnContent.length > 0 ? otherEditorsOnContent : EMPTY_ARRAY}
+                  isSynced={collabState.synced}
                   currentUserId={currentUserId}
                   onContentChange={handleContentChange}
                   onSpeakerChange={handleSpeakerChange}

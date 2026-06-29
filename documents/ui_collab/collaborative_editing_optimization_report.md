@@ -111,6 +111,20 @@ Triển khai bộ hẹn giờ thông minh trong `useEffect` lắng nghe sự ki�
   Nhờ đó, khi session tải lại ngầm, vòng đời kết nối không bị đứt và không kích hoạt lại logic ngắt kết nối.
 * **Khóa refetch**: Cấu hình `<SessionProvider refetchOnWindowFocus={false}>` giúp dập tắt hoàn toàn các request GET `/api/auth/session` dư thừa khi người dùng click qua lại giữa các tab trình duyệt.
 
+### 3.6. Ngăn chặn Đồng bộ trống & Nhân đôi nội dung lúc kết nối (Duplicated Content Race Condition)
+
+Khi chỉnh sửa một bản dịch mới, có sự chênh lệch thời gian giữa lúc tải dữ liệu HTTP (REST API) và lúc thiết lập xong kết nối WebSocket Y.js (đăng ký room, thực hiện bắt tay WebSocket và sync dữ liệu).
+
+* **Lỗi giao diện trắng/Nhấp vào đây... (Ảnh 1)**: 
+  - *Hiện tượng*: Khi vào trang sửa, dữ liệu văn bản từ database thực chất đã được tải về ngay lập tức, nhưng giao diện lại hiển thị "Nhấp vào đây để thêm nội dung...".
+  - *Nguyên nhân*: Khi component phân đoạn con mount, `getYText` đã được định nghĩa nhưng Y.js chưa kịp đồng bộ xong với server. Hàm `getYText(segment.id)` trả về một thực thể `Y.Text` trống (`""`). Hàm `useEffect` của phân đoạn con ngay lập tức ghi đè state hiển thị cục bộ bằng kết quả rỗng `yText.toString()` này, che khuất hoàn toàn nội dung database hiện có.
+  - *Giải pháp*: Chỉ cho phép component con đồng bộ hiển thị từ `Y.Text` khi trạng thái kết nối và đồng bộ phòng (`collabState.synced`) đã chuyển sang `true`. Khi chưa đồng bộ xong, component con giữ nguyên hiển thị dữ liệu tĩnh `segment.content` tải từ database.
+  
+* **Lỗi nhân đôi nội dung khi sửa lần đầu (Ảnh 3)**:
+  - *Hiện tượng*: Nếu người dùng bấm vào phân đoạn và bắt đầu gõ khi WebSocket chưa kết nối xong, sau khi đồng bộ thành công, văn bản bị nhân đôi ("Ở trong khu rừngỞ trong khu rừng").
+  - *Nguyên nhân*: Do WebSocket chưa kết nối nên Y.js chưa sẵn sàng, bộ soạn thảo Quill được khởi tạo và tự động "seed" trước nội dung tĩnh từ database thông qua `quill.setText(initialContent)`. Khi WebSocket kết nối và đồng bộ hoàn tất, client tự động đẩy dữ liệu database vào `Y.Text` (để khởi tạo tài liệu Y.js trên server). Tại thời điểm này, Quill đã có chữ và Y.Text cũng đã có chữ. `QuillBinding` được liên kết giữa hai thực thể không trống và thực hiện cơ chế merge văn bản, dẫn đến nhân đôi nội dung.
+  - *Giải pháp*: Khóa quyền chỉnh sửa của người dùng (`canEdit = collabState.canEdit && collabState.synced`) cho đến khi WebSocket đồng bộ hoàn toàn với room (`synced === true`). Trạng thái thanh công cụ sẽ hiển thị spinner `"Đang đồng bộ..."`. Tránh tuyệt đối việc khởi tạo Quill Editor và ghi dữ liệu thô đè lên Y.js trước khi đồng bộ hoàn tất.
+
 ---
 
 ## 4. Chi tiết các File đã Thay đổi & Cấu trúc chỉnh sửa
