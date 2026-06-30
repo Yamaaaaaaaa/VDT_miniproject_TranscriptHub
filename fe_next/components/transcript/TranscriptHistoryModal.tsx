@@ -77,27 +77,28 @@ export function TranscriptHistoryModal({
     }
   }, [getVersionDetail]);
 
-  const handleStartCompareWithOriginal = useCallback(async () => {
+  const handleStartCompareWithLatest = useCallback(async () => {
     if (!selectedVersion || versions.length === 0) return;
     setIsComparing(true);
     setLoadingDiff(true);
     setDiffResult(null);
     try {
-      // Original version is the oldest one in the list (the last element in versions array)
-      const originalVersionSummary = versions[versions.length - 1];
-      if (!originalVersionSummary) {
-        throw new Error("No original version found");
+      // Phiên bản mới nhất là phần tử đầu tiên trong danh sách (versions[0])
+      const latestVersionSummary = versions[0];
+      if (!latestVersionSummary) {
+        throw new Error("No latest version found");
       }
 
-      const originalDetail = await getVersionDetail(originalVersionSummary.id);
+      const latestDetail = await getVersionDetail(latestVersionSummary.id);
 
-      setComparedVersions({ v1: originalDetail, v2: selectedVersion });
+      // So sánh phiên bản chọn (v1 - cũ) với phiên bản mới nhất (v2 - mới)
+      setComparedVersions({ v1: selectedVersion, v2: latestDetail });
 
-      const diffs = diffWords(originalDetail.rawText || "", selectedVersion.rawText || "");
+      const diffs = diffWords(selectedVersion.rawText || "", latestDetail.rawText || "");
       setDiffResult(diffs);
     } catch (err) {
-      console.error("Lỗi khi so sánh với bản gốc:", err);
-      alert("Đã xảy ra lỗi khi tải dữ liệu bản gốc để so sánh.");
+      console.error("Lỗi khi so sánh với phiên bản mới nhất:", err);
+      alert("Đã xảy ra lỗi khi tải dữ liệu để so sánh.");
       setIsComparing(false);
     } finally {
       setLoadingDiff(false);
@@ -258,8 +259,8 @@ export function TranscriptHistoryModal({
                         {/* Left column - Original (Old) */}
                         <div className="w-1/2 flex flex-col min-h-0 border border-slate-100 rounded-2xl bg-white p-4 overflow-y-auto text-left shadow-inner">
                           <div className="text-[9px] font-black text-red-500 border-b border-slate-50 pb-2 mb-2 uppercase tracking-wider flex items-center justify-between">
-                            <span>Bản gốc AI</span>
-                            <span className="px-1.5 py-0.5 rounded bg-red-50 text-red-600 text-[8px] font-bold">Cũ</span>
+                            <span>{comparedVersions?.v1.versionName || "PHIÊN BẢN CŨ"}</span>
+                            <span className="px-1.5 py-0.5 rounded bg-red-50 text-red-600 text-[8px] font-bold">CŨ</span>
                           </div>
                           <div className="text-xs leading-relaxed text-slate-600 whitespace-pre-wrap font-sans pl-1">
                             {diffResult.map((change, index) => {
@@ -376,11 +377,11 @@ export function TranscriptHistoryModal({
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      {/* Compare with Original button */}
+                      {/* Compare with Latest button */}
                       <button
-                        onClick={handleStartCompareWithOriginal}
+                        onClick={handleStartCompareWithLatest}
                         className="p-2 text-slate-400 hover:text-slate-600 bg-white border border-slate-200 hover:border-slate-300 rounded-xl transition-all cursor-pointer flex items-center justify-center shadow-sm"
-                        title="So sánh phiên bản này với bản gốc AI"
+                        title="So sánh phiên bản này với phiên bản mới nhất"
                       >
                         <GitCompare size={16} className="text-red-500" />
                       </button>

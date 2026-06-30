@@ -52,13 +52,37 @@ export class TranscriptRepository {
     rawText?: string,
     structuredContent?: any,
   ) {
-    return this.prisma.transcript.update({
-      where: { id },
-      data: {
-        status,
-        rawText,
-        structuredContent,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Cập nhật trạng thái và nội dung của transcript
+      const updated = await tx.transcript.update({
+        where: { id },
+        data: {
+          status,
+          rawText,
+          structuredContent,
+        },
+      });
+
+      // 2. Nếu trạng thái là COMPLETED, tạo snapshot làm gốc
+      if (status === 'COMPLETED') {
+        const existOrigin = await tx.transcriptVersion.findFirst({
+          where: { transcriptId: id, versionName: 'Bản dịch gốc từ AI' },
+        });
+
+        if (!existOrigin) {
+          await tx.transcriptVersion.create({
+            data: {
+              transcriptId: id,
+              versionName: 'Bản dịch gốc từ AI',
+              rawText: rawText || '',
+              structuredContent: structuredContent || { segments: [] },
+              createdById: null, // Hệ thống/AI
+            },
+          });
+        }
+      }
+
+      return updated;
     });
   }
 
