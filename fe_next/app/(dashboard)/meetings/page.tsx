@@ -4,21 +4,23 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { meetingsApi, usersApi } from '@/lib/api';
-import { 
-  Video, 
-  Plus, 
-  RefreshCw, 
-  Trash2, 
-  ExternalLink, 
-  X, 
-  Loader2, 
-  AlertCircle, 
-  CheckCircle2, 
+import {
+  Video,
+  Plus,
+  RefreshCw,
+  Trash2,
+  ExternalLink,
+  X,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Info
+  Info,
 } from 'lucide-react';
+import CreateMeetingModal from '@/components/meetings/CreateMeetingModal';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
 interface MeetingResponse {
   id: string;
   title: string;
@@ -46,12 +48,13 @@ interface UserProfileResponse {
   email: string;
 }
 
+// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function MeetingManagement() {
   const router = useRouter();
-  
+
   const [meetings, setMeetings] = useState<MeetingResponse[]>([]);
   const [allUsersList, setAllUsersList] = useState<UserProfileResponse[]>([]);
-  
+
   const [page, setPage] = useState<number>(0);
   const [size] = useState<number>(10);
   const [totalPages, setTotalPages] = useState<number>(0);
@@ -62,8 +65,9 @@ export default function MeetingManagement() {
   const [actionError, setActionError] = useState<string>('');
   const [refreshing, setRefreshing] = useState<boolean>(false);
 
-  // Delete modal
+  // Modals
   const [showDeleteModal, setShowDeleteModal] = useState<boolean>(false);
+  const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
   const [activeMeeting, setActiveMeeting] = useState<MeetingResponse | null>(null);
 
   // Toast notifications
@@ -72,27 +76,21 @@ export default function MeetingManagement() {
   const addToast = (type: 'success' | 'danger' | 'info', message: string) => {
     const id = Date.now().toString();
     setToasts(prev => [...prev, { id, type, message }]);
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
-    }, 5000);
+    setTimeout(() => { setToasts(prev => prev.filter(t => t.id !== id)); }, 5000);
   };
 
-  // Fetch meetings page and users
   const fetchMeetings = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
     else setRefreshing(true);
     setError('');
-
     try {
       const meetingsPage = await meetingsApi.list(page, size, true, false);
       setMeetings(meetingsPage.content || []);
       setTotalPages(meetingsPage.totalPages || 0);
       setTotalElements(meetingsPage.totalElements || 0);
-
       const usersData = await usersApi.getAll();
       setAllUsersList(usersData || []);
     } catch (err: any) {
-      console.error(err);
       setError(err.response?.data?.message || err.message || 'Không thể tải danh sách cuộc họp.');
     } finally {
       setLoading(false);
@@ -100,19 +98,10 @@ export default function MeetingManagement() {
     }
   }, [page, size]);
 
-  useEffect(() => {
-    fetchMeetings();
-  }, [fetchMeetings]);
+  useEffect(() => { fetchMeetings(); }, [fetchMeetings]);
 
-  const handleOpenCreate = () => {
-    router.push('/meetings/create');
-  };
+  const handleOpenDetail = (meetingId: string) => { router.push(`/meetings/${meetingId}`); };
 
-  const handleOpenDetail = (meetingId: string) => {
-    router.push(`/meetings/${meetingId}`);
-  };
-
-  // Handle Open Delete Modal
   const handleOpenDelete = (meeting: MeetingResponse) => {
     setActionError('');
     setActiveMeeting(meeting);
@@ -129,7 +118,6 @@ export default function MeetingManagement() {
       addToast('success', 'Đã xóa cuộc họp thành công!');
       fetchMeetings(true);
     } catch (err: any) {
-      console.error(err);
       setActionError(err.response?.data?.message || err.message || 'Có lỗi xảy ra khi xóa cuộc họp.');
     } finally {
       setLoading(false);
@@ -143,15 +131,15 @@ export default function MeetingManagement() {
 
   return (
     <div className="space-y-6 pb-20 animate-fade-in">
-      
+
       {/* Toast notifications */}
       <div className="fixed top-6 right-6 z-50 flex flex-col gap-3">
         {toasts.map(toast => (
-          <div 
+          <div
             key={toast.id}
             className={`flex items-center justify-between gap-4 p-4 rounded-2xl shadow-lg border-l-4 min-w-[300px] transition-all ${
-              toast.type === 'success' ? 'bg-green-50 text-green-800 border-green-500' : 
-              toast.type === 'danger' ? 'bg-red-50 text-red-800 border-red-500' : 
+              toast.type === 'success' ? 'bg-green-50 text-green-800 border-green-500' :
+              toast.type === 'danger' ? 'bg-red-50 text-red-800 border-red-500' :
               'bg-blue-50 text-blue-800 border-blue-500'
             }`}
           >
@@ -159,8 +147,8 @@ export default function MeetingManagement() {
               {toast.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
               <span>{toast.message}</span>
             </div>
-            <button 
-              onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))} 
+            <button
+              onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
               className="text-inherit hover:opacity-75 transition-all cursor-pointer"
             >
               <X size={14} />
@@ -173,19 +161,21 @@ export default function MeetingManagement() {
       <div className="flex justify-between items-center flex-wrap gap-4">
         <div>
           <h2 className="text-2xl font-black text-slate-800 tracking-tight">Quản lý cuộc họp</h2>
-          <p className="text-slate-400 text-xs mt-1">Lập lịch trình, quản lý thành viên tham gia cuộc họp và kết nối trực tiếp với tài liệu dịch thuật</p>
+          <p className="text-slate-400 text-xs mt-1">
+            Lập lịch trình, quản lý thành viên tham gia cuộc họp và kết nối trực tiếp với tài liệu dịch thuật
+          </p>
         </div>
         <div className="flex gap-2">
-          <button 
-            onClick={() => fetchMeetings(true)} 
-            className="flex items-center gap-2 px-4 py-2 border border-slate-200 hover:border-slate-300 text-slate-600 bg-white hover:bg-slate-50 font-bold text-xs rounded-xl transition-all cursor-pointer disabled:opacity-50" 
+          <button
+            onClick={() => fetchMeetings(true)}
+            className="flex items-center gap-2 px-4 py-2 border border-slate-200 hover:border-slate-300 text-slate-600 bg-white hover:bg-slate-50 font-bold text-xs rounded-xl transition-all cursor-pointer disabled:opacity-50"
             disabled={loading}
           >
             <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
             <span>Làm mới</span>
           </button>
-          <button 
-            onClick={handleOpenCreate} 
+          <button
+            onClick={() => setShowCreateModal(true)}
             className="flex items-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-red-500/20 transition-all cursor-pointer"
           >
             <Plus size={14} />
@@ -203,7 +193,12 @@ export default function MeetingManagement() {
         <div className="p-8 bg-red-50 text-red-600 border border-red-100 rounded-3xl text-center">
           <p className="font-extrabold">Có lỗi khi tải dữ liệu cuộc họp:</p>
           <p className="mt-2 text-xs">{error}</p>
-          <button onClick={() => fetchMeetings(false)} className="mt-4 px-4 py-2 bg-red-500 text-white rounded-xl font-bold text-xs cursor-pointer hover:bg-red-600">Thử lại</button>
+          <button
+            onClick={() => fetchMeetings(false)}
+            className="mt-4 px-4 py-2 bg-red-500 text-white rounded-xl font-bold text-xs cursor-pointer hover:bg-red-600"
+          >
+            Thử lại
+          </button>
         </div>
       ) : (
         <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm shadow-slate-100/50 space-y-4">
@@ -235,7 +230,10 @@ export default function MeetingManagement() {
                         <p className="text-xs text-slate-400 mt-1 max-w-sm">
                           Hãy tạo cuộc họp đầu tiên để liên kết các tệp ghi âm cuộc hội thoại và quản lý thành viên truy cập.
                         </p>
-                        <button onClick={handleOpenCreate} className="mt-4 px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl cursor-pointer">
+                        <button
+                          onClick={() => setShowCreateModal(true)}
+                          className="mt-4 px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl cursor-pointer"
+                        >
                           Tạo cuộc họp ngay
                         </button>
                       </div>
@@ -244,7 +242,6 @@ export default function MeetingManagement() {
                 ) : (
                   meetings.map((m) => {
                     const audioFileName = m.audioFile?.fileName || 'Không tìm thấy file';
-                    
                     return (
                       <tr key={m.id} className="hover:bg-slate-50/50 transition-all group">
                         <td className="py-3.5 pl-2">
@@ -261,9 +258,7 @@ export default function MeetingManagement() {
                             <span className="text-[10px] text-slate-400">ID: {m.audioFileId.slice(0, 8)}...</span>
                           </div>
                         </td>
-                        <td className="py-3.5 text-slate-600">
-                          {getCreatorLabel(m.creatorId)}
-                        </td>
+                        <td className="py-3.5 text-slate-600">{getCreatorLabel(m.creatorId)}</td>
                         <td className="py-3.5">
                           {m.status === 'COMPLETED' ? (
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold text-green-600 bg-green-50 border border-green-100 rounded-full px-2 py-0.5">
@@ -287,7 +282,7 @@ export default function MeetingManagement() {
                         <td className="py-3.5 pr-2 text-right">
                           <div className="flex justify-end gap-1.5 transition-all">
                             {m.audioFileId && m.status === 'COMPLETED' && (
-                              <Link 
+                              <Link
                                 href={`/transcripts/${m.audioFileId}`}
                                 className="flex items-center gap-1 px-2.5 py-1 border border-red-100 text-red-500 hover:bg-red-500 hover:text-white rounded-lg font-bold transition-all"
                                 title="Xem bản dịch text & timeline âm thanh"
@@ -296,8 +291,7 @@ export default function MeetingManagement() {
                                 <span>Script</span>
                               </Link>
                             )}
-                            
-                            <button 
+                            <button
                               onClick={() => handleOpenDetail(m.id)}
                               className="flex items-center gap-1 px-2.5 py-1 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg font-bold transition-all cursor-pointer"
                               title="Xem chi tiết & Quản lý thành viên"
@@ -305,8 +299,7 @@ export default function MeetingManagement() {
                               <Info size={12} />
                               <span>Chi tiết</span>
                             </button>
-
-                            <button 
+                            <button
                               onClick={() => handleOpenDelete(m)}
                               className="p-1 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-all cursor-pointer"
                               title="Xóa cuộc họp"
@@ -323,21 +316,21 @@ export default function MeetingManagement() {
             </table>
           </div>
 
-          {/* Pagination Controls */}
+          {/* Pagination */}
           {totalElements > 0 && (
             <div className="flex justify-between items-center border-t border-slate-100 pt-4 mt-2">
               <span className="text-xs text-slate-400 font-bold">
                 Trang {page + 1} / {totalPages}
               </span>
               <div className="flex gap-1">
-                <button 
+                <button
                   onClick={() => setPage(prev => Math.max(0, prev - 1))}
                   className="p-1.5 border border-slate-200 hover:border-slate-300 rounded-xl text-slate-600 disabled:opacity-40 transition-all cursor-pointer"
                   disabled={page === 0}
                 >
                   <ChevronLeft size={16} />
                 </button>
-                <button 
+                <button
                   onClick={() => setPage(prev => Math.min(totalPages - 1, prev + 1))}
                   className="p-1.5 border border-slate-200 hover:border-slate-300 rounded-xl text-slate-600 disabled:opacity-40 transition-all cursor-pointer"
                   disabled={page === totalPages - 1}
@@ -350,26 +343,38 @@ export default function MeetingManagement() {
         </div>
       )}
 
-      {/* Delete modal overlay */}
+      {/* ── Create Meeting Modal ── */}
+      {showCreateModal && (
+        <CreateMeetingModal
+          onClose={() => setShowCreateModal(false)}
+          onSuccess={() => {
+            addToast('success', 'Đã tạo cuộc họp mới thành công!');
+            fetchMeetings(true);
+          }}
+        />
+      )}
+
+      {/* ── Delete modal ── */}
       {showDeleteModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
           <div className="bg-white rounded-3xl p-6 w-full max-w-md border border-slate-100 shadow-2xl flex flex-col gap-4">
             <div className="flex justify-between items-center border-b border-slate-50 pb-3">
               <h3 className="text-sm font-extrabold text-red-500">Xác nhận xóa cuộc họp</h3>
-              <button 
-                onClick={() => setShowDeleteModal(false)} 
+              <button
+                onClick={() => setShowDeleteModal(false)}
                 className="p-1 text-slate-400 hover:bg-slate-50 rounded-full transition-all cursor-pointer"
               >
                 <X size={18} />
               </button>
             </div>
-            
+
             <div className="flex flex-col gap-3">
               <p className="text-xs text-slate-700 leading-relaxed">
-                Bạn có chắc chắn muốn xóa cuộc họp <strong>"{activeMeeting?.title}"</strong> không? 
+                Bạn có chắc chắn muốn xóa cuộc họp <strong>&quot;{activeMeeting?.title}&quot;</strong> không?
               </p>
               <p className="text-[10px] text-slate-400 leading-normal">
-                Hành động này sẽ xóa vĩnh viễn thông tin lịch trình cuộc họp và quyền truy cập của các thành viên. Tệp ghi âm liên kết và bản dịch gốc sẽ không bị ảnh hưởng.
+                Hành động này sẽ xóa vĩnh viễn thông tin lịch trình cuộc họp và quyền truy cập của các thành viên.
+                Tệp ghi âm liên kết và bản dịch gốc sẽ không bị ảnh hưởng.
               </p>
             </div>
 
@@ -380,17 +385,17 @@ export default function MeetingManagement() {
             )}
 
             <div className="flex justify-end gap-2 border-t border-slate-50 pt-4">
-              <button 
-                type="button" 
-                className="px-4 py-2 border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600 font-bold text-xs rounded-xl transition-all cursor-pointer" 
+              <button
+                type="button"
+                className="px-4 py-2 border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600 font-bold text-xs rounded-xl transition-all cursor-pointer"
                 onClick={() => setShowDeleteModal(false)}
               >
                 Hủy bỏ
               </button>
-              <button 
-                type="button" 
-                className="flex items-center gap-1.5 px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-red-500/20 transition-all cursor-pointer" 
-                onClick={handleDeleteMeeting} 
+              <button
+                type="button"
+                className="flex items-center gap-1.5 px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-red-500/20 transition-all cursor-pointer"
+                onClick={handleDeleteMeeting}
                 disabled={loading}
               >
                 {loading && <Loader2 className="animate-spin" size={14} />}
