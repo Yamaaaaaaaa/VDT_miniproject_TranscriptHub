@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Clock, RotateCcw, GitCompare } from "lucide-react";
+import { Clock, RotateCcw, GitCompare, Trash2 } from "lucide-react";
 import { diffWords, DiffChange } from "@/lib/diff";
 
 interface TranscriptHistoryModalProps {
@@ -10,6 +10,7 @@ interface TranscriptHistoryModalProps {
   getVersions: () => Promise<any[]>;
   getVersionDetail: (versionId: number) => Promise<any>;
   restoreVersion: (versionId: number) => Promise<boolean>;
+  deleteVersion: (versionId: number) => Promise<boolean>;
   formatDuration: (seconds: number) => string;
   canEdit?: boolean;
 }
@@ -20,6 +21,7 @@ export function TranscriptHistoryModal({
   getVersions,
   getVersionDetail,
   restoreVersion,
+  deleteVersion,
   formatDuration,
   canEdit = false,
 }: TranscriptHistoryModalProps) {
@@ -29,6 +31,8 @@ export function TranscriptHistoryModal({
   const [loadingVersionDetail, setLoadingVersionDetail] = useState<boolean>(false);
   const [showConfirmRestore, setShowConfirmRestore] = useState<boolean>(false);
   const [isRestoring, setIsRestoring] = useState<boolean>(false);
+  const [showConfirmDelete, setShowConfirmDelete] = useState<boolean>(false);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   // States for version comparison
   const [isComparing, setIsComparing] = useState<boolean>(false);
@@ -125,6 +129,34 @@ export function TranscriptHistoryModal({
     }
   }, [selectedVersion, restoreVersion, onClose]);
 
+  const handleDeleteVersion = useCallback(() => {
+    if (!selectedVersion) return;
+    setShowConfirmDelete(true);
+  }, [selectedVersion]);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!selectedVersion) return;
+    setIsDeleting(true);
+    try {
+      const success = await deleteVersion(selectedVersion.id);
+      if (success) {
+        setShowConfirmDelete(false);
+        fetchVersions();
+      } else {
+        alert("Xóa phiên bản thất bại. Lưu ý: Không được phép xóa phiên bản mới nhất.");
+        setShowConfirmDelete(false);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Lỗi kết nối khi xóa phiên bản.");
+      setShowConfirmDelete(false);
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [selectedVersion, deleteVersion, fetchVersions]);
+
+  const isLatest = !!(selectedVersion && versions[0] && selectedVersion.id === versions[0].id);
+
   if (!isOpen) return null;
 
   return (
@@ -166,8 +198,9 @@ export function TranscriptHistoryModal({
                     Chưa có lịch sử phiên bản nào được lưu.
                   </div>
                 ) : (
-                  versions.map((v: any) => {
+                  versions.map((v: any, idx: number) => {
                     const isSelected = selectedVersion?.id === v.id;
+                    const isCurrentVersion = idx === 0;
                     const dateStr = new Date(v.createdAt).toLocaleString("vi-VN", {
                       hour: "2-digit",
                       minute: "2-digit",
@@ -180,20 +213,29 @@ export function TranscriptHistoryModal({
                         key={v.id}
                         onClick={() => handleSelectVersion(v)}
                         className={`p-3.5 rounded-2xl cursor-pointer transition-all border text-left space-y-1.5 ${
-                          isSelected
+                          isCurrentVersion
+                            ? isSelected
+                              ? "border-emerald-300 bg-emerald-50/60 shadow-sm"
+                              : "border-emerald-200 bg-emerald-50/30 hover:bg-emerald-50/60 hover:border-emerald-300"
+                            : isSelected
                             ? "border-red-200 bg-red-50/20 shadow-sm"
                             : "border-slate-50 bg-slate-50/50 hover:bg-slate-50 hover:border-slate-200"
                         }`}
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="text-[10px] font-black text-slate-700 leading-tight">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`text-[10px] font-black leading-tight ${isCurrentVersion ? "text-emerald-700" : "text-slate-700"}`}>
                             {v.versionName || `Phiên bản #${v.id}`}
                           </span>
+                          {isCurrentVersion && (
+                            <span className="shrink-0 text-[8px] font-black px-1.5 py-0.5 rounded-md bg-emerald-500 text-white tracking-wide uppercase">
+                              Hiện tại
+                            </span>
+                          )}
                         </div>
                         <div className="text-[9px] font-bold text-slate-400 space-y-0.5">
                           <div>
                             Người sửa:{" "}
-                            <span className="text-slate-600">
+                            <span className={isCurrentVersion ? "text-emerald-600" : "text-slate-600"}>
                               {v.creator?.name ?? v.creator?.email ?? `User ID: ${v.createdById}`}
                             </span>
                           </div>
@@ -386,12 +428,24 @@ export function TranscriptHistoryModal({
                         <GitCompare size={16} className="text-red-500" />
                       </button>
                       {canEdit && (
-                        <button
-                          onClick={() => setShowConfirmRestore(true)}
-                          className="px-4 py-2 text-[10px] font-bold bg-red-500 hover:bg-red-600 text-white rounded-xl transition-all shadow-sm shadow-red-500/10 cursor-pointer"
-                        >
-                          Khôi phục phiên bản này
-                        </button>
+                        <>
+                          <button
+                            onClick={() => !isLatest && setShowConfirmRestore(true)}
+                            disabled={isLatest}
+                            className="px-4 py-2 text-[10px] font-bold bg-red-500 hover:bg-red-600 text-white rounded-xl transition-all shadow-sm shadow-red-500/10 cursor-pointer disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none disabled:cursor-not-allowed border border-transparent disabled:border-slate-200"
+                            title={isLatest ? "Đây là phiên bản hiện tại (không cần khôi phục)" : "Khôi phục về phiên bản này"}
+                          >
+                            Khôi phục phiên bản này
+                          </button>
+                          <button
+                            onClick={() => !isLatest && handleDeleteVersion()}
+                            disabled={isLatest}
+                            className="px-4 py-2 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 hover:text-red-500 text-slate-600 rounded-xl transition-all shadow-sm cursor-pointer border border-slate-200 disabled:bg-slate-50 disabled:text-slate-300 disabled:border-slate-100 disabled:cursor-not-allowed"
+                            title={isLatest ? "Đây là phiên bản hiện tại (không được phép xóa)" : "Xóa phiên bản này"}
+                          >
+                            Xóa phiên bản này
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -461,6 +515,40 @@ export function TranscriptHistoryModal({
                 className="flex-1 py-3 text-xs font-bold bg-red-500 hover:bg-red-600 text-white rounded-2xl transition-all shadow-md shadow-red-500/25 cursor-pointer disabled:cursor-not-allowed flex items-center justify-center gap-1"
               >
                 {isRestoring ? "Đang khôi phục..." : "Khôi phục"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Delete Modal */}
+      {showConfirmDelete && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[10000] flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-100 rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center space-y-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto">
+              <Trash2 size={28} />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-lg font-black text-slate-800 tracking-tight">Xác nhận xóa phiên bản</h3>
+              <p className="text-xs text-slate-400 font-bold leading-relaxed">
+                Bạn có chắc chắn muốn xóa phiên bản <span className="text-slate-600">&ldquo;{selectedVersion?.versionName}&rdquo;</span> không? Thao tác này không thể hoàn tác.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                disabled={isDeleting}
+                onClick={() => setShowConfirmDelete(false)}
+                className="flex-1 py-3 text-xs font-bold bg-white hover:bg-slate-50 border border-slate-200 text-slate-500 rounded-2xl transition-all cursor-pointer disabled:cursor-not-allowed"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                disabled={isDeleting}
+                onClick={handleConfirmDelete}
+                className="flex-1 py-3 text-xs font-bold bg-red-500 hover:bg-red-600 text-white rounded-2xl transition-all shadow-md shadow-red-500/25 cursor-pointer disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+              >
+                <Trash2 size={13} />
+                {isDeleting ? "Đang xóa..." : "Xóa phiên bản"}
               </button>
             </div>
           </div>

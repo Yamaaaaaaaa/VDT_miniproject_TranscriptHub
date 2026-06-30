@@ -585,6 +585,25 @@ export function useCollab({
     let debounceTimeout: ReturnType<typeof setTimeout> | null = null;
     let throttleTimeout: ReturnType<typeof setTimeout> | null = null;
     let hasLocalChanges = false;
+    const canAutoSaveRef = { current: false };
+
+    // Kích hoạt tự động lưu sau khi sync xong cộng thêm 3 giây chờ để nạp hết segments ban đầu
+    const enableAutoSave = () => {
+      setTimeout(() => {
+        canAutoSaveRef.current = true;
+        console.log("[Collab] Auto-save đã sẵn sàng nhận thay đổi của người dùng.");
+      }, 3000);
+    };
+
+    if (collab.provider) {
+      if (collab.provider.synced) {
+        enableAutoSave();
+      } else {
+        collab.provider.once("sync", (isSynced) => {
+          if (isSynced) enableAutoSave();
+        });
+      }
+    }
 
     const triggerSave = async () => {
       if (!hasLocalChanges) return;
@@ -602,6 +621,11 @@ export function useCollab({
     const handleUpdate = (update: Uint8Array, origin: any) => {
       // Bỏ qua các update nhận về từ WebSocket (thay đổi của người dùng khác)
       if (collab.provider && origin === collab.provider) {
+        return;
+      }
+
+      // Chỉ bắt đầu lưu nháp nếu đã sẵn sàng (tránh nạp tài liệu ban đầu kích hoạt lưu)
+      if (!canAutoSaveRef.current) {
         return;
       }
 
@@ -633,7 +657,7 @@ export function useCollab({
 
     collab.doc.on("update", handleUpdate);
     return () => {
-      collab.doc.on("update", handleUpdate);
+      collab.doc.off("update", handleUpdate);
       if (debounceTimeout) clearTimeout(debounceTimeout);
       if (throttleTimeout) clearTimeout(throttleTimeout);
     };
@@ -691,6 +715,16 @@ export function useCollab({
     }
   }, [collab, meetingId]);
 
+  const deleteVersion = useCallback(async (versionId: number) => {
+    try {
+      await collabApi.deleteVersion(versionId);
+      return true;
+    } catch (err) {
+      console.error(`[Collab] Xóa phiên bản ${versionId} thất bại:`, err);
+      return false;
+    }
+  }, []);
+
   return {
     state,
     segments,
@@ -703,6 +737,7 @@ export function useCollab({
     getVersions,
     getVersionDetail,
     restoreVersion,
+    deleteVersion,
     saveStatus,
   };
 }

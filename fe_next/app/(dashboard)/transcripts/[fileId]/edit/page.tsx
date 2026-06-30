@@ -170,6 +170,7 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
     getVersions,
     getVersionDetail,
     restoreVersion,
+    deleteVersion,
     saveStatus,
   } = useCollab({
     meetingId,
@@ -554,6 +555,7 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
           getVersions={getVersions}
           getVersionDetail={getVersionDetail}
           restoreVersion={restoreVersion}
+          deleteVersion={deleteVersion}
           formatDuration={formatDuration}
           canEdit={collabState.canEdit}
         />

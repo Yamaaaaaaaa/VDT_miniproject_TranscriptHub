@@ -130,6 +130,10 @@ export const collabApi = {
     /** Restore the transcript to a specific version */
     restoreVersion: (data: { meetingId: string; versionId: number }) =>
         api.post("/collab/restore", data).then((res) => res.data.result ?? res.data),
+
+    /** Delete a specific version of the transcript */
+    deleteVersion: (versionId: number) =>
+        api.delete(`/collab/versions/${versionId}`).then((res) => res.data.result ?? res.data),
 };
 
 export const notificationsApi = {

@@ -90,4 +90,17 @@ export class CollabRepository {
       creator: v.createdById ? profileMap.get(v.createdById) || null : null,
     }));
   }
+
+  async findLatestTranscriptVersion(transcriptId: number) {
+    return this.prisma.transcriptVersion.findFirst({
+      where: { transcriptId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async deleteTranscriptVersion(versionId: number) {
+    return this.prisma.transcriptVersion.delete({
+      where: { id: versionId },
+    });
+  }
 }

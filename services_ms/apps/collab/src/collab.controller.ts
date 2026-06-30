@@ -68,4 +68,9 @@ export class CollabController {
       payload.versionId,
     );
   }
+
+  @MessagePattern('delete-version')
+  async deleteVersion(@Payload() payload: { versionId: number }) {
+    return this.collabService.deleteVersion(payload.versionId);
+  }
 }

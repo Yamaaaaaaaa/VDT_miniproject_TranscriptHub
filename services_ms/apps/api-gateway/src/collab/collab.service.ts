@@ -57,4 +57,10 @@ export class CollabService {
       this.collabClient.send('restore-version', { meetingId, versionId }),
     );
   }
+
+  async deleteVersion(versionId: number) {
+    return lastValueFrom(
+      this.collabClient.send('delete-version', { versionId }),
+    );
+  }
 }
