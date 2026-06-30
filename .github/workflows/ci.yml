@@ -14,6 +14,10 @@ on:
       - 'documents/**'
       - '.gitignore'
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   # ─── BACKEND CI ──────────────────────────────────────────────────────────
   backend-ci:

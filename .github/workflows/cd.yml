@@ -8,6 +8,10 @@ on:
       - 'documents/**'
       - '.gitignore'
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   # ─── RUN QUALITY CHECKS FIRST ────────────────────────────────────────────
   validation:
