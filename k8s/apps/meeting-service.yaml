@@ -78,6 +78,21 @@ spec:
             configMapKeyRef:
               name: transcripthub-config
               key: TRANSCRIPT_SERVICE_TCP_PORT
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: KAFKA_BOOTSTRAP_SERVERS
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: REDIS_HOST
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: REDIS_PORT
 ---
 apiVersion: v1
 kind: Service
