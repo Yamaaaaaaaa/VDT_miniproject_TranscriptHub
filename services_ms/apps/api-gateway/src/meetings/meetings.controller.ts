@@ -126,6 +126,7 @@ export class MeetingsController {
   })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 0 })
   @ApiQuery({ name: 'size', required: false, type: Number, example: 10 })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Search by meeting title' })
   @ApiQuery({
     name: 'includeAudioFile',
     required: false,
@@ -143,17 +144,19 @@ export class MeetingsController {
     description: 'Paged meetings list retrieved successfully.',
   })
   findAll(
+    @Req() req: any,
     @Query('page') page = '0',
     @Query('size') size = '10',
+    @Query('search') search?: string,
     @Query('includeAudioFile') includeAudioFile = 'false',
     @Query('includeTranscript') includeTranscript = 'false',
-    @Req() req: any,
   ) {
     const userId = req.user.id;
     return this.meetingsService.findAll(
       userId,
       parseInt(page, 10),
       parseInt(size, 10),
+      search,
       includeAudioFile === 'true',
       includeTranscript === 'true',
     );

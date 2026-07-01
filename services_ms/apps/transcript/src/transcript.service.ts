@@ -91,14 +91,26 @@ export class TranscriptService implements OnModuleInit {
     return transcript;
   }
 
-  async getAllTranscripts(page: number, size: number) {
-    console.log(`Fetching all transcripts - page: ${page}, size: ${size}`);
+  async getAllTranscripts(page: number, size: number, search?: string) {
+    console.log(`Fetching all transcripts - page: ${page}, size: ${size}, search: ${search}`);
     const skip = page * size;
     const take = size;
 
+    let matchedFileIds: string[] | undefined = undefined;
+    if (search) {
+      try {
+        const matchedFiles = await this.fileGateway.searchFiles(search);
+        if (matchedFiles && matchedFiles.length > 0) {
+          matchedFileIds = matchedFiles.map((f) => f.id);
+        }
+      } catch (err) {
+        console.warn('Failed to search files in TranscriptService:', err.message);
+      }
+    }
+
     const [items, total] = await Promise.all([
-      this.transcriptRepo.findMany(skip, take),
-      this.transcriptRepo.count(),
+      this.transcriptRepo.findMany(skip, take, search, matchedFileIds),
+      this.transcriptRepo.count(search, matchedFileIds),
     ]);
 
     const totalPages = Math.ceil(total / size);

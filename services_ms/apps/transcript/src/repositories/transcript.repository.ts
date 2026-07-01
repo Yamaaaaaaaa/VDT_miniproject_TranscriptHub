@@ -23,16 +23,37 @@ export class TranscriptRepository {
     });
   }
 
-  async findMany(skip: number, take: number) {
+  async findMany(skip: number, take: number, search?: string, matchedFileIds?: string[]) {
+    const where: any = {};
+    if (search) {
+      const searchConditions: any[] = [];
+      if (matchedFileIds && matchedFileIds.length > 0) {
+        searchConditions.push({ audioFileId: { in: matchedFileIds } });
+      }
+      searchConditions.push({ rawText: { contains: search, mode: 'insensitive' } });
+      where.OR = searchConditions;
+    }
     return this.prisma.transcript.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       skip,
       take,
     });
   }
 
-  async count() {
-    return this.prisma.transcript.count();
+  async count(search?: string, matchedFileIds?: string[]) {
+    const where: any = {};
+    if (search) {
+      const searchConditions: any[] = [];
+      if (matchedFileIds && matchedFileIds.length > 0) {
+        searchConditions.push({ audioFileId: { in: matchedFileIds } });
+      }
+      searchConditions.push({ rawText: { contains: search, mode: 'insensitive' } });
+      where.OR = searchConditions;
+    }
+    return this.prisma.transcript.count({
+      where,
+    });
   }
 
   async create(audioFileId: string) {

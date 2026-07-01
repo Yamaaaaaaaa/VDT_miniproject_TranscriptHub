@@ -7,8 +7,16 @@ import { UpdateUserProfileDto } from '../dto/update-user-profile.dto';
 export class UsersRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAllWithAccount() {
+  async findAllWithAccount(search?: string) {
+    const where: any = {};
+    if (search) {
+      where.OR = [
+        { email: { contains: search, mode: 'insensitive' } },
+        { name: { contains: search, mode: 'insensitive' } },
+      ];
+    }
     return this.prisma.userProfile.findMany({
+      where,
       include: {
         account: {
           include: {

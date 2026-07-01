@@ -19,7 +19,8 @@ import {
   X, 
   Save,
   Eye,
-  Edit2 
+  Edit2,
+  Search
 } from 'lucide-react';
 
 interface MeetingResponse {
@@ -71,8 +72,10 @@ function MeetingDetailInner({ id }: MeetingDetailInnerProps) {
   const [allUsersList, setAllUsersList] = useState<UserProfileResponse[]>([]);
   const [files, setFiles] = useState<any[]>([]);
   const [meetingsList, setMeetingsList] = useState<any[]>([]);
-  
   const [loading, setLoading] = useState<boolean>(true);
+  const [userSearchQuery, setUserSearchQuery] = useState<string>('');
+  const [showUserDropdown, setShowUserDropdown] = useState<boolean>(false);
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
 
   // Reusable Confirm Modal State
   const [confirmState, setConfirmState] = useState<{
@@ -113,7 +116,6 @@ function MeetingDetailInner({ id }: MeetingDetailInnerProps) {
   const [audioFileId, setAudioFileId] = useState<string>('');
 
   // Form inputs for adding a member
-  const [newMemberEmail, setNewMemberEmail] = useState<string>('');
   const [newMemberUserId, setNewMemberUserId] = useState<string>('');
   const [newMemberRole, setNewMemberRole] = useState<'HOST' | 'EDITOR' | 'VIEWER'>('VIEWER');
 
@@ -144,7 +146,7 @@ function MeetingDetailInner({ id }: MeetingDetailInnerProps) {
         meetingsApi.getMembers(id),
         usersApi.getAll(),
         filesApi.list(0, 100),
-        meetingsApi.list(0, 100, false, false)
+        meetingsApi.list(0, 100, undefined, false, false)
       ]);
 
       setMeeting(meetingData);
@@ -165,6 +167,35 @@ function MeetingDetailInner({ id }: MeetingDetailInnerProps) {
       setLoading(false);
     }
   }, [id]);
+
+  // Dynamic user search for add member dropdown
+  const handleUserSearch = useCallback(async (query: string) => {
+    try {
+      const data = await usersApi.getAll(query);
+      setAllUsersList(data || []);
+    } catch (err) {
+      console.error("Lỗi tìm kiếm người dùng:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      handleUserSearch(userSearchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [userSearchQuery, handleUserSearch]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowUserDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   useEffect(() => {
     loadInitialData();
@@ -217,35 +248,32 @@ function MeetingDetailInner({ id }: MeetingDetailInnerProps) {
     e.preventDefault();
     if (!id) return;
 
-    let targetEmail = newMemberEmail.trim();
-    let targetUserId: number | undefined = undefined;
-
-    if (newMemberUserId) {
-      targetUserId = parseInt(newMemberUserId, 10);
-      const matchedUser = allUsersList.find(u => u.id === targetUserId);
-      if (matchedUser) {
-        targetEmail = matchedUser.email;
-      }
-    }
-
-    if (!targetEmail && !targetUserId) {
-      setActionError('Vui lòng chọn hoặc nhập Email thành viên.');
+    if (!newMemberUserId) {
+      setActionError('Vui lòng chọn thành viên cần thêm.');
       return;
     }
+
+    const targetUserId = parseInt(newMemberUserId, 10);
+    const matchedUser = allUsersList.find(u => u.id === targetUserId);
+    if (!matchedUser) {
+      setActionError('Thành viên đã chọn không hợp lệ.');
+      return;
+    }
+    const targetEmail = matchedUser.email;
 
     setMembersLoading(true);
     setActionError('');
     try {
       await meetingsApi.addMember(id, { 
         userId: targetUserId, 
-        email: targetEmail || undefined, 
+        email: targetEmail, 
         role: newMemberRole 
       });
       addToast('success', `Đã thêm thành viên vào cuộc họp.`);
       const updatedList = await meetingsApi.getMembers(id);
       setMembers(updatedList || []);
-      setNewMemberEmail('');
       setNewMemberUserId('');
+      setUserSearchQuery('');
     } catch (err: any) {
       console.error(err);
       setActionError(err.response?.data?.message || err.message || 'Có lỗi khi thêm thành viên.');
@@ -574,37 +602,72 @@ function MeetingDetailInner({ id }: MeetingDetailInnerProps) {
                 </h4>
 
                 <form onSubmit={handleAddMember} className="flex gap-2.5 items-end flex-wrap">
-                  <div className="flex-1 min-w-[160px] flex flex-col gap-1">
-                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Chọn user hệ thống</label>
-                    <select
-                      className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-700 focus:outline-none focus:border-red-500 transition-all cursor-pointer"
-                      value={newMemberUserId}
-                      onChange={e => {
-                        setNewMemberUserId(e.target.value);
-                        if (e.target.value) setNewMemberEmail('');
-                      }}
-                      disabled={membersLoading}
-                    >
-                      <option value="">-- Chọn thành viên --</option>
-                      {allUsersList.map(u => (
-                        <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
-                      ))}
-                    </select>
-                  </div>
+                  <div ref={dropdownRef} className="flex-1 min-w-[180px] flex flex-col gap-1 relative">
+                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Chọn hoặc tìm kiếm user hệ thống</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Chọn hoặc gõ để tìm kiếm..."
+                        value={userSearchQuery}
+                        onFocus={() => setShowUserDropdown(true)}
+                        onChange={(e) => {
+                          setUserSearchQuery(e.target.value);
+                          setNewMemberUserId('');
+                          setShowUserDropdown(true);
+                        }}
+                        disabled={membersLoading}
+                        className="w-full bg-white border border-slate-200 rounded-xl py-2 pl-3 pr-8 text-xs text-slate-750 focus:outline-none focus:border-red-500 transition-all text-slate-700"
+                      />
+                      {newMemberUserId ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNewMemberUserId('');
+                            setUserSearchQuery('');
+                          }}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                        >
+                          <X size={12} />
+                        </button>
+                      ) : (
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-355 pointer-events-none text-slate-300">▼</span>
+                      )}
+                    </div>
 
-                  <div className="flex-1 min-w-[120px] flex flex-col gap-1">
-                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Hoặc Email</label>
-                    <input 
-                      type="email" 
-                      className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-700 focus:outline-none focus:border-red-500 transition-all placeholder:text-slate-300" 
-                      placeholder="vd: user@gmail.com"
-                      value={newMemberEmail}
-                      onChange={e => {
-                        setNewMemberEmail(e.target.value);
-                        if (e.target.value) setNewMemberUserId('');
-                      }}
-                      disabled={membersLoading}
-                    />
+                    {showUserDropdown && (
+                      <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
+                        <div 
+                          className="p-2 text-[10px] text-slate-400 hover:bg-slate-50 cursor-pointer"
+                          onClick={() => {
+                            setNewMemberUserId('');
+                            setUserSearchQuery('');
+                            setShowUserDropdown(false);
+                          }}
+                        >
+                          -- Không chọn --
+                        </div>
+                        {allUsersList.length === 0 ? (
+                          <div className="p-3 text-center text-slate-400 text-xs font-medium">Không tìm thấy user nào</div>
+                        ) : (
+                          allUsersList.map(u => (
+                            <div
+                              key={u.id}
+                              className={`p-2 hover:bg-red-50 hover:text-red-600 cursor-pointer text-xs font-medium border-b border-slate-50 flex flex-col ${
+                                newMemberUserId === String(u.id) ? 'bg-red-50/50 text-red-600 font-bold' : 'text-slate-700'
+                              }`}
+                              onClick={() => {
+                                setNewMemberUserId(String(u.id));
+                                setUserSearchQuery(`${u.name} (${u.email})`);
+                                setShowUserDropdown(false);
+                              }}
+                            >
+                              <span className="font-semibold text-left">{u.name}</span>
+                              <span className="text-[10px] text-slate-400 text-left">{u.email}</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="w-24 flex flex-col gap-1">

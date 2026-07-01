@@ -37,7 +37,7 @@ api.interceptors.response.use(
 
 // Đối tượng gọi API CRUD dành cho Users Profile
 export const usersApi = {
-    getAll: () => api.get("/users").then((res) => res.data.result ?? res.data),
+    getAll: (search?: string) => api.get("/users", { params: { search } }).then((res) => res.data.result ?? res.data),
     getOne: (id: number) => api.get(`/users/${id}`).then((res) => res.data.result ?? res.data),
     create: (data: any) => api.post("/users", data).then((res) => res.data.result ?? res.data),
     registerAccount: (data: any) => api.post("/identity/register", data).then((res) => res.data.result ?? res.data),
@@ -65,7 +65,7 @@ export const permissionsApi = {
 };
 
 export const filesApi = {
-    list: (page = 0, size = 10) => api.get(`/files?page=${page}&size=${size}`).then((res) => res.data.result ?? res.data),
+    list: (page = 0, size = 10, search?: string) => api.get(`/files`, { params: { page, size, search } }).then((res) => res.data.result ?? res.data),
     getMetadata: (fileId: string) => api.get(`/files/${fileId}`).then((res) => res.data.result ?? res.data),
     updateMetadata: (fileId: string, fileName: string) => api.put(`/files/${fileId}`, { fileName }).then((res) => res.data.result ?? res.data),
     delete: (fileId: string) => api.delete(`/files/${fileId}`).then((res) => res.data.result ?? res.data),
@@ -76,7 +76,7 @@ export const filesApi = {
 };
 
 export const transcriptsApi = {
-    getAll: (page = 0, size = 10) => api.get(`/transcripts?page=${page}&size=${size}`).then((res) => res.data.result ?? res.data),
+    getAll: (page = 0, size = 10, search?: string) => api.get(`/transcripts`, { params: { page, size, search } }).then((res) => res.data.result ?? res.data),
     getByAudioFile: (audioFileId: string) => api.get(`/transcripts/file/${audioFileId}`).then((res) => res.data),
     generate: (fileId: string) => api.post("/transcripts/generate", { fileId }).then((res) => res.data.result ?? res.data),
     reTranscribe: (fileId: string) => api.post("/transcripts/re-transcribe", { fileId }).then((res) => res.data.result ?? res.data),
@@ -88,8 +88,8 @@ export const transcriptsApi = {
 };
 
 export const meetingsApi = {
-    list: (page = 0, size = 10, includeAudioFile = false, includeTranscript = false) => 
-        api.get(`/meetings?page=${page}&size=${size}&includeAudioFile=${includeAudioFile}&includeTranscript=${includeTranscript}`)
+    list: (page = 0, size = 10, search?: string, includeAudioFile = false, includeTranscript = false) => 
+        api.get(`/meetings`, { params: { page, size, search, includeAudioFile, includeTranscript } })
            .then((res) => res.data.result ?? res.data),
     getOne: (id: string, includeAudioFile = false, includeTranscript = false) => 
         api.get(`/meetings/${id}?includeAudioFile=${includeAudioFile}&includeTranscript=${includeTranscript}`)

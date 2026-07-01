@@ -9,8 +9,8 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @MessagePattern('find_all_profiles')
-  async findAll() {
-    return this.usersService.findAll();
+  async findAll(@Payload() payload?: { search?: string }) {
+    return this.usersService.findAll(payload?.search);
   }
 
   @MessagePattern('find_one_profile')

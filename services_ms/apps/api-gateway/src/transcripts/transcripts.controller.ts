@@ -32,13 +32,16 @@ export class TranscriptsController {
   @ApiOperation({ summary: 'Get all transcripts' })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 0 })
   @ApiQuery({ name: 'size', required: false, type: Number, example: 10 })
+  @ApiQuery({ name: 'search', required: false, type: String })
   getAllTranscripts(
     @Query('page') page = '0',
     @Query('size') size = '10',
+    @Query('search') search?: string,
   ) {
     return this.transcriptsService.getAllTranscripts(
       parseInt(page, 10),
       parseInt(size, 10),
+      search,
     );
   }
 

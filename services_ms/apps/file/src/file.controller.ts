@@ -125,6 +125,7 @@ export class FileController {
     @Headers('x-user-id') uploaderId: string,
     @Query('page') page = '0',
     @Query('size') size = '10',
+    @Query('search') search?: string,
   ) {
     if (!uploaderId)
       throw new BadRequestException('X-User-Id header is missing');
@@ -132,6 +133,7 @@ export class FileController {
       parseInt(uploaderId, 10),
       parseInt(page, 10),
       parseInt(size, 10),
+      search,
     );
     return {
       content: response.items.map((item) => this.mapToResponse(item)),
@@ -189,11 +191,12 @@ export class FileController {
   }
 
   @MessagePattern('list_files')
-  async listFilesTcp(data: { uploaderId: number; page: number; size: number }) {
+  async listFilesTcp(data: { uploaderId: number; page: number; size: number; search?: string }) {
     const response = await this.fileService.listFiles(
       data.uploaderId,
       data.page,
       data.size,
+      data.search,
     );
     return {
       content: response.items.map((item) => this.mapToResponse(item)),
@@ -209,5 +212,18 @@ export class FileController {
   @MessagePattern('check_file_exists')
   async checkFileExistsTcp(fileId: string) {
     return await this.fileService.checkFileExists(fileId);
+  }
+
+  @MessagePattern('search_files')
+  async searchFilesTcp(data: { search: string; uploaderId?: number }) {
+    const where: any = {};
+    if (data.uploaderId) {
+      where.uploaderId = data.uploaderId;
+    }
+    if (data.search) {
+      where.fileName = { contains: data.search, mode: 'insensitive' };
+    }
+    const files = await this.fileService.searchFiles(where);
+    return files.map((item) => this.mapToResponse(item));
   }
 }

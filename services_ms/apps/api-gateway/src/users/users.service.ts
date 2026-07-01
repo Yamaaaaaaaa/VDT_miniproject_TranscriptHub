@@ -11,10 +11,10 @@ export class UsersService {
     @Inject('IDENTITY_CLIENT') private readonly identityClient: ClientProxy,
   ) {}
 
-  findAll(): Observable<any> {
+  findAll(search?: string): Observable<any> {
     // Send message pattern 'find_all_profiles' đến users service qua mạng TCP
     return this.usersClient
-      .send('find_all_profiles', {})
+      .send('find_all_profiles', { search })
       .pipe(catchError((err) => throwError(() => err)));
   }
 

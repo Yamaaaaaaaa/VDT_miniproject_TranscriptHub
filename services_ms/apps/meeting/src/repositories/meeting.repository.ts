@@ -58,30 +58,56 @@ export class MeetingRepository {
     });
   }
 
-  async findManyByUserId(userId: number, skip: number, take: number) {
-    return this.prisma.meeting.findMany({
-      where: {
-        members: {
-          some: {
-            userId,
-          },
+  async findManyByUserId(
+    userId: number,
+    skip: number,
+    take: number,
+    search?: string,
+    matchedFileIds?: string[],
+  ) {
+    const where: any = {
+      members: {
+        some: {
+          userId,
         },
       },
+    };
+    if (search) {
+      const searchConditions: any[] = [
+        { title: { contains: search, mode: 'insensitive' } },
+      ];
+      if (matchedFileIds && matchedFileIds.length > 0) {
+        searchConditions.push({ audioFileId: { in: matchedFileIds } });
+      }
+      where.OR = searchConditions;
+    }
+    return this.prisma.meeting.findMany({
+      where,
       skip,
       take,
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async countByUserId(userId: number) {
-    return this.prisma.meeting.count({
-      where: {
-        members: {
-          some: {
-            userId,
-          },
+  async countByUserId(userId: number, search?: string, matchedFileIds?: string[]) {
+    const where: any = {
+      members: {
+        some: {
+          userId,
         },
       },
+    };
+    if (search) {
+      const searchConditions: any[] = [
+        { title: { contains: search, mode: 'insensitive' } },
+      ];
+      if (matchedFileIds && matchedFileIds.length > 0) {
+        searchConditions.push({ audioFileId: { in: matchedFileIds } });
+      }
+      where.OR = searchConditions;
+    }
+    return this.prisma.meeting.count({
+      where,
     });
   }
 

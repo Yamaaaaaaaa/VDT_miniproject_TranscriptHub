@@ -70,7 +70,7 @@ export default function CreateMeetingModal({ onClose, onSuccess }: CreateMeeting
     try {
       const [filesPage, meetingsPage] = await Promise.all([
         filesApi.list(0, 100),
-        meetingsApi.list(0, 100, false, false),
+        meetingsApi.list(0, 100, undefined, false, false),
       ]);
       const allFiles = filesPage.content || [];
       const allMeetings = meetingsPage.content || [];

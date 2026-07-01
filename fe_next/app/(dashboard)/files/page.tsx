@@ -10,7 +10,7 @@ import {
   UploadCloud, FileAudio, Trash2, Play, Pause, Edit2,
   Music, HardDrive, Clock, ChevronLeft, ChevronRight, X,
   CheckCircle2, AlertCircle, Loader2, Volume2, Sparkles, FolderOpen,
-  Plus, RefreshCw, RotateCcw
+  Plus, RefreshCw, RotateCcw, Search
 } from "lucide-react";
 
 export default function FileManagementPage() {
@@ -24,6 +24,7 @@ export default function FileManagementPage() {
   const [size] = useState(8);
   const [loading, setLoading] = useState(true);
   const [totalPages, setTotalPages] = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
   const [reTranscribingId, setReTranscribingId] = useState<string | null>(null);
 
   // Upload progress & UI states
@@ -94,11 +95,11 @@ export default function FileManagementPage() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Load files metadata
-  const loadFiles = useCallback(async () => {
+  const loadFiles = useCallback(async (search?: string) => {
     setLoading(true);
     try {
       const [filesData, transcriptsData] = await Promise.all([
-        filesApi.list(page, size),
+        filesApi.list(page, size, search),
         transcriptsApi.getAll(0, 100).catch(e => {
           console.warn("Failed to load transcripts:", e);
           return { content: [] };
@@ -127,8 +128,15 @@ export default function FileManagementPage() {
   }, [page, size]);
 
   useEffect(() => {
-    loadFiles();
-  }, [loadFiles]);
+    setPage(0);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadFiles(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [loadFiles, searchQuery]);
 
   // Polling for processing transcripts
   useEffect(() => {
@@ -468,7 +476,7 @@ export default function FileManagementPage() {
         </div>
         <div className="flex gap-2">
           <button 
-            onClick={loadFiles} 
+            onClick={() => loadFiles(searchQuery)} 
             className="flex items-center gap-2 px-4 py-2 border border-slate-200 hover:border-slate-300 text-slate-600 bg-white hover:bg-slate-50 font-bold text-xs rounded-xl transition-all cursor-pointer disabled:opacity-50" 
             disabled={loading}
           >
@@ -487,11 +495,23 @@ export default function FileManagementPage() {
 
       {/* Danh sách tệp tin */}
       <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm shadow-slate-100/50">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
           <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
             <FolderOpen size={18} className="text-red-500" />
             Danh sách tệp tin âm thanh
           </h3>
+
+          {/* Search Input */}
+          <div className="w-full md:w-72 relative">
+            <input
+              type="text"
+              placeholder="Tìm kiếm theo tên file..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-red-500/25 focus:border-red-500 transition-all text-slate-700"
+            />
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+          </div>
         </div>
 
         {loading ? (

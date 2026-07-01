@@ -6,6 +6,7 @@ import {
   Delete,
   Param,
   Body,
+  Query,
   ParseIntPipe,
   HttpException,
   HttpStatus,
@@ -17,6 +18,7 @@ import {
   ApiBearerAuth,
   ApiOperation,
   ApiResponse,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { CreateUserProfileDto } from './dto/create-user-profile.dto';
@@ -32,13 +34,14 @@ export class UsersController {
 
   @Get()
   @ApiOperation({ summary: 'Get all user profiles (Requires Auth)' })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Search by email or name' })
   @ApiResponse({
     status: 200,
     description: 'List of user profiles successfully retrieved.',
   })
   @ApiResponse({ status: 401, description: 'Unauthorized.' })
-  findAll() {
-    return this.usersService.findAll();
+  findAll(@Query('search') search?: string) {
+    return this.usersService.findAll(search);
   }
 
   @Get('notifications')

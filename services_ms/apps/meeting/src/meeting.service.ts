@@ -155,16 +155,29 @@ export class MeetingService implements OnModuleInit {
     userId: number,
     page: number,
     size: number,
+    search: string | undefined,
     includeAudioFile: boolean,
     includeTranscript: boolean,
   ) {
-    console.log(`Listing meetings for user: ${userId}`);
+    console.log(`Listing meetings for user: ${userId} with search: ${search}`);
     const skip = page * size;
     const take = size;
 
+    let matchedFileIds: string[] | undefined = undefined;
+    if (search) {
+      try {
+        const matchedFiles = await this.fileGateway.searchFiles(search);
+        if (matchedFiles && matchedFiles.length > 0) {
+          matchedFileIds = matchedFiles.map((f) => f.id);
+        }
+      } catch (err) {
+        console.warn('Failed to search files in MeetingService:', err.message);
+      }
+    }
+
     const [meetings, total] = await Promise.all([
-      this.meetingRepo.findManyByUserId(userId, skip, take),
-      this.meetingRepo.countByUserId(userId),
+      this.meetingRepo.findManyByUserId(userId, skip, take, search, matchedFileIds),
+      this.meetingRepo.countByUserId(userId, search, matchedFileIds),
     ]);
 
     const enrichedContent = await Promise.all(

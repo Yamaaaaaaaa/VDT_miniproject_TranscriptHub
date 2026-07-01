@@ -8,8 +8,8 @@ import { AppException, ErrorCodes } from '../../../libs/common/src/exceptions/er
 export class UsersService {
   constructor(private readonly usersRepo: UsersRepository) {}
 
-  async findAll() {
-    const profiles = await this.usersRepo.findAllWithAccount();
+  async findAll(search?: string) {
+    const profiles = await this.usersRepo.findAllWithAccount(search);
 
     return profiles.map((p) => {
       const roleName = p.account?.roles?.[0]?.role?.name ?? 'USER';

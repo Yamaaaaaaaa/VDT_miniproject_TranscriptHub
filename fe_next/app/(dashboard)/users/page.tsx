@@ -5,13 +5,14 @@ import { usersApi, rolesApi } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 import { PermissionGuard } from "@/components/permission-guard";
 import ConfirmModal from "@/components/confirm-modal";
-import { Plus, Edit2, Trash2, ShieldAlert, X, Users, Shield, UserCheck, ShieldCheck, Mail, Phone, Info } from "lucide-react";
+import { Plus, Edit2, Trash2, ShieldAlert, X, Users, Shield, UserCheck, ShieldCheck, Mail, Phone, Info, Search } from "lucide-react";
 
 export default function UsersManagementPage() {
   const { hasPermission, user } = useAuth();
   const [users, setUsers] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Reusable Confirm Modal State
   const [confirmState, setConfirmState] = useState<{
@@ -73,10 +74,10 @@ export default function UsersManagementPage() {
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
 
   // Tải danh sách người dùng
-  const loadUsers = useCallback(async () => {
+  const loadUsers = useCallback(async (search?: string) => {
     setLoading(true);
     try {
-      const data = await usersApi.getAll();
+      const data = await usersApi.getAll(search);
       setUsers(data);
     } catch {
       console.error("Không thể tải danh sách người dùng.");
@@ -96,9 +97,15 @@ export default function UsersManagementPage() {
   }, []);
 
   useEffect(() => {
-    loadUsers();
+    const timer = setTimeout(() => {
+      loadUsers(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [loadUsers, searchQuery]);
+
+  useEffect(() => {
     loadRoles();
-  }, [loadUsers, loadRoles]);
+  }, [loadRoles]);
 
 
   // Xóa người dùng
@@ -279,9 +286,21 @@ export default function UsersManagementPage() {
       <div className="bg-white border border-slate-100 rounded-3xl shadow-sm shadow-slate-100/50 overflow-hidden">
         {/* Header của bảng */}
         <div className="p-8 border-b border-slate-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
+          <div className="flex-1">
             <h2 className="text-lg font-black text-slate-800">Danh sách thành viên</h2>
             <p className="text-xs text-slate-400 mt-0.5">Quản lý hồ sơ thông tin và phân quyền vai trò tài khoản</p>
+          </div>
+
+          {/* Search Input */}
+          <div className="w-full md:w-72 relative">
+            <input
+              type="text"
+              placeholder="Tìm kiếm theo email, họ tên..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-red-500/25 focus:border-red-500 transition-all text-slate-700"
+            />
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
           </div>
 
           <PermissionGuard permission="create_users">

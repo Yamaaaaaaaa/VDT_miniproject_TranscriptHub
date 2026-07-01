@@ -456,13 +456,13 @@ export class FileService implements OnModuleInit {
     return await this.fileRepo.update(fileId, { fileName });
   }
 
-  async listFiles(uploaderId: number, page: number, size: number) {
+  async listFiles(uploaderId: number, page: number, size: number, search?: string) {
     const skip = page * size;
     const take = size;
 
     const [items, total] = await Promise.all([
-      this.fileRepo.findMany(skip, take),
-      this.fileRepo.count(),
+      this.fileRepo.findMany(uploaderId, skip, take, search),
+      this.fileRepo.count(uploaderId, search),
     ]);
 
     return {
@@ -477,6 +477,10 @@ export class FileService implements OnModuleInit {
   async checkFileExists(fileId: string) {
     const file = await this.fileRepo.findById(fileId);
     return !!file && (file.status === 'READY' || file.status === 'UPLOADING');
+  }
+
+  async searchFiles(where: any) {
+    return this.fileRepo.searchFiles(where);
   }
 
   private publishUploadedEvent(audioFile: any) {
