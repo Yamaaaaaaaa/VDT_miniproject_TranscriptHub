@@ -4,16 +4,19 @@ import { useRef, useEffect, useState, useId } from "react";
 import { createPortal } from "react-dom";
 import { Play, Pause, Volume2, Loader2 } from "lucide-react";
 import { usePlayback } from "@/context/PlaybackContext";
+import { AudioWaveform } from "./AudioWaveform";
 
 interface TranscriptMiniPlayerProps {
-  audioFile: { fileName?: string } | null;
+  audioFile: { id?: string; fileName?: string } | null;
   isPlaying?: boolean;
   currentTime?: number;
   duration?: number;
   volume?: number;
+  playbackRate?: number;
   onTogglePlay?: () => void;
   onSeek?: (time: number) => void;
   onVolumeChange?: (v: number) => void;
+  onPlaybackRateChange?: (rate: number) => void;
   formatDuration: (seconds: number) => string;
 }
 
@@ -23,9 +26,11 @@ export function TranscriptMiniPlayer({
   currentTime,
   duration,
   volume,
+  playbackRate,
   onTogglePlay,
   onSeek,
   onVolumeChange,
+  onPlaybackRateChange,
   formatDuration,
 }: TranscriptMiniPlayerProps) {
   const id = useId();
@@ -39,8 +44,15 @@ export function TranscriptMiniPlayer({
   const [localDuration, setLocalDuration] = useState(duration ?? 0);
   const [localVolume, setLocalVolume] = useState(volume ?? 0.8);
   const [localIsPlaying, setLocalIsPlaying] = useState(isPlaying ?? false);
+  const [localPlaybackRate, setLocalPlaybackRate] = useState(playbackRate ?? 1.0);
 
   useEffect(() => { setMounted(true); }, []);
+
+  useEffect(() => {
+    if (playbackRate !== undefined) {
+      setLocalPlaybackRate(playbackRate);
+    }
+  }, [playbackRate]);
 
   // Subscribe to PlaybackManager if available
   useEffect(() => {
@@ -50,12 +62,14 @@ export function TranscriptMiniPlayer({
     const unsubDur = playback.subscribeToDuration(setLocalDuration);
     const unsubVol = playback.subscribeToVolume(setLocalVolume);
     const unsubState = playback.subscribeToState(setLocalIsPlaying);
+    const unsubRate = playback.subscribeToPlaybackRate(setLocalPlaybackRate);
 
     return () => {
       unsubTime();
       unsubDur();
       unsubVol();
       unsubState();
+      unsubRate();
     };
   }, [playback]);
 
@@ -89,6 +103,7 @@ export function TranscriptMiniPlayer({
   const activeDuration = playback ? localDuration : (duration ?? 0);
   const activeVolume = playback ? localVolume : (volume ?? 0.8);
   const activeIsPlaying = playback ? localIsPlaying : (isPlaying ?? false);
+  const activePlaybackRate = playback ? localPlaybackRate : (playbackRate ?? 1.0);
 
   const handleTogglePlay = () => {
     if (playback) {
@@ -111,6 +126,14 @@ export function TranscriptMiniPlayer({
       playback.setVolume(v);
     } else {
       onVolumeChange?.(v);
+    }
+  };
+
+  const handlePlaybackRateChange = (rate: number) => {
+    if (playback) {
+      playback.setPlaybackRate(rate);
+    } else {
+      onPlaybackRateChange?.(rate);
     }
   };
 
@@ -145,22 +168,16 @@ export function TranscriptMiniPlayer({
           {formatDuration(Math.round(activeCurrentTime))}
         </span>
 
-        {/* Seek bar */}
-        <div className="flex-1 relative">
-          <div className="w-full bg-slate-100 rounded-full h-1 overflow-hidden">
-            <div
-              className="h-full bg-red-500 rounded-full transition-all duration-300"
-              style={{ width: activeDuration > 0 ? `${(activeCurrentTime / activeDuration) * 100}%` : "0%" }}
-            />
-          </div>
-          <input
-            type="range"
-            min="0"
-            max={activeDuration || 100}
-            value={activeCurrentTime}
-            onChange={(e) => handleSeek(parseFloat(e.target.value))}
+        {/* Waveform Seek bar */}
+        <div className="flex-1 min-w-0">
+          <AudioWaveform
+            duration={activeDuration}
+            currentTime={activeCurrentTime}
+            onSeek={handleSeek}
+            fileId={audioFile ? (audioFile as any).id || (audioFile as any).fileName || "mini-player" : "mini-player"}
             disabled={!audioFile}
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer accent-red-500 disabled:cursor-not-allowed"
+            theme="light"
+            barCount={80}
           />
         </div>
 
@@ -168,6 +185,25 @@ export function TranscriptMiniPlayer({
         <span className="text-[10px] font-bold text-slate-400 shrink-0 w-9 tabular-nums font-mono">
           {formatDuration(Math.round(activeDuration))}
         </span>
+
+        {/* Speed Control */}
+        <div className="flex items-center gap-1 bg-slate-50 border border-slate-200/60 rounded-xl px-2 py-1 shrink-0">
+          <span className="text-[9px] font-bold text-slate-400">Tốc độ:</span>
+          <select
+            value={activePlaybackRate}
+            onChange={(e) => handlePlaybackRateChange(parseFloat(e.target.value))}
+            disabled={!audioFile}
+            className="bg-transparent text-[10px] font-bold text-slate-600 focus:outline-none cursor-pointer disabled:cursor-not-allowed"
+          >
+            <option value="0.5">0.5x</option>
+            <option value="0.75">0.75x</option>
+            <option value="1">1.0x</option>
+            <option value="1.25">1.25x</option>
+            <option value="1.5">1.5x</option>
+            <option value="1.75">1.75x</option>
+            <option value="2">2.0x</option>
+          </select>
+        </div>
 
         {/* Volume */}
         <div className="flex items-center gap-1.5 shrink-0">

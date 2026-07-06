@@ -10,6 +10,7 @@ export class PlaybackManager {
   private isPlaying = false;
   private volume = 0.8;
   private duration = 0;
+  private playbackRate = 1.0;
 
   // Subscription sets for pub-sub
   private timeListeners = new Set<(time: number) => void>();
@@ -17,6 +18,7 @@ export class PlaybackManager {
   private stateListeners = new Set<(isPlaying: boolean) => void>();
   private durationListeners = new Set<(duration: number) => void>();
   private volumeListeners = new Set<(volume: number) => void>();
+  private playbackRateListeners = new Set<(rate: number) => void>();
 
   constructor(
     private fileId: string,
@@ -25,6 +27,7 @@ export class PlaybackManager {
     if (typeof window !== "undefined") {
       this.audio = new Audio(`/api/files/stream/${fileId}?token=${token}`);
       this.audio.volume = this.volume;
+      this.audio.playbackRate = this.playbackRate;
 
       this.audio.addEventListener("timeupdate", this.handleTimeUpdate);
       this.audio.addEventListener("loadedmetadata", this.handleLoadedMetadata);
@@ -122,6 +125,14 @@ export class PlaybackManager {
     };
   }
 
+  subscribeToPlaybackRate(callback: (rate: number) => void) {
+    this.playbackRateListeners.add(callback);
+    callback(this.playbackRate);
+    return () => {
+      this.playbackRateListeners.delete(callback);
+    };
+  }
+
   // Playback Controls
   togglePlay() {
     if (!this.audio) return;
@@ -157,6 +168,14 @@ export class PlaybackManager {
     this.volumeListeners.forEach((l) => l(v));
   }
 
+  setPlaybackRate(rate: number) {
+    this.playbackRate = rate;
+    if (this.audio) {
+      this.audio.playbackRate = rate;
+    }
+    this.playbackRateListeners.forEach((l) => l(rate));
+  }
+
   getCurrentTime() {
     return this.audio?.currentTime ?? 0;
   }
@@ -190,6 +209,7 @@ export class PlaybackManager {
     this.stateListeners.clear();
     this.durationListeners.clear();
     this.volumeListeners.clear();
+    this.playbackRateListeners.clear();
   }
 }
 

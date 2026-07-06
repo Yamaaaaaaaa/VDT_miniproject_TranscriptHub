@@ -18,6 +18,7 @@ export function useTranscriptDetail(fileId: string, options?: { skipAudio?: bool
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.8);
+  const [playbackRate, setPlaybackRate] = useState(1.0);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -118,11 +119,12 @@ export function useTranscriptDetail(fileId: string, options?: { skipAudio?: bool
     if (!audioRef.current && audioFile && token) {
       audioRef.current = new Audio(`/api/files/stream/${fileId}?token=${token}`);
       audioRef.current.volume = volume;
+      audioRef.current.playbackRate = playbackRate;
       audioRef.current.addEventListener("timeupdate", handleTimeUpdate);
       audioRef.current.addEventListener("loadedmetadata", handleLoadedMetadata);
       audioRef.current.addEventListener("ended", handleAudioEnded);
     }
-  }, [skipAudio, audioFile, fileId, volume, token, handleTimeUpdate, handleLoadedMetadata, handleAudioEnded]);
+  }, [skipAudio, audioFile, fileId, volume, playbackRate, token, handleTimeUpdate, handleLoadedMetadata, handleAudioEnded]);
 
   const togglePlay = useCallback(() => {
     if (skipAudio) return;
@@ -160,6 +162,14 @@ export function useTranscriptDetail(fileId: string, options?: { skipAudio?: bool
     }
   }, [skipAudio]);
 
+  const handlePlaybackRateChange = useCallback((rate: number) => {
+    if (skipAudio) return;
+    setPlaybackRate(rate);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = rate;
+    }
+  }, [skipAudio]);
+
   const formatDuration = useCallback((seconds: number) => {
     if (!seconds || seconds <= 0) return "--:--";
     const mins = Math.floor(seconds / 60);
@@ -191,10 +201,12 @@ export function useTranscriptDetail(fileId: string, options?: { skipAudio?: bool
     currentTime,
     duration,
     volume,
+    playbackRate,
     // Audio controls
     togglePlay,
     seekTo,
     handleVolumeChange,
+    handlePlaybackRateChange,
     formatDuration,
     // Ref for external audio element
     audioRef,

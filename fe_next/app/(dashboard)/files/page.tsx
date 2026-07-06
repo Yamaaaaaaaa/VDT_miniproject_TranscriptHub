@@ -12,6 +12,7 @@ import {
   CheckCircle2, AlertCircle, Loader2, Volume2, Sparkles, FolderOpen,
   Plus, RefreshCw, RotateCcw, Search
 } from "lucide-react";
+import { AudioWaveform } from "@/components/transcript/AudioWaveform";
 
 export default function FileManagementPage() {
   const { user, token } = useAuth();
@@ -91,6 +92,7 @@ export default function FileManagementPage() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.8);
+  const [playbackRate, setPlaybackRate] = useState(1.0);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -253,6 +255,7 @@ export default function FileManagementPage() {
       setTimeout(() => {
         if (audioRef.current) {
           audioRef.current.volume = volume;
+          audioRef.current.playbackRate = playbackRate;
           audioRef.current.play().catch(e => console.error(e));
         }
       }, 50);
@@ -270,8 +273,7 @@ export default function FileManagementPage() {
     }
   };
 
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const time = parseFloat(e.target.value);
+  const handleSeek = (time: number) => {
     setCurrentTime(time);
     if (audioRef.current) {
       audioRef.current.currentTime = time;
@@ -283,6 +285,14 @@ export default function FileManagementPage() {
     setVolume(v);
     if (audioRef.current) {
       audioRef.current.volume = v;
+    }
+  };
+
+  const handlePlaybackRateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const rate = parseFloat(e.target.value);
+    setPlaybackRate(rate);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = rate;
     }
   };
 
@@ -848,28 +858,50 @@ export default function FileManagementPage() {
             </button>
 
             {/* Current Time */}
-            <span className="text-[10px] font-bold text-slate-400 shrink-0 w-8 text-right">
+            <span className="text-[10px] font-bold text-slate-400 shrink-0 w-8 text-right font-mono">
               {formatDuration(Math.round(currentTime))}
             </span>
 
-            {/* Seek Bar */}
-            <input
-              type="range"
-              min="0"
-              max={duration || 100}
-              value={currentTime}
-              onChange={handleSeek}
-              className="flex-1 accent-red-500 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer"
-            />
+            {/* Waveform Seek Bar */}
+            <div className="flex-1 min-w-0">
+              <AudioWaveform
+                duration={duration}
+                currentTime={currentTime}
+                onSeek={handleSeek}
+                fileId={playingFile ? playingFile.id : "files-page-player"}
+                disabled={!playingFile}
+                theme="dark"
+                barCount={80}
+              />
+            </div>
 
             {/* Total Duration */}
-            <span className="text-[10px] font-bold text-slate-400 shrink-0 w-8">
+            <span className="text-[10px] font-bold text-slate-400 shrink-0 w-8 font-mono">
               {formatDuration(Math.round(duration))}
             </span>
           </div>
 
-          {/* Right: Volume & Close */}
+          {/* Right: Speed, Volume & Close */}
           <div className="flex items-center gap-3.5 w-full md:w-auto justify-end">
+            {/* Speed Control */}
+            <div className="flex items-center gap-1.5 bg-slate-850 border border-slate-700/60 rounded-xl px-2.5 py-1 shrink-0">
+              <span className="text-[10px] font-bold text-slate-400">Tốc độ:</span>
+              <select
+                value={playbackRate}
+                onChange={handlePlaybackRateChange}
+                disabled={!playingFile}
+                className="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer disabled:cursor-not-allowed"
+              >
+                <option value="0.5" className="bg-slate-900 text-white">0.5x</option>
+                <option value="0.75" className="bg-slate-900 text-white">0.75x</option>
+                <option value="1" className="bg-slate-900 text-white">1.0x</option>
+                <option value="1.25" className="bg-slate-900 text-white">1.25x</option>
+                <option value="1.5" className="bg-slate-900 text-white">1.5x</option>
+                <option value="1.75" className="bg-slate-900 text-white">1.75x</option>
+                <option value="2" className="bg-slate-900 text-white">2.0x</option>
+              </select>
+            </div>
+
             <div className="flex items-center gap-2">
               <Volume2 size={16} className="text-slate-400 shrink-0" />
               <input
