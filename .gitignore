@@ -52,6 +52,7 @@ coverage/
 # design/
 documents/report
 documents/techstack
-documents/slide
+documents/slide 
+documents/features
 .agents/
 skills-lock.json
