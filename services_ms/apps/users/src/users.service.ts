@@ -8,8 +8,8 @@ import { AppException, ErrorCodes } from '../../../libs/common/src/exceptions/er
 export class UsersService {
   constructor(private readonly usersRepo: UsersRepository) {}
 
-  async findAll() {
-    const profiles = await this.usersRepo.findAllWithAccount();
+  async findAll(search?: string) {
+    const profiles = await this.usersRepo.findAllWithAccount(search);
 
     return profiles.map((p) => {
       const roleName = p.account?.roles?.[0]?.role?.name ?? 'USER';
@@ -60,5 +60,65 @@ export class UsersService {
     await this.findOne(id);
     await this.usersRepo.delete(id);
     return { message: `User profile ${id} deleted successfully` };
+  }
+
+  // --- Notification Service Methods ---
+  async getNotifications(userId: number) {
+    return this.usersRepo.getNotifications(userId);
+  }
+
+  async readNotification(id: number, userId: number) {
+    const existing = await this.usersRepo.findNotificationById(id);
+    if (!existing) {
+      throw new AppException(ErrorCodes.USER_NOT_FOUND, 'Notification not found');
+    }
+    if (existing.userId !== userId) {
+      throw new AppException(ErrorCodes.UNAUTHORIZED, 'Access denied');
+    }
+    await this.usersRepo.readNotification(id, userId);
+    return { success: true };
+  }
+
+  async readAllNotifications(userId: number) {
+    await this.usersRepo.readAllNotifications(userId);
+    return { success: true };
+  }
+
+  async deleteNotification(id: number, userId: number) {
+    const existing = await this.usersRepo.findNotificationById(id);
+    if (!existing) {
+      throw new AppException(ErrorCodes.USER_NOT_FOUND, 'Notification not found');
+    }
+    if (existing.userId !== userId) {
+      throw new AppException(ErrorCodes.UNAUTHORIZED, 'Access denied');
+    }
+    await this.usersRepo.deleteNotification(id, userId);
+    return { success: true };
+  }
+
+  async handleNotificationEvent(payload: any) {
+    console.log('[Users Service] Handling Kafka notification event:', JSON.stringify(payload));
+    const { recipientId, type, meetingTitle, role, url } = payload;
+
+    let title = 'Thông báo cuộc họp';
+    let content = 'Có thay đổi liên quan đến cuộc họp của bạn.';
+
+    if (type === 'MEETING_ACCESS_GRANTED') {
+      title = 'Được thêm vào cuộc họp';
+      content = `Bạn đã được thêm vào cuộc họp "${meetingTitle}" với vai trò ${role === 'EDITOR' ? 'Biên tập viên' : 'Người xem'}.`;
+    } else if (type === 'MEETING_ROLE_UPDATED') {
+      title = 'Cập nhật vai trò cuộc họp';
+      content = `Vai trò của bạn trong cuộc họp "${meetingTitle}" đã được cập nhật thành ${role === 'EDITOR' ? 'Biên tập viên' : 'Người xem'}.`;
+    } else if (type === 'MEETING_ACCESS_REVOKED') {
+      title = 'Thu hồi quyền truy cập';
+      content = `Quyền truy cập của bạn vào cuộc họp "${meetingTitle}" đã bị thu hồi bởi Chủ phòng.`;
+    }
+
+    return this.usersRepo.createNotification(
+      recipientId,
+      title,
+      content,
+      url,
+    );
   }
 }

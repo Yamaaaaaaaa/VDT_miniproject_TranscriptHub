@@ -43,6 +43,11 @@ spec:
             configMapKeyRef:
               name: transcripthub-config
               key: USERS_SERVICE_PORT
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          valueFrom:
+            configMapKeyRef:
+              name: transcripthub-config
+              key: KAFKA_BOOTSTRAP_SERVERS
 ---
 apiVersion: v1
 kind: Service

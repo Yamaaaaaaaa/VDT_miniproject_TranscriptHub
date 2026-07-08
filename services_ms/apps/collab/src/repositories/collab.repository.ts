@@ -50,6 +50,23 @@ export class CollabRepository {
       },
     });
 
+    // Kiểm tra xem đã có bản dịch gốc AI trong top 10 chưa
+    const hasBaseline = versions.some((v) => v.versionName === 'Bản dịch gốc từ AI');
+    if (!hasBaseline) {
+      const baseline = await this.prisma.transcriptVersion.findFirst({
+        where: { transcriptId, versionName: 'Bản dịch gốc từ AI' },
+        select: {
+          id: true,
+          versionName: true,
+          createdById: true,
+          createdAt: true,
+        },
+      });
+      if (baseline) {
+        versions.push(baseline);
+      }
+    }
+
     const creatorIds = Array.from(
       new Set(versions.map((v) => v.createdById).filter((id): id is number => id !== null)),
     );
@@ -72,5 +89,18 @@ export class CollabRepository {
       createdById: v.createdById,
       creator: v.createdById ? profileMap.get(v.createdById) || null : null,
     }));
+  }
+
+  async findLatestTranscriptVersion(transcriptId: number) {
+    return this.prisma.transcriptVersion.findFirst({
+      where: { transcriptId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async deleteTranscriptVersion(versionId: number) {
+    return this.prisma.transcriptVersion.delete({
+      where: { id: versionId },
+    });
   }
 }

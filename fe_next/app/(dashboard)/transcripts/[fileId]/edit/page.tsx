@@ -23,6 +23,7 @@ import {
   WifiOff,
   ShieldAlert,
   Clock,
+  Loader2,
 } from "lucide-react";
 
 const EMPTY_ARRAY: any[] = [];
@@ -73,7 +74,7 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
     isOpen: false,
     title: "",
     message: "",
-    onConfirm: () => {},
+    onConfirm: () => { },
     isDanger: false,
     isAlert: false,
     type: 'warning',
@@ -169,6 +170,8 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
     getVersions,
     getVersionDetail,
     restoreVersion,
+    deleteVersion,
+    saveStatus,
   } = useCollab({
     meetingId,
     meetingRole,
@@ -191,6 +194,16 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
 
   const localEditsRef = useRef<Record<string, string>>({});
 
+  // Đồng bộ trạng thái lưu từuseCollab để dọn dẹp thay đổi cục bộ
+  useEffect(() => {
+    if (saveStatus === "saved") {
+      localEditsRef.current = {};
+      setHasChanges(false);
+    } else if (saveStatus === "saving") {
+      setHasChanges(true);
+    }
+  }, [saveStatus]);
+
   // State quản lý lịch sử phiên bản
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
 
@@ -211,7 +224,7 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
   // Warning when leaving with unsaved changes
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (hasChanges) {
+      if (saveStatus === "saving") {
         e.preventDefault();
         e.returnValue = "Bạn có thay đổi chưa lưu. Bạn có chắc chắn muốn rời đi?";
         return e.returnValue;
@@ -219,7 +232,7 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [hasChanges]);
+  }, [saveStatus]);
 
   const handleSegmentClick = useCallback(
     (startTime: number) => {
@@ -344,10 +357,17 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
           <span className="w-1 h-1 bg-slate-300 rounded-full" />
           {collabState.connected ? (
             <div className="flex items-center gap-2">
-              <span className="flex items-center gap-1 text-green-500">
-                <Wifi size={10} />
-                <span>Live</span>
-              </span>
+              {collabState.synced ? (
+                <span className="flex items-center gap-1 text-green-500">
+                  <Wifi size={10} />
+                  <span>Live</span>
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-amber-500">
+                  <Loader2 size={10} className="animate-spin" />
+                  <span>Đang đồng bộ...</span>
+                </span>
+              )}
               {collabState.users.length > 0 && (
                 <div className="flex items-center -space-x-1.5 overflow-hidden ml-1">
                   {collabState.users.map((user) => {
@@ -393,21 +413,21 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
             </>
           )}
 
-          {hasChanges && (
+          {saveStatus === "saving" && (
             <>
               <span className="w-1 h-1 bg-slate-300 rounded-full" />
-              <span className="text-amber-500 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" />
-                Có thay đổi chưa lưu
+              <span className="text-amber-500 flex items-center gap-1.5">
+                <Loader2 size={10} className="animate-spin" />
+                <span>Đang lưu phiên bản...</span>
               </span>
             </>
           )}
-          {!hasChanges && !isSaving && (
+          {saveStatus === "saved" && (
             <>
               <span className="w-1 h-1 bg-slate-300 rounded-full" />
-              <span className="text-green-500 flex items-center gap-1">
+              <span className="text-green-500 flex items-center gap-1.5">
                 <CheckCircle2 size={10} />
-                Đã lưu
+                <span>Đã lưu tất cả thay đổi</span>
               </span>
             </>
           )}
@@ -425,19 +445,19 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
           {collabState.canEdit && (
             <button
               onClick={handleSave}
-              disabled={!hasChanges || isSaving}
+              disabled={saveStatus === "saved" || isSaving}
               className="flex items-center gap-1.5 px-4 py-2 text-[10px] font-bold bg-red-500 hover:bg-red-600 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed"
             >
               {isSaving ? (
                 <span className="animate-spin inline-block">
                   <RotateCcw size={11} />
                 </span>
-              ) : saveSuccess ? (
+              ) : saveStatus === "saved" ? (
                 <CheckCircle2 size={11} />
               ) : (
                 <Save size={11} />
               )}
-              <span>{isSaving ? "Đang lưu..." : saveSuccess ? "Đã lưu!" : "Lưu thay đổi"}</span>
+              <span>{isSaving ? "Đang lưu..." : saveStatus === "saved" ? "Đã lưu!" : "Lưu thay đổi"}</span>
             </button>
           )}
         </div>
@@ -479,12 +499,13 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
                   index={index}
                   isActiveEditor={activeEditSegmentId === segmentId}
                   onActivateEditor={setActiveEditSegmentId}
-                  canEdit={collabState.canEdit}
+                  canEdit={collabState.canEdit && collabState.synced}
                   getYText={getYText}
                   getAwareness={getAwareness}
                   setFocus={setFocus}
                   otherEditorsOnSpeaker={otherEditorsOnSpeaker.length > 0 ? otherEditorsOnSpeaker : EMPTY_ARRAY}
                   otherEditorsOnContent={otherEditorsOnContent.length > 0 ? otherEditorsOnContent : EMPTY_ARRAY}
+                  isSynced={collabState.synced}
                   currentUserId={currentUserId}
                   onContentChange={handleContentChange}
                   onSpeakerChange={handleSpeakerChange}
@@ -534,6 +555,7 @@ function TranscriptEditPageContent({ fileId, session }: { fileId: string; sessio
           getVersions={getVersions}
           getVersionDetail={getVersionDetail}
           restoreVersion={restoreVersion}
+          deleteVersion={deleteVersion}
           formatDuration={formatDuration}
           canEdit={collabState.canEdit}
         />

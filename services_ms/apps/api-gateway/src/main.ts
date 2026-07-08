@@ -3,14 +3,19 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { json, urlencoded } from 'express';
 import { ApiGatewayModule } from './api-gateway.module';
 import { GlobalHttpExceptionFilter } from './filters/http-exception.filter';
 import { TransformInterceptor } from '../../../libs/common/src/interceptors/transform.interceptor';
 
 async function bootstrap() {
-  const app = await NestFactory.create(ApiGatewayModule);
+  const app = await NestFactory.create(ApiGatewayModule, { bodyParser: false });
 
-  // 1. Configure CORS to allow all origins (needed when FE & BE run on different ports)
+  // 1. Configure custom body size limits to handle large transcripts (e.g. up to 50MB)
+  app.use(json({ limit: '50mb' }));
+  app.use(urlencoded({ extended: true, limit: '50mb' }));
+
+  // 2. Configure CORS to allow all origins (needed when FE & BE run on different ports)
   app.enableCors({
     origin: '*',
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],

@@ -38,14 +38,16 @@ export class MeetingsService {
     userId: number,
     page: number,
     size: number,
-    includeAudioFile: boolean,
-    includeTranscript: boolean,
+    search?: string,
+    includeAudioFile?: boolean,
+    includeTranscript?: boolean,
   ): Observable<any> {
     return this.meetingClient
       .send('list_meetings', {
         userId,
         page,
         size,
+        search,
         includeAudioFile,
         includeTranscript,
       })

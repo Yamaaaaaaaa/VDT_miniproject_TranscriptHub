@@ -45,6 +45,7 @@ export class MeetingController {
       userId: number;
       page: number;
       size: number;
+      search?: string;
       includeAudioFile: boolean;
       includeTranscript: boolean;
     },
@@ -53,6 +54,7 @@ export class MeetingController {
       payload.userId,
       payload.page,
       payload.size,
+      payload.search,
       payload.includeAudioFile,
       payload.includeTranscript,
     );

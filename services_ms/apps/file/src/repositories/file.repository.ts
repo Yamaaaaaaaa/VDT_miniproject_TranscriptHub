@@ -55,16 +55,27 @@ export class FileRepository {
     });
   }
 
-  async findMany(skip: number, take: number) {
+  async findMany(uploaderId: number, skip: number, take: number, search?: string) {
+    const where: any = { uploaderId };
+    if (search) {
+      where.fileName = { contains: search, mode: 'insensitive' };
+    }
     return this.prisma.audioFile.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       skip,
       take,
     });
   }
 
-  async count() {
-    return this.prisma.audioFile.count();
+  async count(uploaderId: number, search?: string) {
+    const where: any = { uploaderId };
+    if (search) {
+      where.fileName = { contains: search, mode: 'insensitive' };
+    }
+    return this.prisma.audioFile.count({
+      where,
+    });
   }
 
   async deleteTranscriptsByFileId(audioFileId: string) {
@@ -76,6 +87,12 @@ export class FileRepository {
   async delete(id: string) {
     return this.prisma.audioFile.delete({
       where: { id },
+    });
+  }
+
+  async searchFiles(where: any) {
+    return this.prisma.audioFile.findMany({
+      where,
     });
   }
 }

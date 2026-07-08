@@ -6,6 +6,7 @@ import {
   Delete,
   Param,
   Body,
+  Query,
   ParseIntPipe,
   HttpException,
   HttpStatus,
@@ -17,6 +18,7 @@ import {
   ApiBearerAuth,
   ApiOperation,
   ApiResponse,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { CreateUserProfileDto } from './dto/create-user-profile.dto';
@@ -32,13 +34,52 @@ export class UsersController {
 
   @Get()
   @ApiOperation({ summary: 'Get all user profiles (Requires Auth)' })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Search by email or name' })
   @ApiResponse({
     status: 200,
     description: 'List of user profiles successfully retrieved.',
   })
   @ApiResponse({ status: 401, description: 'Unauthorized.' })
-  findAll() {
-    return this.usersService.findAll();
+  findAll(@Query('search') search?: string) {
+    return this.usersService.findAll(search);
+  }
+
+  @Get('notifications')
+  @ApiOperation({ summary: 'Get notifications for current user (Requires Auth)' })
+  @ApiResponse({ status: 200, description: 'Notifications successfully retrieved.' })
+  getNotifications(@Req() req: any) {
+    const userId = req.user.id;
+    return this.usersService.getNotifications(userId);
+  }
+
+  @Patch('notifications/read-all')
+  @ApiOperation({ summary: 'Mark all notifications as read (Requires Auth)' })
+  @ApiResponse({ status: 200, description: 'All notifications marked as read.' })
+  readAllNotifications(@Req() req: any) {
+    const userId = req.user.id;
+    return this.usersService.readAllNotifications(userId);
+  }
+
+  @Patch('notifications/:id/read')
+  @ApiOperation({ summary: 'Mark a notification as read (Requires Auth)' })
+  @ApiResponse({ status: 200, description: 'Notification marked as read.' })
+  readNotification(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: any,
+  ) {
+    const userId = req.user.id;
+    return this.usersService.readNotification(id, userId);
+  }
+
+  @Delete('notifications/:id')
+  @ApiOperation({ summary: 'Delete a specific notification (Requires Auth)' })
+  @ApiResponse({ status: 200, description: 'Notification deleted successfully.' })
+  deleteNotification(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: any,
+  ) {
+    const userId = req.user.id;
+    return this.usersService.deleteNotification(id, userId);
   }
 
   @Get(':id')

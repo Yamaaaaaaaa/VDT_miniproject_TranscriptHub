@@ -21,9 +21,11 @@ export default function TranscriptViewPage() {
     currentTime,
     duration,
     volume,
+    playbackRate,
     togglePlay,
     seekTo,
     handleVolumeChange,
+    handlePlaybackRateChange,
     formatDuration,
     reload,
   } = useTranscriptDetail(fileId);
@@ -183,9 +185,11 @@ export default function TranscriptViewPage() {
         currentTime={currentTime}
         duration={duration}
         volume={volume}
+        playbackRate={playbackRate}
         onTogglePlay={togglePlay}
         onSeek={seekTo}
         onVolumeChange={handleVolumeChange}
+        onPlaybackRateChange={handlePlaybackRateChange}
         formatDuration={formatDuration}
       />
     </div>

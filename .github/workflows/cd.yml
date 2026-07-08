@@ -8,6 +8,10 @@ on:
       - 'documents/**'
       - '.gitignore'
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   # ─── RUN QUALITY CHECKS FIRST ────────────────────────────────────────────
   validation:
@@ -29,8 +33,8 @@ jobs:
           cd services_ms
           npm ci
           npx prisma generate
-          npm run lint || true
-          npm run test || true
+          npm run lint > ../error.log 2>&1 || true
+          npm run test > ../error.log 2>&1
 
       - name: Set up Node.js (Frontend)
         uses: actions/setup-node@v4
@@ -43,10 +47,73 @@ jobs:
         run: |
           cd fe_next
           npm ci
-          npm run lint || true
-          npm run build
+          npm run lint > ../error.log 2>&1 || true
+          npm run build > ../error.log 2>&1
         env:
           NEXT_TELEMETRY_DISABLED: 1
+
+      - name: Run AI Agent Analyzer
+        if: failure()
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          npm install @google/generative-ai
+          node scripts/analyze-ci-error.js > ai_analysis.md || true
+
+      - name: Create Issue with AI Analysis
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let aiContent = "";
+            try {
+              aiContent = fs.readFileSync('ai_analysis.md', 'utf8');
+            } catch (e) {
+              aiContent = "Không thể lấy kết quả phân tích từ AI.";
+            }
+
+            const bodyText = `
+            ## 🚨 Phát hiện Lỗi CI/CD Pipeline
+            - **Tác giả commit:** @${context.actor}
+            - **Log link:** [Xem chi tiết tại đây](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+
+            ---
+            
+            ### 🤖 AI Agent Phân tích & Đề xuất cách sửa:
+            ${aiContent}
+            `;
+
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: `ci-fail-${context.job}`
+            });
+
+            if (issues.data.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `[AI Alert] Lỗi build tại Job: ${context.job}`,
+                body: bodyText,
+                labels: ['bug', `ci-fail-${context.job}`],
+                assignees: [context.actor]
+              });
+            }
+
+      - name: Send Discord Alert on Failure
+        if: failure()
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          title: "❌ Job [${{ github.job }}] Gặp Sự Cố!"
+          description: |
+            **Repository**: `${{ github.repository }}`
+            **Branch**: `${{ github.ref_name }}`
+            **Commit**: `${{ github.sha }}` bởi @${{ github.actor }}
+            **Link Log**: [Xem chi tiết tại đây](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          color: 0xff0000
 
   # ─── PARALLEL DOCKER BUILD & PUSH ────────────────────────────────────────
   build-and-push:
@@ -118,6 +185,19 @@ jobs:
             ${{ secrets.DOCKER_USERNAME }}/${{ matrix.image }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Send Discord Alert on Failure
+        if: failure()
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          title: "❌ Job [${{ github.job }}] Gặp Sự Cố!"
+          description: |
+            **Repository**: `${{ github.repository }}`
+            **Branch**: `${{ github.ref_name }}`
+            **Commit**: `${{ github.sha }}` bởi @${{ github.actor }}
+            **Link Log**: [Xem chi tiết tại đây](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          color: 0xff0000
 
   # ─── DEPLOY TO GCP KUBERNETES ────────────────────────────────────────────
   deploy-to-k8s:
@@ -194,3 +274,16 @@ jobs:
             kubectl rollout status deployment/users-service -n transcripthub
             kubectl rollout status deployment/frontend -n transcripthub
           '
+
+      - name: Send Discord Alert on Failure
+        if: failure()
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          title: "❌ Job [${{ github.job }}] Gặp Sự Cố!"
+          description: |
+            **Repository**: `${{ github.repository }}`
+            **Branch**: `${{ github.ref_name }}`
+            **Commit**: `${{ github.sha }}` bởi @${{ github.actor }}
+            **Link Log**: [Xem chi tiết tại đây](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          color: 0xff0000

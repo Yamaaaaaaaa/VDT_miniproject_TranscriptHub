@@ -11,10 +11,10 @@ export class UsersService {
     @Inject('IDENTITY_CLIENT') private readonly identityClient: ClientProxy,
   ) {}
 
-  findAll(): Observable<any> {
+  findAll(search?: string): Observable<any> {
     // Send message pattern 'find_all_profiles' đến users service qua mạng TCP
     return this.usersClient
-      .send('find_all_profiles', {})
+      .send('find_all_profiles', { search })
       .pipe(catchError((err) => throwError(() => err)));
   }
 
@@ -42,6 +42,30 @@ export class UsersService {
   remove(id: number, requesterId?: number): Observable<any> {
     return this.identityClient
       .send('delete_account', { id, requesterId })
+      .pipe(catchError((err) => throwError(() => err)));
+  }
+
+  getNotifications(userId: number): Observable<any> {
+    return this.usersClient
+      .send('get_notifications', { userId })
+      .pipe(catchError((err) => throwError(() => err)));
+  }
+
+  readNotification(id: number, userId: number): Observable<any> {
+    return this.usersClient
+      .send('read_notification', { id, userId })
+      .pipe(catchError((err) => throwError(() => err)));
+  }
+
+  readAllNotifications(userId: number): Observable<any> {
+    return this.usersClient
+      .send('read_all_notifications', { userId })
+      .pipe(catchError((err) => throwError(() => err)));
+  }
+
+  deleteNotification(id: number, userId: number): Observable<any> {
+    return this.usersClient
+      .send('delete_notification', { id, userId })
       .pipe(catchError((err) => throwError(() => err)));
   }
 }

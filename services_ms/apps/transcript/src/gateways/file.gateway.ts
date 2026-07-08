@@ -15,4 +15,8 @@ export class FileGateway {
   async getFileMetadata(fileId: string) {
     return lastValueFrom(this.fileClient.send('get_file_metadata', fileId));
   }
+
+  async searchFiles(search: string, uploaderId?: number): Promise<any[]> {
+    return lastValueFrom(this.fileClient.send('search_files', { search, uploaderId }));
+  }
 }

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { MeetingGateway } from './gateways/meeting.gateway';
 import { CollabRepository } from './repositories/collab.repository';
+import { AppException, ErrorCodes } from '../../../libs/common/src/exceptions/error-code';
 
 @Injectable()
 export class CollabService {
@@ -127,5 +128,21 @@ export class CollabService {
       rawText: version.rawText,
       structuredContent: version.structuredContent,
     };
+  }
+
+  async deleteVersion(versionId: number) {
+    const version = await this.collabRepository.findTranscriptVersionById(versionId);
+    if (!version) {
+      throw new AppException(ErrorCodes.TRANSCRIPT_NOT_FOUND, 'Version not found');
+    }
+
+    // Không cho phép xóa phiên bản mới nhất (phiên bản hiện tại)
+    const latestVersion = await this.collabRepository.findLatestTranscriptVersion(version.transcriptId);
+    if (latestVersion && latestVersion.id === versionId) {
+      throw new AppException(ErrorCodes.INVALID_ACTION, 'Cannot delete the latest version');
+    }
+
+    await this.collabRepository.deleteTranscriptVersion(versionId);
+    return { success: true, message: 'Version deleted successfully' };
   }
 }

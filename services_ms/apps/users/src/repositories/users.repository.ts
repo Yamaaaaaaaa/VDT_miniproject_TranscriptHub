@@ -7,8 +7,16 @@ import { UpdateUserProfileDto } from '../dto/update-user-profile.dto';
 export class UsersRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAllWithAccount() {
+  async findAllWithAccount(search?: string) {
+    const where: any = {};
+    if (search) {
+      where.OR = [
+        { email: { contains: search, mode: 'insensitive' } },
+        { name: { contains: search, mode: 'insensitive' } },
+      ];
+    }
     return this.prisma.userProfile.findMany({
+      where,
       include: {
         account: {
           include: {
@@ -62,6 +70,51 @@ export class UsersRepository {
   async delete(id: number) {
     return this.prisma.userProfile.delete({
       where: { id },
+    });
+  }
+
+  // --- Notification Methods ---
+  async getNotifications(userId: number) {
+    return this.prisma.notification.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async findNotificationById(id: number) {
+    return this.prisma.notification.findUnique({
+      where: { id },
+    });
+  }
+
+  async createNotification(userId: number, title: string, content: string, url?: string) {
+    return this.prisma.notification.create({
+      data: {
+        userId,
+        title,
+        content,
+        url,
+      },
+    });
+  }
+
+  async readNotification(id: number, userId: number) {
+    return this.prisma.notification.updateMany({
+      where: { id, userId },
+      data: { isRead: true },
+    });
+  }
+
+  async readAllNotifications(userId: number) {
+    return this.prisma.notification.updateMany({
+      where: { userId, isRead: false },
+      data: { isRead: true },
+    });
+  }
+
+  async deleteNotification(id: number, userId: number) {
+    return this.prisma.notification.deleteMany({
+      where: { id, userId },
     });
   }
 }

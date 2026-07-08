@@ -51,6 +51,18 @@ import { TranscriptGateway } from './gateways/transcript.gateway';
         }),
         inject: [ConfigService],
       },
+      {
+        name: 'MEETING_KAFKA_PRODUCER',
+        useFactory: (configService: ConfigService) => ({
+          transport: Transport.KAFKA,
+          options: {
+            client: {
+              brokers: [configService.get<string>('KAFKA_BOOTSTRAP_SERVERS', 'kafka:9092')],
+            },
+          },
+        }),
+        inject: [ConfigService],
+      },
     ]),
   ],
   controllers: [MeetingController],

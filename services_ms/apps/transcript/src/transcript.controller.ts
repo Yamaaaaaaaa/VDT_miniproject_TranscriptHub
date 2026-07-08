@@ -18,15 +18,21 @@ export class TranscriptController {
   }
 
   @MessagePattern('get_all_transcripts')
-  async getAllTranscripts(@Payload() payload: { page?: number; size?: number }) {
+  async getAllTranscripts(@Payload() payload: { page?: number; size?: number; search?: string }) {
     const page = payload?.page ?? 0;
     const size = payload?.size ?? 10;
-    return this.transcriptService.getAllTranscripts(page, size);
+    const search = payload?.search;
+    return this.transcriptService.getAllTranscripts(page, size, search);
   }
 
   @MessagePattern('generate_transcript_manual')
   async generateTranscriptManual(@Payload() fileId: string) {
     return this.transcriptService.generateTranscriptManually(fileId);
+  }
+
+  @MessagePattern('re_transcribe')
+  async reTranscribe(@Payload() fileId: string) {
+    return this.transcriptService.reTranscribe(fileId);
   }
 
   @MessagePattern('delete_transcript')

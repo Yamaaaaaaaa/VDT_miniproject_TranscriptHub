@@ -8,6 +8,10 @@ export class UsersEnv {
   @IsNumber()
   @IsOptional()
   USERS_SERVICE_PORT: number = 3001;
+
+  @IsString()
+  @IsOptional()
+  KAFKA_BOOTSTRAP_SERVERS: string = 'kafka:9092';
 }
 
 export function validate(config: Record<string, any>) {

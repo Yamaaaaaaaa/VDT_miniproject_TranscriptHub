@@ -6,7 +6,7 @@ import Link from "next/link";
 import ConfirmModal from "@/components/confirm-modal";
 import {
   FileText, RefreshCw, Trash2, CheckCircle2, AlertCircle, Loader2, Sparkles, FolderOpen, Eye, Pencil,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, RotateCcw, Search
 } from "lucide-react";
 
 export default function TranscriptsListPage() {
@@ -15,6 +15,8 @@ export default function TranscriptsListPage() {
   const [meetings, setMeetings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [reTranscribingId, setReTranscribingId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const [confirmState, setConfirmState] = useState<{
     isOpen: boolean;
@@ -68,17 +70,17 @@ export default function TranscriptsListPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalElements, setTotalElements] = useState(0);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (search = searchQuery) => {
     setLoading(true);
     setError("");
     try {
       const [transcriptsData, filesData, meetingsData] = await Promise.all([
-        transcriptsApi.getAll(page, size),
+        transcriptsApi.getAll(page, size, search),
         filesApi.list(0, 100).catch((err) => {
           console.warn("Failed to load files list mapping:", err);
           return { content: [] };
         }),
-        meetingsApi.list(0, 100).catch((err) => {
+        meetingsApi.list(0, 100, undefined, false, false).catch((err) => {
           console.warn("Failed to load meetings list mapping:", err);
           return { content: [] };
         })
@@ -98,10 +100,17 @@ export default function TranscriptsListPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, size]);
+  }, [page, size, searchQuery]);
 
   useEffect(() => {
-    loadData();
+    setPage(0);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadData();
+    }, 300);
+    return () => clearTimeout(timer);
   }, [loadData]);
 
   // Polling for processing transcripts
@@ -111,7 +120,7 @@ export default function TranscriptsListPage() {
 
     const interval = setInterval(async () => {
       try {
-        const transcriptsData = await transcriptsApi.getAll(page, size);
+        const transcriptsData = await transcriptsApi.getAll(page, size, searchQuery);
         if (transcriptsData) {
           setTranscripts(transcriptsData.content || transcriptsData || []);
           setTotalPages(transcriptsData.totalPages || 1);
@@ -123,7 +132,7 @@ export default function TranscriptsListPage() {
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [transcripts, page, size]);
+  }, [transcripts, page, size, searchQuery]);
 
   const handleDelete = (id: number) => {
     triggerConfirm(
@@ -140,6 +149,27 @@ export default function TranscriptsListPage() {
         }
       },
       true
+    );
+  };
+
+  const handleReTranscribe = (audioFileId: string, fileName: string) => {
+    triggerConfirm(
+      "Chạy Dịch AI Lại",
+      `Bạn có chắc chắn muốn dịch lại "${fileName}"?\n\nHành động này sẽ xóa nội dung bản dịch hiện tại và chạy lại toàn bộ quá trình AI từ đầu.`,
+      async () => {
+        setReTranscribingId(audioFileId);
+        try {
+          await transcriptsApi.reTranscribe(audioFileId);
+          triggerAlert("Đã kích hoạt", "Yêu cầu dịch lại đã được gửi! Quá trình AI đang chạy lại.", "info");
+          loadData();
+        } catch (err: any) {
+          console.error(err);
+          triggerAlert("Lỗi", err?.response?.data?.message || "Không thể kích hoạt dịch lại.", "error");
+        } finally {
+          setReTranscribingId(null);
+        }
+      },
+      false
     );
   };
 
@@ -195,7 +225,7 @@ export default function TranscriptsListPage() {
           </p>
         </div>
         <button
-          onClick={loadData}
+          onClick={() => loadData(searchQuery)}
           disabled={loading}
           className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:border-slate-300 rounded-2xl shadow-sm transition-all disabled:opacity-50 cursor-pointer"
         >
@@ -204,32 +234,45 @@ export default function TranscriptsListPage() {
         </button>
       </div>
 
-      {loading && transcripts.length === 0 ? (
-        <div className="h-64 flex flex-col items-center justify-center text-slate-400 gap-2 bg-white border border-slate-100 rounded-3xl shadow-sm">
-          <Loader2 size={36} className="animate-spin text-red-500" />
-          <p className="text-xs font-bold">Đang tải danh sách bản dịch...</p>
-        </div>
-      ) : error ? (
-        <div className="p-6 bg-red-50 text-red-500 border border-red-100 rounded-3xl text-center space-y-4">
-          <AlertCircle size={40} className="mx-auto" />
-          <p className="text-sm font-bold">{error}</p>
-          <button
-            onClick={loadData}
-            className="px-5 py-2 text-xs font-bold bg-red-500 text-white rounded-2xl hover:bg-red-600 transition-all cursor-pointer"
-          >
-            Thử lại
-          </button>
-        </div>
-      ) : (
-        <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm shadow-slate-100/50">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
-              <FolderOpen size={18} className="text-red-500" />
-              Danh sách bản dịch ({transcripts.filter((t) => t.status === "COMPLETED").length} bản dịch hoàn tất)
-            </h3>
-          </div>
+      <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm shadow-slate-100/50 space-y-4">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-50 pb-3">
+          <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+            <FolderOpen size={18} className="text-red-500" />
+            Danh sách bản dịch ({transcripts.filter((t) => t.status === "COMPLETED").length} hoàn tất)
+          </h3>
 
-          <div className="overflow-x-auto">
+          {/* Search Input */}
+          <div className="w-full md:w-72 relative">
+            <input
+              type="text"
+              placeholder="Tìm kiếm bản dịch hoặc tên file..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500/25 focus:border-red-500 transition-all text-slate-700"
+            />
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+          </div>
+        </div>
+
+        {error ? (
+          <div className="p-6 bg-red-50 text-red-500 border border-red-100 rounded-3xl text-center space-y-4">
+            <AlertCircle size={40} className="mx-auto" />
+            <p className="text-sm font-bold">{error}</p>
+            <button
+              onClick={() => loadData()}
+              className="px-5 py-2 text-xs font-bold bg-red-500 text-white rounded-2xl hover:bg-red-600 transition-all cursor-pointer"
+            >
+              Thử lại
+            </button>
+          </div>
+        ) : loading && transcripts.length === 0 ? (
+          <div className="h-64 flex flex-col items-center justify-center text-slate-400 gap-3">
+            <Loader2 size={36} className="animate-spin text-red-500" />
+            <span className="text-xs font-bold">Đang tải danh sách bản dịch...</span>
+          </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider">
@@ -332,6 +375,18 @@ export default function TranscriptsListPage() {
                                 Chờ xử lý
                               </button>
                             )}
+                            {/* Nút Chạy Dịch AI Lại — xuất hiện cho mọi trạng thái */}
+                            <button
+                              onClick={() => handleReTranscribe(t.audioFileId, fileName)}
+                              disabled={t.status === "PROCESSING" || reTranscribingId === t.audioFileId}
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-600 hover:text-amber-700 border border-amber-200 rounded-xl transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                              title="Chạy dịch AI lại (thay thế nội dung hiện tại)"
+                            >
+                              {reTranscribingId === t.audioFileId
+                                ? <Loader2 size={12} className="animate-spin" />
+                                : <RotateCcw size={12} />}
+                              <span>Dịch lại</span>
+                            </button>
                             <button
                               onClick={() => handleDelete(t.id)}
                               className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-all cursor-pointer"
@@ -373,8 +428,9 @@ export default function TranscriptsListPage() {
               </div>
             </div>
           )}
-        </div>
-      )}
+          </>
+        )}
+      </div>
 
       {/* Reusable Confirm Modal */}
       <ConfirmModal

@@ -10,8 +10,9 @@ import {
   UploadCloud, FileAudio, Trash2, Play, Pause, Edit2,
   Music, HardDrive, Clock, ChevronLeft, ChevronRight, X,
   CheckCircle2, AlertCircle, Loader2, Volume2, Sparkles, FolderOpen,
-  Plus, RefreshCw
+  Plus, RefreshCw, RotateCcw, Search
 } from "lucide-react";
+import { AudioWaveform } from "@/components/transcript/AudioWaveform";
 
 export default function FileManagementPage() {
   const { user, token } = useAuth();
@@ -24,6 +25,8 @@ export default function FileManagementPage() {
   const [size] = useState(8);
   const [loading, setLoading] = useState(true);
   const [totalPages, setTotalPages] = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [reTranscribingId, setReTranscribingId] = useState<string | null>(null);
 
   // Upload progress & UI states
   const [uploadQueue, setUploadQueue] = useState<any[]>([]);
@@ -89,15 +92,16 @@ export default function FileManagementPage() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.8);
+  const [playbackRate, setPlaybackRate] = useState(1.0);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Load files metadata
-  const loadFiles = useCallback(async () => {
+  const loadFiles = useCallback(async (search?: string) => {
     setLoading(true);
     try {
       const [filesData, transcriptsData] = await Promise.all([
-        filesApi.list(page, size),
+        filesApi.list(page, size, search),
         transcriptsApi.getAll(0, 100).catch(e => {
           console.warn("Failed to load transcripts:", e);
           return { content: [] };
@@ -126,8 +130,15 @@ export default function FileManagementPage() {
   }, [page, size]);
 
   useEffect(() => {
-    loadFiles();
-  }, [loadFiles]);
+    setPage(0);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadFiles(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [loadFiles, searchQuery]);
 
   // Polling for processing transcripts
   useEffect(() => {
@@ -179,6 +190,33 @@ export default function FileManagementPage() {
     }
   };
 
+  // Force re-run AI transcription (kể cả COMPLETED)
+  const handleReTranscribe = (fileId: string, fileName: string) => {
+    triggerConfirm(
+      "Chạy Dịch AI Lại",
+      `Bạn có chắc chắn muốn dịch lại "${fileName}"?\n\nHành động này sẽ xóa nội dung bản dịch hiện tại và chạy lại toàn bộ quá trình AI từ đầu.`,
+      async () => {
+        setReTranscribingId(fileId);
+        // Optimistically update UI
+        setTranscripts(prev => ({
+          ...prev,
+          [fileId]: { ...prev[fileId], status: 'PROCESSING', audioFileId: fileId }
+        }));
+        try {
+          await transcriptsApi.reTranscribe(fileId);
+          triggerAlert("Đã kích hoạt", "Yêu cầu dịch lại đã được gửi! Quá trình AI đang chạy lại.", "info");
+        } catch (error: any) {
+          console.error("Lỗi kích hoạt dịch lại:", error);
+          triggerAlert("Lỗi", error?.response?.data?.message || "Không thể kích hoạt dịch lại.", "error");
+          loadFiles();
+        } finally {
+          setReTranscribingId(null);
+        }
+      },
+      false
+    );
+  };
+
   // Audio Player Event Listeners
   const handleTimeUpdate = () => {
     if (audioRef.current) {
@@ -217,6 +255,7 @@ export default function FileManagementPage() {
       setTimeout(() => {
         if (audioRef.current) {
           audioRef.current.volume = volume;
+          audioRef.current.playbackRate = playbackRate;
           audioRef.current.play().catch(e => console.error(e));
         }
       }, 50);
@@ -234,8 +273,7 @@ export default function FileManagementPage() {
     }
   };
 
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const time = parseFloat(e.target.value);
+  const handleSeek = (time: number) => {
     setCurrentTime(time);
     if (audioRef.current) {
       audioRef.current.currentTime = time;
@@ -247,6 +285,14 @@ export default function FileManagementPage() {
     setVolume(v);
     if (audioRef.current) {
       audioRef.current.volume = v;
+    }
+  };
+
+  const handlePlaybackRateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const rate = parseFloat(e.target.value);
+    setPlaybackRate(rate);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = rate;
     }
   };
 
@@ -440,7 +486,7 @@ export default function FileManagementPage() {
         </div>
         <div className="flex gap-2">
           <button 
-            onClick={loadFiles} 
+            onClick={() => loadFiles(searchQuery)} 
             className="flex items-center gap-2 px-4 py-2 border border-slate-200 hover:border-slate-300 text-slate-600 bg-white hover:bg-slate-50 font-bold text-xs rounded-xl transition-all cursor-pointer disabled:opacity-50" 
             disabled={loading}
           >
@@ -459,11 +505,23 @@ export default function FileManagementPage() {
 
       {/* Danh sách tệp tin */}
       <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm shadow-slate-100/50">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
           <h3 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
             <FolderOpen size={18} className="text-red-500" />
             Danh sách tệp tin âm thanh
           </h3>
+
+          {/* Search Input */}
+          <div className="w-full md:w-72 relative">
+            <input
+              type="text"
+              placeholder="Tìm kiếm theo tên file..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-red-500/25 focus:border-red-500 transition-all text-slate-700"
+            />
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+          </div>
         </div>
 
         {loading ? (
@@ -539,7 +597,7 @@ export default function FileManagementPage() {
                           )}
                         </td>
                         <td className="py-3.5">
-                          {(() => {
+                            {(() => {
                             const transcript = transcripts[file.id];
                             const status = transcript ? transcript.status : "NO_TRANSCRIPT";
                             
@@ -551,12 +609,25 @@ export default function FileManagementPage() {
                               );
                             } else if (status === "COMPLETED") {
                               return (
-                                <Link
-                                  href={`/transcripts/${file.id}/view`}
-                                  className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 hover:bg-red-500 hover:text-white rounded-full px-2 py-0.5 transition-all"
-                                >
-                                  Xem bản dịch
-                                </Link>
+                                <div className="flex items-center gap-1.5">
+                                  <Link
+                                    href={`/transcripts/${file.id}/view`}
+                                    className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-50 border border-red-100 hover:bg-red-500 hover:text-white rounded-full px-2 py-0.5 transition-all"
+                                  >
+                                    Xem bản dịch
+                                  </Link>
+                                  <button
+                                    onClick={() => handleReTranscribe(file.id, file.fileName)}
+                                    disabled={reTranscribingId === file.id}
+                                    className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-200 hover:bg-amber-100 rounded-full px-2 py-0.5 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title="Chạy dịch AI lại"
+                                  >
+                                    {reTranscribingId === file.id
+                                      ? <Loader2 size={9} className="animate-spin" />
+                                      : <RotateCcw size={9} />}
+                                    Dịch lại
+                                  </button>
+                                </div>
                               );
                             } else if (status === "FAILED") {
                               return (
@@ -787,28 +858,50 @@ export default function FileManagementPage() {
             </button>
 
             {/* Current Time */}
-            <span className="text-[10px] font-bold text-slate-400 shrink-0 w-8 text-right">
+            <span className="text-[10px] font-bold text-slate-400 shrink-0 w-8 text-right font-mono">
               {formatDuration(Math.round(currentTime))}
             </span>
 
-            {/* Seek Bar */}
-            <input
-              type="range"
-              min="0"
-              max={duration || 100}
-              value={currentTime}
-              onChange={handleSeek}
-              className="flex-1 accent-red-500 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer"
-            />
+            {/* Waveform Seek Bar */}
+            <div className="flex-1 min-w-0">
+              <AudioWaveform
+                duration={duration}
+                currentTime={currentTime}
+                onSeek={handleSeek}
+                fileId={playingFile ? playingFile.id : "files-page-player"}
+                disabled={!playingFile}
+                theme="dark"
+                barCount={80}
+              />
+            </div>
 
             {/* Total Duration */}
-            <span className="text-[10px] font-bold text-slate-400 shrink-0 w-8">
+            <span className="text-[10px] font-bold text-slate-400 shrink-0 w-8 font-mono">
               {formatDuration(Math.round(duration))}
             </span>
           </div>
 
-          {/* Right: Volume & Close */}
+          {/* Right: Speed, Volume & Close */}
           <div className="flex items-center gap-3.5 w-full md:w-auto justify-end">
+            {/* Speed Control */}
+            <div className="flex items-center gap-1.5 bg-slate-850 border border-slate-700/60 rounded-xl px-2.5 py-1 shrink-0">
+              <span className="text-[10px] font-bold text-slate-400">Tốc độ:</span>
+              <select
+                value={playbackRate}
+                onChange={handlePlaybackRateChange}
+                disabled={!playingFile}
+                className="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer disabled:cursor-not-allowed"
+              >
+                <option value="0.5" className="bg-slate-900 text-white">0.5x</option>
+                <option value="0.75" className="bg-slate-900 text-white">0.75x</option>
+                <option value="1" className="bg-slate-900 text-white">1.0x</option>
+                <option value="1.25" className="bg-slate-900 text-white">1.25x</option>
+                <option value="1.5" className="bg-slate-900 text-white">1.5x</option>
+                <option value="1.75" className="bg-slate-900 text-white">1.75x</option>
+                <option value="2" className="bg-slate-900 text-white">2.0x</option>
+              </select>
+            </div>
+
             <div className="flex items-center gap-2">
               <Volume2 size={16} className="text-slate-400 shrink-0" />
               <input

@@ -23,16 +23,37 @@ export class TranscriptRepository {
     });
   }
 
-  async findMany(skip: number, take: number) {
+  async findMany(skip: number, take: number, search?: string, matchedFileIds?: string[]) {
+    const where: any = {};
+    if (search) {
+      const searchConditions: any[] = [];
+      if (matchedFileIds && matchedFileIds.length > 0) {
+        searchConditions.push({ audioFileId: { in: matchedFileIds } });
+      }
+      searchConditions.push({ rawText: { contains: search, mode: 'insensitive' } });
+      where.OR = searchConditions;
+    }
     return this.prisma.transcript.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       skip,
       take,
     });
   }
 
-  async count() {
-    return this.prisma.transcript.count();
+  async count(search?: string, matchedFileIds?: string[]) {
+    const where: any = {};
+    if (search) {
+      const searchConditions: any[] = [];
+      if (matchedFileIds && matchedFileIds.length > 0) {
+        searchConditions.push({ audioFileId: { in: matchedFileIds } });
+      }
+      searchConditions.push({ rawText: { contains: search, mode: 'insensitive' } });
+      where.OR = searchConditions;
+    }
+    return this.prisma.transcript.count({
+      where,
+    });
   }
 
   async create(audioFileId: string) {
@@ -52,13 +73,37 @@ export class TranscriptRepository {
     rawText?: string,
     structuredContent?: any,
   ) {
-    return this.prisma.transcript.update({
-      where: { id },
-      data: {
-        status,
-        rawText,
-        structuredContent,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Cập nhật trạng thái và nội dung của transcript
+      const updated = await tx.transcript.update({
+        where: { id },
+        data: {
+          status,
+          rawText,
+          structuredContent,
+        },
+      });
+
+      // 2. Nếu trạng thái là COMPLETED, tạo snapshot làm gốc
+      if (status === 'COMPLETED') {
+        const existOrigin = await tx.transcriptVersion.findFirst({
+          where: { transcriptId: id, versionName: 'Bản dịch gốc từ AI' },
+        });
+
+        if (!existOrigin) {
+          await tx.transcriptVersion.create({
+            data: {
+              transcriptId: id,
+              versionName: 'Bản dịch gốc từ AI',
+              rawText: rawText || '',
+              structuredContent: structuredContent || { segments: [] },
+              createdById: null, // Hệ thống/AI
+            },
+          });
+        }
+      }
+
+      return updated;
     });
   }
 

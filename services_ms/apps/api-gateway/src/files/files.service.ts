@@ -30,9 +30,14 @@ export class FilesService {
       .pipe(catchError((err) => throwError(() => err)));
   }
 
-  listFiles(uploaderId: number, page: number, size: number): Observable<any> {
+  listFiles(
+    uploaderId: number,
+    page: number,
+    size: number,
+    search?: string,
+  ): Observable<any> {
     return this.filesClient
-      .send('list_files', { uploaderId, page, size })
+      .send('list_files', { uploaderId, page, size, search })
       .pipe(catchError((err) => throwError(() => err)));
   }
 }

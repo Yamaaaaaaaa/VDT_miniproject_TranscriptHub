@@ -32,13 +32,16 @@ export class TranscriptsController {
   @ApiOperation({ summary: 'Get all transcripts' })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 0 })
   @ApiQuery({ name: 'size', required: false, type: Number, example: 10 })
+  @ApiQuery({ name: 'search', required: false, type: String })
   getAllTranscripts(
     @Query('page') page = '0',
     @Query('size') size = '10',
+    @Query('search') search?: string,
   ) {
     return this.transcriptsService.getAllTranscripts(
       parseInt(page, 10),
       parseInt(size, 10),
+      search,
     );
   }
 
@@ -62,6 +65,28 @@ export class TranscriptsController {
       throw new HttpException('fileId is required', HttpStatus.BAD_REQUEST);
     }
     return this.transcriptsService.generateTranscriptManual(fileId);
+  }
+
+  @Post('re-transcribe')
+  @ApiOperation({ summary: 'Force re-run AI transcription (reset & re-process even if COMPLETED)' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['fileId'],
+      properties: {
+        fileId: {
+          type: 'string',
+          format: 'uuid',
+          example: '123e4567-e89b-12d3-a456-426614174000',
+        },
+      },
+    },
+  })
+  reTranscribe(@Body('fileId') fileId: string) {
+    if (!fileId) {
+      throw new HttpException('fileId is required', HttpStatus.BAD_REQUEST);
+    }
+    return this.transcriptsService.reTranscript(fileId);
   }
 
   @Delete(':id')

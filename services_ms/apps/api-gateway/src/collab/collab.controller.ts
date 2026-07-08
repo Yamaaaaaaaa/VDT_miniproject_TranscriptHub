@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Param,
   Body,
   Req,
@@ -79,5 +80,14 @@ export class CollabController {
   @ApiResponse({ status: 404, description: 'Meeting or version not found.' })
   restoreVersion(@Body() dto: RestoreVersionDto, @Req() req: any) {
     return this.collabService.restoreVersion(dto.meetingId, dto.versionId);
+  }
+
+  @Delete('versions/:versionId')
+  @ApiOperation({ summary: 'Delete a specific transcript version' })
+  @ApiResponse({ status: 200, description: 'Version deleted successfully.' })
+  @ApiResponse({ status: 400, description: 'Cannot delete the latest version.' })
+  @ApiResponse({ status: 404, description: 'Version not found.' })
+  deleteVersion(@Param('versionId', ParseIntPipe) versionId: number) {
+    return this.collabService.deleteVersion(versionId);
   }
 }

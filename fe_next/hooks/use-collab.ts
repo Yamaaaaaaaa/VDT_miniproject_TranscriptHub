@@ -76,6 +76,7 @@ interface CollabInstance {
   disconnect: () => void;
   buildSegments: () => CollabSegment[];
   addSubscriber: (fn: () => void) => () => void;
+  forceNotify: () => void;
   addSegmentSubscriber: (fn: () => void) => () => void;
   provider: WebsocketProvider | null;
   /** Vai trò được xác định sau khi kết nối (lấy từ JWT) */
@@ -146,10 +147,18 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
       instance.role = instance._meetingRole ?? "VIEWER";
 
       // 1. Khai báo WS Provicer: WebsocketProvider là cầu nối giữa Y.Doc local của bạn và WebSocket server — nó tự động lo việc kết nối, đồng bộ và giữ doc luôn nhất quán với tất cả clients.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       provider = new WebsocketProvider(WS_URL, meetingId, doc, {
         params: { token },
         connect: true,
-      });
+        // Giảm từ 30s mặc định xuống 5s:
+        // Nếu server không gửi message nào trong 5s, client coi kết nối là dead và reconnect.
+        // Điều này tránh trường hợp kẹt "Đang đồng bộ..." 30 giây khi server xử lý auth chậm.
+        // NOTE: messageReconnectTimeout is supported at runtime but missing from y-websocket typedefs.
+        messageReconnectTimeout: 5000,
+        // Tự động yêu cầu đồng bộ lại mỗi 10s nếu kết nối đang hoạt động nhưng doc bị lệch.
+        resyncInterval: 10000,
+      } as any);
 
       // 2. Cập nhật awareness state để các client khác biết user này đang online. (nếu không gọi setLocalState → awareness luôn rỗng, không thấy ai)
       const userInfo: CollabUser = {
@@ -187,7 +196,28 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
       });
 
       // Đăng ký lắng nghe sự kiện thay đổi trạng thái kết nối mạng của WebSocket Provider (Online/Offline, Reconnecting...)
-      provider.on("status", () => {
+      provider.on("status", (event: any) => {
+        if (event && event.status === "connected" && provider?.ws) {
+          const socket = provider.ws;
+          if (!(socket as any)._hasRoleListener) {
+            (socket as any)._hasRoleListener = true;
+            socket.addEventListener("message", (msgEvent) => {
+              try {
+                if (typeof msgEvent.data === "string") {
+                  const data = JSON.parse(msgEvent.data);
+                  if (data.type === "ROLE_UPDATED") {
+                    console.log("[Collab] Nhận được cập nhật vai trò mới từ WebSocket:", data.role);
+                    instance.role = data.role;
+                    if (provider) {
+                      (provider as any).isReadOnly = (data.role === "VIEWER" || data.role === "NONE");
+                    }
+                    instance.forceNotify();
+                  }
+                }
+              } catch (_) {}
+            });
+          }
+        }
         notifySubscribers();
       });
 
@@ -221,6 +251,10 @@ function getOrCreateCollab(meetingId: string): CollabInstance {
       connect,
       disconnect,
       buildSegments,
+      forceNotify: () => {
+        notifySubscribers();
+        notifySegmentSubscribers();
+      },
       addSubscriber: (fn) => {
         subscribers.add(fn);
         return () => { subscribers.delete(fn); };
@@ -438,9 +472,17 @@ export function useCollab({
 
   // Thực hiện kết nối WebSocket khi có đầy đủ collab instance và session token.
   // Khi token thay đổi hoặc cập nhật, connect() đã được bảo vệ bằng guard (nếu đã kết nối thì bỏ qua).
+  // Quan trọng: Sau khi connect() return (dù có guard hay không), ta PHẢI gọi lại
+  // notifySubscribers() một lần tường minh để đảm bảo React state nhận được
+  // trạng thái synced=true hiện tại từ Singleton còn sống, tránh mãi kẹt "Đang đồng bộ...".
   useEffect(() => {
     if (!collab || !session?.accessToken) return;
     collab.connect(session);
+    // Sau khi connect() chạy (kể cả khi bị guard bỏ qua vì đã kết nối sẵn),
+    // cưỡng bức flush trạng thái thực tế của provider về React state.
+    // Chạy sau một RAF tick để đảm bảo subscriber đã được đăng ký xong.
+    const raf = requestAnimationFrame(() => collab.forceNotify());
+    return () => cancelAnimationFrame(raf);
   }, [collab, session?.accessToken]);
 
   // ---------------------------------------------------------------------------
@@ -501,8 +543,11 @@ export function useCollab({
     [collab]
   );
 
+  const [saveStatus, setSaveStatus] = useState<'saving' | 'saved'>('saved');
+
   const saveSnapshot = useCallback(async () => {
     if (!collab || !meetingId) return false;
+    setSaveStatus('saving');
 
     const segs = collab.buildSegments();
     const rawText = segs
@@ -525,8 +570,10 @@ export function useCollab({
       // port đó expose TCP microservice, không phải HTTP. axios instance tự đính
       // Bearer token qua request interceptor trong lib/api.ts.
       await collabApi.saveTranscript({ meetingId, rawText, structuredContent });
+      setSaveStatus('saved');
       return true;
     } catch {
+      setSaveStatus('saving');
       return false;
     }
   }, [collab, meetingId]);
@@ -538,13 +585,36 @@ export function useCollab({
     let debounceTimeout: ReturnType<typeof setTimeout> | null = null;
     let throttleTimeout: ReturnType<typeof setTimeout> | null = null;
     let hasLocalChanges = false;
+    const canAutoSaveRef = { current: false };
+
+    // Kích hoạt tự động lưu sau khi sync xong cộng thêm 3 giây chờ để nạp hết segments ban đầu
+    const enableAutoSave = () => {
+      setTimeout(() => {
+        canAutoSaveRef.current = true;
+        console.log("[Collab] Auto-save đã sẵn sàng nhận thay đổi của người dùng.");
+      }, 3000);
+    };
+
+    if (collab.provider) {
+      if (collab.provider.synced) {
+        enableAutoSave();
+      } else {
+        collab.provider.once("sync", (isSynced) => {
+          if (isSynced) enableAutoSave();
+        });
+      }
+    }
 
     const triggerSave = async () => {
       if (!hasLocalChanges) return;
+      setSaveStatus('saving');
       console.log("[Collab] Tự động lưu phiên bản (debounce/interval)...");
       const success = await saveSnapshot();
       if (success) {
         hasLocalChanges = false;
+        setSaveStatus('saved');
+      } else {
+        setSaveStatus('saving');
       }
     };
 
@@ -554,7 +624,13 @@ export function useCollab({
         return;
       }
 
+      // Chỉ bắt đầu lưu nháp nếu đã sẵn sàng (tránh nạp tài liệu ban đầu kích hoạt lưu)
+      if (!canAutoSaveRef.current) {
+        return;
+      }
+
       hasLocalChanges = true;
+      setSaveStatus('saving');
 
       // Debounce: hẹn giờ lưu sau 5 giây ngừng gõ
       if (debounceTimeout) clearTimeout(debounceTimeout);
@@ -639,6 +715,16 @@ export function useCollab({
     }
   }, [collab, meetingId]);
 
+  const deleteVersion = useCallback(async (versionId: number) => {
+    try {
+      await collabApi.deleteVersion(versionId);
+      return true;
+    } catch (err) {
+      console.error(`[Collab] Xóa phiên bản ${versionId} thất bại:`, err);
+      return false;
+    }
+  }, []);
+
   return {
     state,
     segments,
@@ -651,5 +737,7 @@ export function useCollab({
     getVersions,
     getVersionDetail,
     restoreVersion,
+    deleteVersion,
+    saveStatus,
   };
 }

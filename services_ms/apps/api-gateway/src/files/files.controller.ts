@@ -242,15 +242,22 @@ export class FilesController {
   @ApiOperation({ summary: 'List all uploaded files with pagination' })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 0 })
   @ApiQuery({ name: 'size', required: false, type: Number, example: 10 })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Search by file name' })
   listFiles(
+    @Req() req: any,
     @Query('page') page = '0',
     @Query('size') size = '10',
-    @Req() req: any,
+    @Query('search') search?: string,
   ) {
     const uploaderId = req.user?.id;
     if (!uploaderId) {
       throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
     }
-    return this.filesService.listFiles(uploaderId, parseInt(page, 10), parseInt(size, 10));
+    return this.filesService.listFiles(
+      uploaderId,
+      parseInt(page, 10),
+      parseInt(size, 10),
+      search,
+    );
   }
 }
